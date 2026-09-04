@@ -1,0 +1,137 @@
+{
+  "name": "kawaii-gpt-robust",
+  "version": "0.8.14",
+  "description": "KawaiiGPT Robust — chat de escritorio híbrido (Ollama + cloud) con personalidad, smart routing, failover automático y autodiagnóstico",
+  "author": "Azrael",
+  "license": "MIT",
+  "homepage": "https://github.com/orionethanfg1/kawaii-gpt-robust",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "start": "electron-vite dev",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "node scripts/verify-source.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
+    "lint": "npm run typecheck",
+    "package": "npm run build && electron-builder --win",
+    "package:portable": "npm run build && electron-builder --win portable",
+    "package:nsis": "npm run build && electron-builder --win nsis",
+    "prepackage": "node scripts/ensure-icons.js"
+  },
+  "dependencies": {
+    "@fontsource/nunito": "^5.2.5",
+    "electron-store": "^8.2.0",
+    "lucide-react": "^0.475.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.3",
+    "remark-gfm": "^4.0.1",
+    "zod": "^3.24.2",
+    "zustand": "^5.0.3"
+  },
+  "overrides": {
+    "glob": "^11.0.0",
+    "inflight": "npm:@isaacs/inflight@^1.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.50.1",
+    "@types/node": "^22.13.10",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^34.3.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.0.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.8"
+  },
+  "build": {
+    "appId": "com.kawaiigpt.robust",
+    "productName": "KawaiiGPT Robust",
+    "copyright": "Copyright © 2026 Azrael",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "resources"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/",
+        "to": "resources/",
+        "filter": [
+          "**/*",
+          "!README-ICONS.txt"
+        ]
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "executableName": "KawaiiGPTRobust",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.ico",
+      "artifactName": "KawaiiGPT-Robust-${version}-${os}-${arch}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "KawaiiGPT-Robust-${version}-setup-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "KawaiiGPT Robust",
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico",
+      "installerHeaderIcon": "resources/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "unicode": true,
+      "installerLanguages": [
+        "es_ES",
+        "en_US"
+      ],
+      "language": "1034",
+      "displayLanguageSelector": true,
+      "include": "scripts/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "KawaiiGPT-Robust-${version}-portable-${arch}.${ext}",
+      "requestExecutionLevel": "user"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "resources/icon.png",
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "resources/icon.png",
+      "category": "Utility"
+    }
+  }
+}

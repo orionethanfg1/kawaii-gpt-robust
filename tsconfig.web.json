@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/renderer/src/*"],
+      "@core/*": ["src/core/*"],
+      "@shared/*": ["src/renderer/src/shared/*"],
+      "@features/*": ["src/renderer/src/features/*"]
+    },
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "module": "ESNext",
+    "target": "ESNext",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/renderer/src/**/*",
+    "src/core/**/*",
+    "src/preload/**/*"
+  ]
+}

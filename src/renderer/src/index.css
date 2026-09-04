@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply font-nunito text-kawaii-text antialiased bg-kawaii-cream;
+    margin: 0;
+    background-color: #FFF8F0;
+    color: #4A3F3A;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-kawaii-pink/40 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-kawaii-pink/60;
+  }
+}
+
+@layer components {
+  .btn-kawaii {
+    @apply inline-flex items-center justify-center gap-2 rounded-kawaii px-4 py-2
+      font-semibold text-white bg-kawaii-pink-deep shadow-kawaii
+      transition hover:brightness-105 active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .btn-kawaii-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-kawaii px-3 py-2
+      font-medium text-kawaii-text bg-white/70 border border-kawaii-border
+      transition hover:bg-kawaii-pink-soft active:scale-[0.98];
+  }
+
+  .input-kawaii {
+    @apply w-full rounded-kawaii border border-kawaii-border bg-white px-4 py-2.5
+      text-kawaii-text placeholder:text-kawaii-text-muted
+      focus:outline-none focus:ring-2 focus:ring-kawaii-pink/40 focus:border-kawaii-pink;
+  }
+
+  .card-kawaii {
+    @apply rounded-kawaii-lg bg-white/90 border border-kawaii-border shadow-kawaii;
+  }
+}

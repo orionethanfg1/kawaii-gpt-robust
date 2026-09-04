@@ -1,0 +1,79 @@
+# Build Windows NSIS + portable on push/tag.
+# Optional code signing: set repo secrets CSC_LINK (base64 .pfx) and CSC_KEY_PASSWORD.
+# Without secrets, builds unsigned installers (fine for personal use).
+
+name: Windows build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit + integration tests
+        run: npm test
+
+      - name: Ensure icons
+        run: node scripts/ensure-icons.js
+        shell: bash
+
+      - name: Build & package (NSIS + portable)
+        env:
+          # Optional signing — leave empty for unsigned builds
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          # electron-builder: skip publish
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm run build
+          npx electron-builder --win nsis portable --x64 --publish never
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-dist
+          path: |
+            dist/*setup*.exe
+            dist/*portable*.exe
+          if-no-files-found: error
+
+  release:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-dist
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

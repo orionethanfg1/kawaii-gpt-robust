@@ -1,0 +1,26 @@
+ACTUALIZAR sin borrar la carpeta
+================================
+
+NO hace falta:
+- Borrar kawaii-gpt-robust entera
+- npm install completo cada vez
+- Volver a bajar modelos Ollama/SD
+- Reconfigurar API keys (estan en AppData, no en la carpeta del proyecto)
+
+SI hace falta al pegar archivos nuevos:
+1) Copia ENCIMA (reemplazar) al menos:
+   - package.json
+   - toda la carpeta src\
+   - Abrir.ps1 / Abrir.bat (si vinieron)
+   - electron.vite.config.ts
+2) Ejecuta:  pwsh -File .\Actualizar.ps1
+   (limpia solo out\ y comprueba la version)
+3) Abrir.bat → la esquina debe decir v0.6.1 o superior
+
+Si tras pegar sigue v0.5.0:
+- No se actualizo package.json ni src\shared\version.ts
+- O abres OTRA carpeta distinta a la que modificaste
+- Comprueba la ruta en la ventana negra del launcher ("Carpeta: ...")
+
+Opcional: Actualizar.ps1 -Fuente "D:\descargas\kawaii-gpt-robust-nueva"
+copia desde esa carpeta omitiendo node_modules y out.

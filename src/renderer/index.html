@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- unsafe-eval: required by Vite HMR in development only; Electron warns until packaged -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://localhost:* http://127.0.0.1:* https://* ws://localhost:* ws://127.0.0.1:*; font-src 'self' data:;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KawaiiGPT Robust</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; background: #FFF8F0; color: #4A3F3A; font-family: system-ui, sans-serif; }
+      .boot { padding: 24px; }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot">Cargando KawaiiGPT Robust…</div>
+    </div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

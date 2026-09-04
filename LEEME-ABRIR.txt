@@ -1,0 +1,46 @@
+KawaiiGPT Robust — Cómo abrir la app
+====================================
+
+Para usuarios (sin experiencia técnica)
+--------------------------------------
+1. Instala Node.js LTS: https://nodejs.org  (opción "LTS")
+2. Reinicia el PC después de instalar Node.
+3. Entra en esta carpeta del proyecto.
+4. Doble clic en:  Abrir.bat
+5. La ventana negra (consola) DEBE quedar abierta.
+6. En el primer arranque puede pedir "npm install" (espera, no cierres).
+7. Cuando veas la ventana de KawaiiGPT, usa el Asistente rosa si aparece.
+
+Si la ventana se cierra sola
+----------------------------
+- Abre PowerShell en esta carpeta y ejecuta:
+    .\Abrir.ps1
+- O lee el archivo: launcher-log.txt
+
+Problemas frecuentes
+--------------------
+• "node no se reconoce" → instala Node LTS y reinicia.
+• "electron-vite no se reconoce" → en esta carpeta: npm install
+• Pantalla negra en la app → cierra, borra la carpeta "out" y vuelve a Abrir.bat
+• Chat no responde → Ajustes → activa OpenRouter + key free, o Ollama local.
+
+Personalidad (A5)
+-----------------
+Ajustes → Personalidad y avatar:
+  - Nombre, relación contigo, avatar (foto)
+  - "Asistente de personalidad" guía los pasos
+  - Al subir avatar se intenta describir el aspecto físico
+
+Imágenes locales (A3)
+---------------------
+Ajustes → Solo local → Preparar carpetas → Instalar Forge →
+Sincronizar modelos → Probar flujo local → Generar imagen
+
+Cloud (A4)
+----------
+Solo se usan proveedores marcados "Activo" con API key.
+Desactiva Groq si no lo usas para que no se consulte.
+
+Soporte
+-------
+Copia launcher-log.txt y el mensaje de error de la app al pedir ayuda.

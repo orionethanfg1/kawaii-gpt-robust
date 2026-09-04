@@ -1,0 +1,21 @@
+# Archivos que DEBEN coincidir entre la copia de desarrollo y tu carpeta local.
+# Tras actualizar, Abrir.ps1 comprueba version; si falla Forge, abre kawaii-forge-launch.log
+
+package.json
+src/shared/version.ts
+src/main/index.ts
+src/main/forge-runtime.ts
+src/main/forge-installer.ts
+src/main/ollama-pull-jobs.ts
+src/preload/index.ts
+src/core/generative/intent.ts
+src/core/generative/image-revision.ts
+src/core/character/profile.ts
+src/core/character/relationship-detect.ts
+src/renderer/src/features/chat/hooks/useChat.ts
+src/renderer/src/features/chat/services/chatOrchestrator.ts
+src/renderer/src/features/chat/services/appAgent.ts
+src/renderer/src/features/chat/services/relationshipSync.ts
+Abrir.ps1
+Abrir.bat
+Actualizar.ps1
