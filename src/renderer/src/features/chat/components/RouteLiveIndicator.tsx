@@ -53,7 +53,7 @@ export function RouteLiveIndicator({ status, visible }: Props) {
 
   const Icon = PHASE_ICON[status.phase] ?? Loader2
   const TargetIcon = targetIcon(status.route?.target)
-  const spinning = status.phase !== 'done'
+  const spinning = true
 
   return (
     <div

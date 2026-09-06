@@ -2,6 +2,15 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Message } from '@core/conversation'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
+import { useState } from 'react'
+import { ImageLightbox } from '@shared/ui/ImageLightbox'
+import {
+  buildFeedbackReport,
+  recordFeedback,
+  type FeedbackVote
+} from '@core/feedback'
+import { activityInfo } from '@shared/lib/stores/activityStore'
+
 
 interface Props {
   message: Message
@@ -23,9 +32,39 @@ function formatTime(ts?: number): string {
 }
 
 export function MessageBubble({ message, onResend, onDelete }: Props) {
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+
   const showRoute = useSettingsStore((s) => s.settings.showRouteInfo)
   const character = useSettingsStore((s) => s.settings.character)
   const isUser = message.role === 'user'
+  const [vote, setVote] = useState<FeedbackVote | null>(null)
+
+  const sendFeedback = (v: FeedbackVote) => {
+    if (vote) return
+    setVote(v)
+    const isImage = Boolean(
+      message.meta?.imagePrompt ||
+        message.attachments?.some((a) => a.mimeType?.startsWith('image/'))
+    )
+    const report = buildFeedbackReport(v, {
+      messageId: message.id,
+      role: message.role,
+      contentPreview: (message.content || '').slice(0, 120),
+      isImage,
+      imagePrompt: message.meta?.imagePrompt
+        ? String(message.meta.imagePrompt)
+        : undefined,
+      model: message.meta?.model || message.meta?.imageModel,
+      provider: message.meta?.provider || message.meta?.imageProvider,
+      route: message.meta?.route,
+      characterName: character?.name
+    })
+    recordFeedback(report)
+    activityInfo(
+      v === 'up' ? 'Gracias por el 👍' : 'Gracias por el 👎',
+      report.report.slice(0, 160)
+    )
+  }
   const images = (message.attachments ?? []).filter((a) =>
     a.mimeType?.startsWith('image/') && a.dataUrl
   )
@@ -37,6 +76,7 @@ export function MessageBubble({ message, onResend, onDelete }: Props) {
       ))
 
   return (
+    <>
     <div className="mb-3">
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} gap-2`}>
       {!isUser && (
@@ -48,7 +88,12 @@ export function MessageBubble({ message, onResend, onDelete }: Props) {
             <img
               src={character.visualImageUrl}
               alt={character.name}
-              className="w-full h-full object-cover"
+              title="Ver imagen ampliada"
+              role="button"
+              className="w-full h-full object-cover cursor-zoom-in"
+              onClick={() =>
+                character?.visualImageUrl && setLightboxSrc(character.visualImageUrl)
+              }
             />
           ) : (
             <span>{character?.visualEmoji ?? '🌸'}</span>
@@ -69,7 +114,9 @@ export function MessageBubble({ message, onResend, onDelete }: Props) {
                 key={img.id}
                 src={img.dataUrl}
                 alt={img.name || 'imagen'}
-                className="max-h-72 rounded-xl border border-kawaii-border/50 object-contain bg-black/5"
+                title="Clic para ampliar"
+                className="max-h-72 rounded-xl border border-kawaii-border/50 object-contain bg-black/5 cursor-zoom-in"
+                onClick={() => img.dataUrl && setLightboxSrc(img.dataUrl)}
               />
             ))}
           </div>
@@ -122,10 +169,32 @@ export function MessageBubble({ message, onResend, onDelete }: Props) {
         )}
       </div>
     </div>
-      {!message.isStreaming && (onResend || onDelete) && (
+      {!message.isStreaming && (
         <div
-          className={`flex gap-2 mt-0.5 px-1 ${isUser ? 'justify-end' : 'justify-start ml-11'}`}
+          className={`flex gap-2 mt-0.5 px-1 items-center ${isUser ? 'justify-end' : 'justify-start ml-11'}`}
         >
+          {!isUser && (
+            <>
+              <button
+                type="button"
+                className={`text-[12px] px-1.5 rounded ${vote === 'up' ? 'bg-kawaii-pink-soft' : 'opacity-70 hover:opacity-100'}`}
+                title="Me gusta"
+                onClick={() => sendFeedback('up')}
+                disabled={vote !== null}
+              >
+                👍
+              </button>
+              <button
+                type="button"
+                className={`text-[12px] px-1.5 rounded ${vote === 'down' ? 'bg-amber-100' : 'opacity-70 hover:opacity-100'}`}
+                title="No me gusta"
+                onClick={() => sendFeedback('down')}
+                disabled={vote !== null}
+              >
+                👎
+              </button>
+            </>
+          )}
           {looksLikeError && onResend && (
             <button
               type="button"
@@ -148,5 +217,9 @@ export function MessageBubble({ message, onResend, onDelete }: Props) {
         </div>
       )}
     </div>
+    {lightboxSrc ? (
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+    ) : null}
+    </>
   )
 }

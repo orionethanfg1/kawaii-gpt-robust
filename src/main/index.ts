@@ -42,6 +42,8 @@ import {
   getForgeLogPath,
   getForgeLogTail
 } from './forge-runtime'
+import * as gitSync from './git-sync'
+import { refreshModelCatalog } from './model-catalog-runtime'
 
 const windowStore = new Store<{ windowBounds: Electron.Rectangle }>({
   name: 'window-state'
@@ -153,6 +155,140 @@ ipcMain.handle('shell:openExternal', async (_e, url: string) => {
 ipcMain.handle('sd:ensureWorkspace', async () => {
   return ensureSdWorkspace()
 })
+
+ipcMain.handle('music:ensureWorkspace', async () => {
+  try {
+    const { ensureMusicWorkspace } = await import('./music-workspace')
+    return { ok: true, ...(await ensureMusicWorkspace()) }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('music:status', async () => {
+  try {
+    const { getMusicStatusSnapshot } = await import('./music-workspace')
+    return await getMusicStatusSnapshot()
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      ace: { present: false, path: '', stage: 'none' },
+      yue: { present: false, path: '', stage: 'disabled' },
+      eligibility: null,
+      musicRoot: ''
+    }
+  }
+})
+
+ipcMain.handle('music:analyze', async () => {
+  try {
+    const { loadMusicState } = await import('./music-workspace')
+    const state = await loadMusicState()
+    return { ok: true, eligibility: state.eligibility, state }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('music:install', async (_e, opts?: { forceAce?: boolean; forceYue?: boolean }) => {
+  try {
+    const { installMusicStack } = await import('./music-installer')
+    return await installMusicStack(opts || {})
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('music:installCancel', async () => {
+  try {
+    const { cancelMusicInstall } = await import('./music-installer')
+    cancelMusicInstall()
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+
+ipcMain.handle('music:setup', async () => {
+  try {
+    const { ensureAceEnvironment } = await import('./music-runtime')
+    return await ensureAceEnvironment()
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('music:start', async (_e, preferredPort?: number) => {
+  try {
+    const { startMusicRuntime } = await import('./music-runtime')
+    return await startMusicRuntime({ preferredPort })
+  } catch (err) {
+    return {
+      state: 'error',
+      port: null,
+      baseUrl: null,
+      pid: null,
+      message: err instanceof Error ? err.message : String(err),
+      backend: 'none'
+    }
+  }
+})
+
+ipcMain.handle('music:stop', async () => {
+  try {
+    const { stopMusicRuntime } = await import('./music-runtime')
+    return await stopMusicRuntime()
+  } catch (err) {
+    return { state: 'error', message: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('music:runtimeStatus', async () => {
+  try {
+    const { getMusicRuntimeStatus } = await import('./music-runtime')
+    return getMusicRuntimeStatus()
+  } catch {
+    return { state: 'stopped', port: null, baseUrl: null, message: 'N/A', backend: 'none' }
+  }
+})
+
+ipcMain.handle('music:ensureReady', async (_e, preferredPort?: number) => {
+  try {
+    const { ensureMusicReady } = await import('./music-runtime')
+    return await ensureMusicReady(preferredPort)
+  } catch (err) {
+    return {
+      state: 'error',
+      message: err instanceof Error ? err.message : String(err),
+      port: null,
+      baseUrl: null,
+      backend: 'none'
+    }
+  }
+})
+
+ipcMain.handle('music:generate', async (_e, req?: {
+  prompt?: string
+  lyrics?: string
+  durationSec?: number
+  vocalLanguage?: string
+}) => {
+  try {
+    const { generateMusicTrack } = await import('./music-runtime')
+    return await generateMusicTrack({
+      prompt: String(req?.prompt || '').trim() || 'instrumental ambient',
+      lyrics: req?.lyrics,
+      durationSec: req?.durationSec,
+      vocalLanguage: req?.vocalLanguage
+    })
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+
 ipcMain.handle('sd:openWorkspace', async () => {
   await openSdWorkspace()
   return true
@@ -653,7 +789,7 @@ ipcMain.handle('image:a1111Models', async (_e, baseUrl?: string) => {
         hash: undefined as string | undefined
       }))
     } catch {
-      return [] as { title: string; modelName: string; hash?: string }[]
+      return [] as { title: string; modelName: string; hash: string | undefined }[]
     }
   }
 
@@ -714,7 +850,7 @@ ipcMain.handle('image:a1111Models', async (_e, baseUrl?: string) => {
         const raw = (await res.json()) as Array<{
           title?: string
           model_name?: string
-          hash?: string
+              hash?: string
           filename?: string
         }>
         let models = (Array.isArray(raw) ? raw : []).map((m) => ({
@@ -798,7 +934,7 @@ ipcMain.handle(
       seed?: number
       timeoutMs?: number
       jobId?: string
-      provider?: 'pollinations' | 'a1111' | 'cloudflare' | 'smart'
+      provider?: 'pollinations' | 'a1111' | 'cloudflare' | 'openai' | 'smart'
       a1111BaseUrl?: string
       steps?: number
       cfgScale?: number
@@ -1039,16 +1175,46 @@ ipcMain.handle(
           return pol
         }
       }
+      const tryOpenAI = async () => {
+        sendProgress('openai', 8, 'OpenAI Images…')
+        const key =
+          (secureStore.get('providerKey:openai', '') as string) ||
+          (secureStore.get('cloudApiKey', '') as string) ||
+          ''
+        if (!key || key.trim().length < 8) {
+          throw new Error('Sin API key de OpenAI')
+        }
+        const { generateOpenAIImage } = await import('../core/image/openai-images')
+        const r = await generateOpenAIImage({
+          apiKey: key.trim(),
+          prompt,
+          width,
+          height,
+          model: 'gpt-image-1.5',
+          signal: controller.signal
+        })
+        return saveBuf(r.buf, r.contentType, 'openai', r.model)
+      }
+
+      if (providerPref === 'openai') {
+        return await tryOpenAI()
+      }
       if (providerPref === 'smart') {
-        // Local → Cloudflare FLUX → Pollinations
+        // OpenAI (si hay key) → Local Forge → Cloudflare → Pollinations
+
         const errors: string[] = []
+        try {
+          return await tryOpenAI()
+        } catch (e) {
+          errors.push(`OpenAI: ${e instanceof Error ? e.message : String(e)}`)
+        }
         try {
           return await tryA1111()
         } catch (e) {
           errors.push(`Local: ${e instanceof Error ? e.message : String(e)}`)
         }
         try {
-          sendProgress('cloudflare', 5, 'Local no disponible · Cloudflare FLUX…')
+          sendProgress('cloudflare', 5, 'Cloudflare FLUX…')
           return await tryCloudflare()
         } catch (e) {
           errors.push(`Cloudflare: ${e instanceof Error ? e.message : String(e)}`)
@@ -1550,6 +1716,7 @@ if (!gotLock) {
     if (process.platform === 'win32') {
       app.setAppUserModelId('com.kawaiigpt.robust')
     }
+    void refreshModelCatalog()
     createWindow()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -1561,7 +1728,8 @@ if (!gotLock) {
           if (!(await isOllamaReachable('http://127.0.0.1:11434'))) {
             // best-effort start via same handler logic
             try {
-              const bin = resolveOllamaBin()
+              const bin = resolveOllamaBinary()
+              if (!bin) return
               const { spawn } = await import('child_process')
               const c = spawn(bin, ['serve'], {
                 detached: true,
@@ -1569,7 +1737,7 @@ if (!gotLock) {
                 windowsHide: true,
                 shell: process.platform === 'win32'
               })
-              c.unref()
+              if (typeof c?.unref === 'function') c.unref()
             } catch {
               /* ignore */
             }
@@ -1578,11 +1746,32 @@ if (!gotLock) {
           /* ignore */
         }
         try {
-          const st = getForgeRuntimeStatus()
-          if (st.state !== 'running') {
-            void startForgeRuntime({ readyTimeoutMs: 180_000 }).catch(() => null)
+          const { loadMachineProfile, detectForgePresent } = await import('./machine-profile')
+          const profile = await loadMachineProfile().catch(() => null)
+          const forgePath = profile?.forgeInstallPath
+          const present = forgePath ? await detectForgePresent(forgePath).catch(() => false) : false
+          if (!present) {
+            // no install yet — skip auto-start (user uses Asistente / SD panel)
           } else {
-            void refreshForgeHealth().catch(() => null)
+            const st = getForgeRuntimeStatus()
+            if (st.state !== 'running') {
+              void startForgeRuntime({ readyTimeoutMs: 240_000 }).catch(() => null)
+            } else {
+              void refreshForgeHealth().catch(() => null)
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+        try {
+          const { purgeStaleJobs } = await import('./resumable-download')
+          const { loadMachineProfile } = await import('./machine-profile')
+          const { join } = await import('path')
+          const p = await loadMachineProfile().catch(() => null)
+          const root = (p as { sdWorkRoot?: string; forgeInstallPath?: string } | null)?.sdWorkRoot
+            || (p as { forgeInstallPath?: string } | null)?.forgeInstallPath
+          if (root) {
+            await purgeStaleJobs(join(String(root), 'downloads')).catch(() => 0)
           }
         } catch {
           /* ignore */
@@ -1772,10 +1961,10 @@ app.on('window-all-closed', () => {
       const { ensureMachineProfile } = await import('./machine-profile')
       const { ensurePortablePython, isPortablePythonReady, portablePythonExe } = await import('./python-runtime')
       const { profile } = await ensureMachineProfile({} as never)
-      if (isPortablePythonReady(profile.dataRoot)) {
-        return { ok: true, python: portablePythonExe(profile.dataRoot), already: true }
+      if (isPortablePythonReady(profile.preferredDataRoot)) {
+        return { ok: true, python: portablePythonExe(profile.preferredDataRoot), already: true }
       }
-      const r = await ensurePortablePython(profile.dataRoot)
+      const r = await ensurePortablePython(profile.preferredDataRoot)
       return r
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -1839,6 +2028,46 @@ app.on('window-all-closed', () => {
       }
     }
   })
+
+
+  // ── Git sync (multi-account SSH) ─────────────────────────────────────────
+  ipcMain.handle('git:status', async () => {
+    try {
+      return await gitSync.getGitStatus()
+    } catch (e) {
+      return { ok: false, lastError: String(e) }
+    }
+  })
+  ipcMain.handle('git:listKeys', async () => {
+    try {
+      return await gitSync.listSshKeys()
+    } catch {
+      return []
+    }
+  })
+  ipcMain.handle('git:applyIdentity', async (_e, identity) => {
+    try {
+      return await gitSync.applyGitIdentity(identity)
+    } catch (e) {
+      return { ok: false, steps: [], stdout: '', stderr: String(e), error: String(e) }
+    }
+  })
+  ipcMain.handle('git:savedIdentity', async () => {
+    try {
+      return await gitSync.loadSavedIdentity()
+    } catch {
+      return null
+    }
+  })
+  ipcMain.handle('git:add', async () => gitSync.gitAddAll())
+  ipcMain.handle('git:commit', async (_e, message?: string) => gitSync.gitCommit(message || ''))
+  ipcMain.handle('git:push', async (_e, force?: boolean) =>
+    force ? gitSync.gitForcePush() : gitSync.gitPush({ setUpstream: true })
+  )
+  ipcMain.handle('git:sync', async (_e, message?: string, force?: boolean) =>
+    gitSync.gitSyncAll({ message: message || '', force: Boolean(force) })
+  )
+  ipcMain.handle('git:testAuth', async () => gitSync.testSshAuth())
 
   ipcMain.handle('sd:syncCheckpointsToForge', async () => {
     try {

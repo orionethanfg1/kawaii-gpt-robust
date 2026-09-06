@@ -224,7 +224,9 @@ export function classifyProviderError(
   if (
     lower.includes('timeout') ||
     lower.includes('timed out') ||
-    lower.includes('aborted')
+    lower.includes('aborted') ||
+    lower.includes('tiempo de espera') ||
+    lower.includes('agotado')
   ) {
     return new AppError({
       code: 'PROVIDER_TIMEOUT',

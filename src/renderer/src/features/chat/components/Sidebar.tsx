@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { APP_LABEL, APP_VERSION } from '@shared/version'
+import { APP_VERSION } from '@shared/version'
 import { Plus, Trash2, MessageSquare, Download, Upload, FileJson, FileText } from 'lucide-react'
 import { useChatStore } from '@shared/lib/stores/chatStore'
 import { Button } from '@shared/ui/Button'

@@ -131,7 +131,7 @@ export interface KawaiiAPI {
     modelId?: string
   ) => Promise<{ ok: true; path: string; id?: string } | { ok: false; error: string }>
   onSdDownloadProgress: (
-    cb: (p: { pct: number; received: number; total: number | null }) => void
+    cb: (p: { modelId?: string; pct: number; received: number; total: number | null }) => void
   ) => () => void
   ollamaListPullJobs: () => Promise<{ ok: boolean; jobs?: Array<{ model: string; status: string; error?: string; progress?: number }> }>
   ollamaPullCancel: (model?: string) => Promise<{ ok: boolean }>
@@ -141,6 +141,7 @@ export interface KawaiiAPI {
   ) => Promise<{ ok: boolean; error?: string }>
   onOllamaPullProgress: (cb: (p: OllamaPullProgress) => void) => () => void
   imageGenerate: (payload: ImageGeneratePayload) => Promise<ImageGenerateResult>
+  imageCloudflareProbe: (accountId?: string) => Promise<{ ok: boolean; latencyMs?: number; error?: string }>
   onImageGenerateProgress: (
     cb: (p: { jobId: string; phase: string; pct: number; detail?: string }) => void
   ) => () => void
@@ -243,6 +244,34 @@ export interface KawaiiAPI {
   }>
   forgeLogTail: () => Promise<{ lines: string[]; path: string | null }>
   onForgeLogLine: (cb: (p: { line: string; tail: string[] }) => void) => () => void
+  musicEnsureWorkspace: () => Promise<{ ok: boolean; musicRoot?: string; error?: string }>
+  musicStatus: () => Promise<Record<string, unknown>>
+  musicAnalyze: () => Promise<Record<string, unknown>>
+  musicInstall: (opts?: { forceAce?: boolean; forceYue?: boolean }) => Promise<Record<string, unknown>>
+  musicInstallCancel: () => Promise<{ ok: boolean }>
+  musicSetup: () => Promise<Record<string, unknown>>
+  musicStart: (preferredPort?: number) => Promise<Record<string, unknown>>
+  musicStop: () => Promise<Record<string, unknown>>
+  musicRuntimeStatus: () => Promise<Record<string, unknown>>
+  musicEnsureReady: (preferredPort?: number) => Promise<Record<string, unknown>>
+  musicGenerate: (req: {
+    prompt: string
+    lyrics?: string
+    durationSec?: number
+    vocalLanguage?: string
+  }) => Promise<{ ok: boolean; path?: string; error?: string; taskId?: string }>
+  onMusicRuntime: (cb: (s: Record<string, unknown>) => void) => () => void
+
+  onMusicInstallProgress: (
+    cb: (p: {
+      backend: string
+      phase: string
+      pct: number
+      message: string
+      received?: number
+      total?: number | null
+    }) => void
+  ) => () => void
   forgeStatus: () => Promise<{
     state: string
     port: number | null
@@ -251,7 +280,6 @@ export interface KawaiiAPI {
     bootProgress?: number
     lastLogLine?: string
     elapsedMs?: number
-    pid: number | null
     message: string
   }>
   forgeRefreshHealth: () => Promise<{
@@ -260,6 +288,45 @@ export interface KawaiiAPI {
     baseUrl: string | null
     message: string
   }>
+  gitStatus: () => Promise<{
+    ok: boolean
+    repoRoot?: string
+    branch?: string
+    remoteUrl?: string
+    dirty?: boolean
+    ahead?: number
+    behind?: number
+    staged?: number
+    unstaged?: number
+    untracked?: number
+    userName?: string
+    userEmail?: string
+    sshCommand?: string
+    lastError?: string
+  }>
+  gitListKeys: () => Promise<Array<{ name: string; path: string }>>
+  gitApplyIdentity: (identity: {
+    label: string
+    keyPath: string
+    userName?: string
+    userEmail?: string
+    hostAlias?: string
+  }) => Promise<{ ok: boolean; steps: string[]; error?: string; stdout?: string }>
+  gitSavedIdentity: () => Promise<{
+    label?: string
+    keyPath?: string
+    userName?: string
+    userEmail?: string
+    hostAlias?: string
+  } | null>
+  gitAdd: () => Promise<{ ok: boolean; error?: string }>
+  gitCommit: (message?: string) => Promise<{ ok: boolean; error?: string }>
+  gitPush: (force?: boolean) => Promise<{ ok: boolean; error?: string }>
+  gitSync: (
+    message?: string,
+    force?: boolean
+  ) => Promise<{ ok: boolean; steps?: string[]; error?: string; stdout?: string; stderr?: string }>
+  gitTestAuth: () => Promise<{ ok: boolean; error?: string; stdout?: string }>
   forgePickPort: (preferred?: number) => Promise<{
     ok: boolean
     port?: number
@@ -314,7 +381,7 @@ const api: KawaiiAPI = {
   sdDownloadCheckpoint: (modelId?: string) =>
     ipcRenderer.invoke('sd:downloadCheckpoint', modelId),
   onSdDownloadProgress: (cb) => {
-    const listener = (_: unknown, p: { pct: number; received: number; total: number | null }) =>
+    const listener = (_: unknown, p: { modelId?: string; pct: number; received: number; total: number | null }) =>
       cb(p)
     ipcRenderer.on('sd:download-progress', listener)
     return () => ipcRenderer.removeListener('sd:download-progress', listener)
@@ -408,6 +475,64 @@ const api: KawaiiAPI = {
   sdSyncCheckpointsToForge: () => ipcRenderer.invoke('sd:syncCheckpointsToForge'),
   imageEnsureLocalPipeline: (preferredPort?: number) =>
     ipcRenderer.invoke('image:ensureLocalPipeline', preferredPort),
+  gitStatus: () => ipcRenderer.invoke('git:status'),
+  gitListKeys: () => ipcRenderer.invoke('git:listKeys'),
+  gitApplyIdentity: (identity: {
+    label: string
+    keyPath: string
+    userName?: string
+    userEmail?: string
+    hostAlias?: string
+  }) => ipcRenderer.invoke('git:applyIdentity', identity),
+  gitSavedIdentity: () => ipcRenderer.invoke('git:savedIdentity'),
+  gitAdd: () => ipcRenderer.invoke('git:add'),
+  gitCommit: (message?: string) => ipcRenderer.invoke('git:commit', message),
+  gitPush: (force?: boolean) => ipcRenderer.invoke('git:push', force),
+  gitSync: (message?: string, force?: boolean) => ipcRenderer.invoke('git:sync', message, force),
+  gitTestAuth: () => ipcRenderer.invoke('git:testAuth'),
+  musicEnsureWorkspace: () => ipcRenderer.invoke('music:ensureWorkspace'),
+  musicStatus: () => ipcRenderer.invoke('music:status'),
+  musicAnalyze: () => ipcRenderer.invoke('music:analyze'),
+  musicInstall: (opts?: { forceAce?: boolean; forceYue?: boolean }) =>
+    ipcRenderer.invoke('music:install', opts),
+  musicInstallCancel: () => ipcRenderer.invoke('music:installCancel'),
+  musicSetup: () => ipcRenderer.invoke('music:setup'),
+  musicStart: (preferredPort?: number) => ipcRenderer.invoke('music:start', preferredPort),
+  musicStop: () => ipcRenderer.invoke('music:stop'),
+  musicRuntimeStatus: () => ipcRenderer.invoke('music:runtimeStatus'),
+  musicEnsureReady: (preferredPort?: number) =>
+    ipcRenderer.invoke('music:ensureReady', preferredPort),
+  musicGenerate: (req: {
+    prompt: string
+    lyrics?: string
+    durationSec?: number
+    vocalLanguage?: string
+  }) => ipcRenderer.invoke('music:generate', req),
+  onMusicRuntime: (cb: (s: Record<string, unknown>) => void) => {
+    const listener = (_e: unknown, s: Record<string, unknown>) => cb(s)
+    ipcRenderer.on('music:runtime', listener)
+    return () => ipcRenderer.removeListener('music:runtime', listener)
+  },
+
+  onMusicInstallProgress: (cb: (p: {
+    backend: string
+    phase: string
+    pct: number
+    message: string
+    received?: number
+    total?: number | null
+  }) => void) => {
+    const listener = (_e: unknown, p: {
+      backend: string
+      phase: string
+      pct: number
+      message: string
+      received?: number
+      total?: number | null
+    }) => cb(p)
+    ipcRenderer.on('music:install-progress', listener)
+    return () => ipcRenderer.removeListener('music:install-progress', listener)
+  },
   platform: process.platform
 }
 

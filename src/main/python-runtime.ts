@@ -77,15 +77,6 @@ function saveJob(job: EnvJobState): void {
   }
 }
 
-function clearJob(dataRoot: string): void {
-  try {
-    const p = jobPath(dataRoot)
-    if (existsSync(p)) writeFileSync(p, '', 'utf-8')
-  } catch {
-    /* ignore */
-  }
-}
-
 export function portablePythonDir(dataRoot: string): string {
   return join(dataRoot, 'runtime', `python-${EMBED_PYTHON_VERSION}`)
 }

@@ -112,11 +112,12 @@ export class OpenAICompatibleProvider implements ChatProvider {
       data?: Array<{ id: string; owned_by?: string }>
     }
 
+    const localHint = /127\.0\.0\.1|localhost/i.test(this.baseUrl)
     return (data.data ?? []).map((m) => ({
       id: m.id,
       name: m.id,
       family: m.owned_by,
-      isLocal: false
+      isLocal: localHint || this.id === 'local-openai'
     }))
   }
 

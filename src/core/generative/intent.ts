@@ -15,7 +15,9 @@ const IMAGE_PATTERNS: RegExp[] = [
   /\b(quiero|necesito|me gustar[ií]a)\b[\s\S]{0,60}\b(una?\s+)?(imagen|foto|dibujo|ilustraci[oó]n)\b/i,
   /\b(puedes|podr[ií]as|podrias|can you)\b[\s\S]{0,50}\b(dibujar|generar|crear)\b[\s\S]{0,40}\b(una?\s+)?(imagen|foto|dibujo|ilustraci[oó]n)\b/i,
   /\b(una foto de|una imagen de|un dibujo de|un retrato de|an image of|a picture of)\b/i,
-  /\b(imagen|foto|dibujo)\s+(tuya|tuyo|de ti|como t[uú]|como tu)\b/i,
+  /\b(imagen|foto|dibujo|retrato)\s+(tuya|tuyo|de ti|como t[uú]|como tu)\b/i,
+  /\b(env[ií]a(?:me|rme)|m[aá]nda(?:me|rme)|muéstrame|muestrame|enséñame|ensename)\b[\s\S]{0,40}\b(una?\s+)?(foto|imagen|retrato)\s*(tuya|tuyo|de ti)?\b/i,
+  /\b(selfie|autorretrato)\b/i,
   /\b(quiero ver|ens[eé][nñ]ame)\b[\s\S]{0,40}\b(una?\s+)?(imagen|foto|dibujo)\b/i,
   // Explicit visualize with required scene noun
   /\b(imagina|visualiza|ilustra)\b[\s\S]{0,40}\b(escena|imagen|foto|dibujo|paisaje|retrato)\b/i,

@@ -1,9 +1,10 @@
+import { LocalModelPicker } from './LocalModelPicker'
+import { discoverLocalModels, type LocalModelEntry } from '@core/providers'
 import { CharacterSetupAssistant } from './CharacterSetupAssistant'
-import { ForgeConsole } from './ForgeConsole'
 import { ModelCatalogPanel } from '@features/models/ModelCatalogPanel'
 import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { useEffect, useState } from 'react'
-import { X, Stethoscope, Loader2 } from 'lucide-react'
+import { X, Stethoscope, Loader2, Music2, Image as ImageIcon, Video, Sparkles, Download, Play, RefreshCw } from 'lucide-react'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import type { ProviderMode } from '@shared/types/settings'
 import { Button } from '@shared/ui/Button'
@@ -34,6 +35,30 @@ export function SettingsModal({ open, onClose }: Props) {
   const [diag, setDiag] = useState<DiagReport | null>(null)
   const [diagRunning, setDiagRunning] = useState(false)
   const [charAssistOpen, setCharAssistOpen] = useState(false)
+  const [musicSnap, setMusicSnap] = useState<{
+    ok?: boolean
+    ace?: { stage?: string; present?: boolean; lastError?: string }
+    yue?: { stage?: string; disabledReason?: string }
+    eligibility?: {
+      summary?: string
+      vramGB?: number | null
+      ramGB?: number
+      ace?: { eligible?: boolean; tier?: string; reason?: string }
+      yue?: { eligible?: boolean; reason?: string }
+      preferred?: string
+    }
+    musicRoot?: string
+  } | null>(null)
+  const [musicRuntime, setMusicRuntime] = useState<{
+    state?: string
+    message?: string
+    baseUrl?: string
+    bootProgress?: number
+  } | null>(null)
+  const [musicBusy, setMusicBusy] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<
+    'persona' | 'layers' | 'providers' | 'advanced'
+  >('persona')
   const [traitsText, setTraitsText] = useState(
     (settings.character?.traits ?? []).join(', ')
   )
@@ -41,6 +66,20 @@ export function SettingsModal({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return
     setTraitsText((settings.character?.traits ?? []).join(', '))
+    const refreshMusic = () => {
+      void window.kawaii
+        ?.musicStatus?.()
+        .then((s) => setMusicSnap(s as typeof musicSnap))
+        .catch(() => {})
+      void window.kawaii
+        ?.musicRuntimeStatus?.()
+        .then((s) => setMusicRuntime(s as typeof musicRuntime))
+        .catch(() => {})
+    }
+    refreshMusic()
+    const unsub = window.kawaii?.onMusicRuntime?.((s) =>
+      setMusicRuntime(s as typeof musicRuntime)
+    )
     window.kawaii
       ?.getCloudApiKey?.()
       .then((k) => {
@@ -55,6 +94,13 @@ export function SettingsModal({ open, onClose }: Props) {
         setKeyDrafts(keys)
       })
       .catch(() => {})
+    return () => {
+      try {
+        unsub?.()
+      } catch {
+        /* ignore */
+      }
+    }
   }, [open, settings.character?.traits])
 
   if (!open) return null
@@ -255,20 +301,26 @@ export function SettingsModal({ open, onClose }: Props) {
           apiKey: key,
           characterName: char.name
         })
+        const desc = (res.description || '').trim()
         update({
           character: {
             ...useSettingsStore.getState().settings.character,
             visualImageUrl: dataUrl,
-            visualDescription: res.description,
-            visualFromAvatar: true
+            visualDescription: desc,
+            visualFromAvatar: Boolean(desc)
           }
         })
-        activitySuccess(
-          res.source === 'vision' ? 'Avatar + descripción listos' : 'Avatar guardado',
-          res.source === 'vision'
-            ? 'Se generó la descripción física desde la imagen.'
-            : 'Puedes regenerar la descripción con OpenRouter.'
-        )
+        if (res.source === 'vision' || res.source === 'ollama') {
+          activitySuccess(
+            'Avatar + descripción listos',
+            'Se generó la descripción física desde la imagen.'
+          )
+        } else {
+          activityInfo(
+            'Avatar guardado sin descripción detallada',
+            'Configura OpenRouter o un modelo vision en Ollama (llava) y pulsa regenerar descripción.'
+          )
+        }
       } catch {
         activityInfo('Avatar guardado', 'Sin descripción automática; puedes regenerarla después.')
       }
@@ -279,6 +331,42 @@ export function SettingsModal({ open, onClose }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
       <div className="card-kawaii w-full max-w-3xl max-h-[92vh] overflow-y-auto p-6 relative shadow-xl">
+        <div className="sticky top-0 z-10 -mx-2 mb-3 px-2 py-2 bg-white/95 backdrop-blur border-b border-kawaii-border flex flex-wrap gap-1.5">
+          {(
+            [
+              ['persona', 'Personalidad'],
+              ['layers', 'Capas'],
+              ['providers', 'Proveedores'],
+              ['advanced', 'Avanzado']
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={
+                'text-[11px] px-2.5 py-1 rounded-full border transition-colors ' +
+                (settingsSection === id
+                  ? 'bg-kawaii-pink-soft border-kawaii-pink-deep/40 text-kawaii-text font-semibold'
+                  : 'bg-white border-kawaii-border text-kawaii-text-muted hover:border-kawaii-pink-deep/30')
+              }
+              onClick={() => {
+                setSettingsSection(id)
+                const el = document.getElementById(
+                  id === 'persona'
+                    ? 'settings-persona'
+                    : id === 'layers'
+                      ? 'settings-layers'
+                      : id === 'providers'
+                        ? 'settings-providers'
+                        : 'settings-advanced'
+                )
+                el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <button
           className="absolute top-4 right-4 p-1 rounded-full hover:bg-kawaii-pink-soft"
           onClick={onClose}
@@ -332,16 +420,28 @@ export function SettingsModal({ open, onClose }: Props) {
 
         <section className="space-y-4">
           {/* Character */}
-          <div className="border border-kawaii-border rounded-kawaii p-3 space-y-3 bg-kawaii-pink-soft/20">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-bold text-sm text-kawaii-text">Personalidad y avatar</h3>
+          <div id="settings-persona" className="border border-kawaii-border rounded-kawaii p-3 space-y-3 bg-kawaii-pink-soft/20">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-sm text-kawaii-text flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-kawaii-pink-deep" />
+                  Personalidad y avatar
+                </h3>
+                <p className="text-[10px] text-kawaii-text-muted mt-0.5">
+                  Define quién es el chat: rol, tono, relación y aspecto visual.
+                </p>
+              </div>
               <Button
-                variant="ghost"
-                className="text-[11px]"
+                className="text-[11px] shrink-0 bg-kawaii-pink-soft border border-kawaii-pink-deep/30"
                 onClick={() => setCharAssistOpen(true)}
               >
-                Asistente de personalidad
+                <Sparkles className="w-3.5 h-3.5 mr-1 inline" />
+                Asistente guiado
               </Button>
+            </div>
+            <div className="rounded-lg border border-dashed border-kawaii-pink-deep/40 bg-white/60 px-3 py-2 text-[11px] text-kawaii-text-muted">
+              El <strong className="text-kawaii-text">asistente guiado</strong> te hace una encuesta
+              (género, rol, tono) y rellena la ficha. También puedes editar los campos abajo a mano.
             </div>
             <div className="flex items-center gap-3">
               <div className="w-14 h-14 rounded-full bg-white border border-kawaii-border flex items-center justify-center text-2xl overflow-hidden">
@@ -436,9 +536,12 @@ export function SettingsModal({ open, onClose }: Props) {
                 placeholder="Ej: cabello pastel ondulado, ojos grandes y cálidos, detalle floral, estética kawaii suave…"
               />
               <p className="text-[10px] text-kawaii-text-muted mt-0.5">
-                Idealmente generada desde el avatar (se intenta al subir la imagen). El
-                chat la usa al describirse físicamente.
+                Idealmente generada desde el avatar. Requiere visión (OpenRouter o Ollama
+                llava/moondream). Si falla, escribe rasgos a mano: cabello, ojos, piel, ropa.
                 {char.visualFromAvatar ? ' · Ligada al avatar.' : ''}
+                {!(char.visualDescription || '').trim() && char.visualImageUrl
+                  ? ' · Vacía: pulsa «Regenerar» o rellena a mano.'
+                  : ''}
               </p>
               <button
                 type="button"
@@ -451,14 +554,47 @@ export function SettingsModal({ open, onClose }: Props) {
                   const keys = (await window.kawaii?.getAllProviderKeys?.()) ?? {}
                   const act = activityProgress('Describiendo avatar', 'Analizando imagen…', 20)
                   try {
+                    try {
+                      const { ensureVisionForApp } = await import('./ensureVision')
+                      await ensureVisionForApp({
+                        autoInstall: true,
+                        ollamaBaseUrl: settings.localBaseUrl
+                      })
+                    } catch {
+                      /* vision ensure optional */
+                    }
                     const res = await describeAvatarFromDataUrl(char.visualImageUrl, {
                       apiKey: keys.openrouter || keys.main || '',
-                      characterName: char.name
+                      openaiKey: keys.openai || '',
+                      characterName: char.name,
+                      ollamaBaseUrl: settings.localBaseUrl || 'http://127.0.0.1:11434'
                     })
+                    let desc = (res.description || '').trim()
+                    if (!desc || res.source === 'none') {
+                      activityError(
+                        'No se pudo describir el avatar',
+                        (res.error ||
+                          'Hace falta visión: API Key de OpenRouter (modelo vision) o Ollama con llava/moondream/qwen2-vl. Sin eso el campo queda vacío a propósito (no inventamos rasgos).') +
+                          ' Puedes escribir la descripción manualmente.'
+                      )
+                      return
+                    }
+                    try {
+                      const { polishVisualDescription } = await import('@core/character/avatar-describe')
+                      desc = await polishVisualDescription(desc, {
+                        characterName: char.name,
+                        ollamaBaseUrl: settings.localBaseUrl || 'http://127.0.0.1:11434',
+                        chatModel: settings.localModel || '',
+                        openRouterKey: keys.openrouter || keys.main || ''
+                      })
+                    } catch {
+                      /* keep raw vision text */
+                    }
+                    desc = desc.replace(/^[!?.#*\-\s]+/, '').trim()
                     update({
                       character: {
                         ...char,
-                        visualDescription: res.description,
+                        visualDescription: desc,
                         visualFromAvatar: true
                       }
                     })
@@ -466,10 +602,10 @@ export function SettingsModal({ open, onClose }: Props) {
                     useActivityStore.getState().update(act, {
                       kind: 'success',
                       title:
-                        res.source === 'vision'
-                          ? 'Descripción desde avatar'
-                          : 'Descripción base del avatar',
-                      detail: res.description.slice(0, 120) + (res.description.length > 120 ? '…' : ''),
+                        res.source === 'vision' || res.source === 'ollama'
+                          ? 'Descripción desde avatar (visión)'
+                          : 'Descripción del avatar',
+                      detail: desc.slice(0, 120) + (desc.length > 120 ? '…' : ''),
                       progress: 100,
                       ttlMs: 5000
                     })
@@ -483,6 +619,34 @@ export function SettingsModal({ open, onClose }: Props) {
                 }}
               >
                 Regenerar descripción desde avatar
+              </button>
+
+              <button
+                type="button"
+                className="text-[11px] text-kawaii-pink-deep underline ml-3"
+                onClick={async () => {
+                  const act = activityProgress('Visión', 'Comprobando / instalando modelo vision…', 15)
+                  try {
+                    const { ensureVisionForApp } = await import('./ensureVision')
+                    const r = await ensureVisionForApp({
+                      autoInstall: true,
+                      ollamaBaseUrl: settings.localBaseUrl
+                    })
+                    const { useActivityStore } = await import('@shared/lib/stores/activityStore')
+                    useActivityStore.getState().update(act, {
+                      kind: r.ok ? 'success' : 'error',
+                      title: r.ok ? 'Visión' : 'Visión incompleta',
+                      detail: r.message + (r.pullStarted ? ` · Pull: ${r.pullStarted}` : ''),
+                      progress: r.pullStarted ? 40 : 100,
+                      ttlMs: 8000
+                    })
+                    window.setTimeout(() => useActivityStore.getState().dismiss(act), 8000)
+                  } catch (e) {
+                    activityError('Visión', e instanceof Error ? e.message : String(e))
+                  }
+                }}
+              >
+                Preparar visión (auto)
               </button>
             </div>
             <div>
@@ -538,7 +702,7 @@ export function SettingsModal({ open, onClose }: Props) {
               }
             >
               <option value="smart">Smart (recomendado)</option>
-              <option value="local">Solo local (Ollama)</option>
+              <option value="local">Solo local (Ollama / LM Studio)</option>
               <option value="cloud">Solo cloud</option>
             </select>
           </div>
@@ -554,12 +718,7 @@ export function SettingsModal({ open, onClose }: Props) {
 
           <div>
             <label className="block text-sm font-semibold mb-1">Modelo local</label>
-            <input
-              className="input-kawaii"
-              placeholder="ej: llama3.2:3b"
-              value={settings.localModel}
-              onChange={(e) => update({ localModel: e.target.value })}
-            />
+            <LocalModelPicker />
           </div>
 
           <div>
@@ -582,7 +741,8 @@ export function SettingsModal({ open, onClose }: Props) {
 
           <div className="border border-kawaii-border rounded-kawaii p-3 space-y-3 bg-white/50">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="font-bold text-sm">Proveedores cloud (rotación)</h3>
+              <div id="settings-providers" />
+            <h3 className="font-bold text-sm">Proveedores cloud (rotación)</h3>
               <label className="flex items-center gap-1 text-xs">
                 <input
                   type="checkbox"
@@ -595,7 +755,7 @@ export function SettingsModal({ open, onClose }: Props) {
             <p className="text-[11px] text-kawaii-text-muted leading-relaxed">
               1) Crea una key en el sitio del proveedor (botón de enlace). 2) Pégala en el campo de
               ese proveedor. 3) Si OpenRouter dice que el modelo free ya no existe, pon el modelo{' '}
-              <code>openrouter/free</code>. No uses la misma key de Groq en OpenRouter ni al revés.
+              <code>openrouter/free</code>. OpenAI: pega la key del proyecto (<code>sk-proj-…</code>) en el slot OpenAI. Modelo recomendado: <code>gpt-5.6-luna</code> (Responses API, igual que el onboarding de platform.openai.com). No uses la misma key de Groq en OpenRouter ni al revés.
               Si uno falla por cuota, se prueba el siguiente con key.
             </p>
             <p className="text-[11px] text-kawaii-text-muted mb-2">
@@ -842,37 +1002,256 @@ export function SettingsModal({ open, onClose }: Props) {
               )}
             </div>
 
-            <h3 className="font-bold text-sm text-kawaii-text">Capas generativas (multicapa)</h3>
-            <p className="text-[11px] text-kawaii-text-muted">
-              El chat de texto es el centro. Imagen, música y video solo se usan cuando el mensaje lo
-              pide y la capa está activa.
-            </p>
-            <label className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={settings.musicGenEnabled === true}
-                onChange={(e) =>
-                  update({
-                    musicGenEnabled: e.target.checked,
-                    musicProviderMode: e.target.checked ? 'local' : 'off'
-                  })
-                }
-              />
-              Música (experimental — motor más adelante)
-            </label>
-            <label className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={settings.videoGenEnabled === true}
-                onChange={(e) =>
-                  update({
-                    videoGenEnabled: e.target.checked,
-                    videoProviderMode: e.target.checked ? 'local' : 'off'
-                  })
-                }
-              />
-              Video (experimental — sin motor aún)
-            </label>
+            <div id="settings-layers" className="space-y-3 rounded-kawaii border border-kawaii-border bg-white/60 p-3">
+              <div>
+                <h3 className="font-bold text-sm text-kawaii-text">Capas generativas (multicapa)</h3>
+                <p className="text-[11px] text-kawaii-text-muted mt-1">
+                  El chat de texto es el centro. Imagen, música o video solo se usan cuando el mensaje
+                  lo pide y la capa está activa.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-kawaii-border p-3 space-y-1.5 bg-kawaii-pink-soft/15">
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-kawaii-pink-deep shrink-0" />
+                  <span className="text-xs font-semibold flex-1">Imagen</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-800">
+                    Activa
+                  </span>
+                </div>
+                <p className="text-[10px] text-kawaii-text-muted pl-6">
+                  Forge/SD local, Cloudflare, Pollinations, OpenAI. Configura el modo más abajo.
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-violet-200/80 p-3 space-y-2 bg-violet-50/50">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Music2 className="w-4 h-4 text-violet-600 shrink-0" />
+                  <span className="text-xs font-semibold flex-1">Música · ACE-Step</span>
+                  <span
+                    className={
+                      'text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ' +
+                      (musicRuntime?.state === 'running'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                        : musicRuntime?.state === 'starting'
+                          ? 'border-amber-200 bg-amber-50 text-amber-900'
+                          : musicSnap?.ace?.stage === 'ready' || musicSnap?.ace?.stage === 'models'
+                            ? 'border-sky-200 bg-sky-50 text-sky-900'
+                            : musicSnap?.ace?.stage === 'cloned' || musicSnap?.ace?.stage === 'venv'
+                              ? 'border-amber-200 bg-amber-50 text-amber-900'
+                              : musicSnap?.eligibility?.ace?.eligible
+                                ? 'border-violet-200 bg-violet-50 text-violet-900'
+                                : 'border-kawaii-border bg-white text-kawaii-text-muted')
+                    }
+                  >
+                    {musicRuntime?.state === 'running'
+                      ? 'API activa'
+                      : musicRuntime?.state === 'starting'
+                        ? 'Arrancando…'
+                        : musicSnap?.ace?.stage === 'ready'
+                          ? 'Entorno listo'
+                          : musicSnap?.ace?.stage === 'cloned' || musicSnap?.ace?.stage === 'venv'
+                            ? 'Código instalado'
+                            : musicSnap?.ace?.stage === 'error'
+                              ? 'Error install'
+                              : musicSnap?.eligibility?.ace?.eligible
+                                ? 'Pendiente instalar'
+                                : 'No elegible'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-kawaii-text-muted">
+                  Motor local tipo Suno (ACE-Step). YuE solo con GPU ≥16&nbsp;GB VRAM.
+                </p>
+                {musicSnap?.eligibility ? (
+                  <div className="flex flex-wrap gap-1 text-[10px]">
+                    <span className="rounded-full border border-kawaii-border bg-white px-2 py-0.5">
+                      VRAM {musicSnap.eligibility.vramGB ?? '?'} GB
+                    </span>
+                    <span className="rounded-full border border-kawaii-border bg-white px-2 py-0.5">
+                      RAM {musicSnap.eligibility.ramGB ?? '?'} GB
+                    </span>
+                    <span
+                      className={
+                        'rounded-full border px-2 py-0.5 ' +
+                        (musicSnap.eligibility.ace?.eligible
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-kawaii-border bg-white text-kawaii-text-muted')
+                      }
+                    >
+                      ACE {musicSnap.eligibility.ace?.eligible ? `sí · ${musicSnap.eligibility.ace?.tier || ''}` : 'no'}
+                    </span>
+                    <span
+                      className={
+                        'rounded-full border px-2 py-0.5 ' +
+                        (musicSnap.eligibility.yue?.eligible
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-kawaii-border bg-white text-kawaii-text-muted')
+                      }
+                    >
+                      YuE {musicSnap.eligibility.yue?.eligible ? 'sí' : 'no'}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-kawaii-text-muted">Pulsa «Analizar PC» para ver compatibilidad.</p>
+                )}
+                {musicRuntime?.state === 'running' || musicRuntime?.state === 'starting' ? (
+                  <p className="text-[10px] text-violet-900">
+                    {musicRuntime.message}
+                    {musicRuntime.baseUrl ? ` · ${musicRuntime.baseUrl}` : ''}
+                    {typeof musicRuntime.bootProgress === 'number' && musicRuntime.state === 'starting'
+                      ? ` · ${musicRuntime.bootProgress}%`
+                      : ''}
+                  </p>
+                ) : musicSnap?.ace?.stage === 'error' && musicSnap?.ace?.lastError ? (
+                  <p className="text-[10px] text-red-700 break-words">{musicSnap.ace.lastError}</p>
+                ) : null}
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={settings.musicGenEnabled === true}
+                    onChange={(e) =>
+                      update({
+                        musicGenEnabled: e.target.checked,
+                        musicProviderMode: e.target.checked ? 'local' : 'off'
+                      })
+                    }
+                  />
+                  Usar música cuando el chat lo pida
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    variant="ghost"
+                    className="text-[11px]"
+                    disabled={musicBusy}
+                    onClick={async () => {
+                      setMusicBusy(true)
+                      try {
+                        await withActivity('Música', async (upd) => {
+                          upd('Analizando hardware…', 30)
+                          const a = await window.kawaii?.musicAnalyze?.()
+                          const st = (a as { state?: typeof musicSnap })?.state
+                          if (st) setMusicSnap(st)
+                          else if (a && (a as { eligibility?: unknown }).eligibility) {
+                            setMusicSnap(a as typeof musicSnap)
+                          }
+                          const s = await window.kawaii?.musicStatus?.()
+                          if (s) setMusicSnap(s as typeof musicSnap)
+                          upd('Análisis listo', 100)
+                          return a
+                        }, { successMessage: 'Hardware analizado' })
+                      } catch {
+                        /* withActivity already toasts error */
+                      } finally {
+                        setMusicBusy(false)
+                      }
+                    }}
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1 inline" />
+                    Analizar PC
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-[11px]"
+                    disabled={musicBusy}
+                    onClick={async () => {
+                      setMusicBusy(true)
+                      try {
+                        await withActivity(
+                          'Música',
+                          async (upd) => {
+                            upd('Descargando / instalando ACE-Step…', 15)
+                            const unsub = window.kawaii?.onMusicInstallProgress?.((p) => {
+                              upd(p.message || 'Instalando…', Math.min(95, p.pct || 20))
+                            })
+                            try {
+                              const r = await window.kawaii?.musicInstall?.({})
+                              if ((r as { ok?: boolean })?.ok === false) {
+                                throw new Error(
+                                  String((r as { error?: string })?.error || 'Instalación fallida')
+                                )
+                              }
+                              const s = await window.kawaii?.musicStatus?.()
+                              if (s) setMusicSnap(s as typeof musicSnap)
+                              upd('Instalación completa', 100)
+                              return r
+                            } finally {
+                              unsub?.()
+                            }
+                          },
+                          { successMessage: 'ACE-Step instalado' }
+                        )
+                      } catch {
+                        /* toasted */
+                      } finally {
+                        setMusicBusy(false)
+                      }
+                    }}
+                  >
+                    <Download className="w-3 h-3 mr-1 inline" />
+                    Instalar
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-[11px]"
+                    disabled={musicBusy}
+                    onClick={async () => {
+                      setMusicBusy(true)
+                      try {
+                        await withActivity(
+                          'Música',
+                          async (upd) => {
+                            upd('Arrancando ACE-Step API…', 20)
+                            const r = await window.kawaii?.musicEnsureReady?.()
+                            setMusicRuntime(r as typeof musicRuntime)
+                            if ((r as { state?: string })?.state === 'error') {
+                              throw new Error(
+                                String((r as { message?: string })?.message || 'No arrancó')
+                              )
+                            }
+                            upd(String((r as { message?: string })?.message || 'API lista'), 100)
+                            return r
+                          },
+                          { successMessage: 'Motor de música listo' }
+                        )
+                      } catch {
+                        /* toasted */
+                      } finally {
+                        setMusicBusy(false)
+                      }
+                    }}
+                  >
+                    <Play className="w-3 h-3 mr-1 inline" />
+                    Arrancar
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-kawaii-border p-3 space-y-1.5 opacity-90">
+                <div className="flex items-center gap-2">
+                  <Video className="w-4 h-4 text-kawaii-text-muted shrink-0" />
+                  <span className="text-xs font-semibold flex-1">Video</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-kawaii-border bg-white text-kawaii-text-muted">
+                    Próximamente
+                  </span>
+                </div>
+                <p className="text-[10px] text-kawaii-text-muted pl-6">
+                  Aún no hay motor. El interruptor solo reserva la capa para más adelante.
+                </p>
+                <label className="flex items-center gap-2 text-xs pl-6">
+                  <input
+                    type="checkbox"
+                    checked={settings.videoGenEnabled === true}
+                    onChange={(e) =>
+                      update({
+                        videoGenEnabled: e.target.checked,
+                        videoProviderMode: e.target.checked ? 'local' : 'off'
+                      })
+                    }
+                  />
+                  Reservar capa de video
+                </label>
+              </div>
+            </div>
           </div>
 
                 <label className="block text-xs font-semibold">Modo</label>

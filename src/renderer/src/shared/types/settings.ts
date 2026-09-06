@@ -44,6 +44,13 @@ export const SettingsSchema = z.object({
 
   localBaseUrl: z.string().url().default('http://localhost:11434'),
   localModel: z.string().default(''),
+  /** auto = detect Ollama or LM Studio / llama.cpp; transparent to user */
+  localRuntimePreference: z.enum(['auto', 'ollama', 'openai-compatible']).default('auto'),
+  /** Optional explicit OpenAI-compatible base (e.g. http://127.0.0.1:1234/v1) */
+  localOpenAIBaseUrl: z.string().default(''),
+  /** Last resolved runtime label (informational) */
+  localRuntimeLabel: z.string().default(''),
+
   localMaxTokens: z.number().int().min(64).max(32768).default(2048),
   localTimeoutMs: z.number().int().min(5000).max(600000).default(120000),
 
@@ -107,8 +114,8 @@ export const SettingsSchema = z.object({
   assistantTipsEnabled: z.boolean().default(true),
 
   imageProviderMode: z.enum(['off', 'cloud', 'local', 'smart']).default('smart'),
-  imageWidth: z.number().int().min(256).max(1280).default(1024),
-  imageHeight: z.number().int().min(256).max(1280).default(1024),
+  imageWidth: z.number().int().min(256).max(1536).default(1024),
+  imageHeight: z.number().int().min(256).max(1536).default(1024),
   imageTimeoutMs: z.number().int().min(15000).max(300000).default(90000),
   /** Automatic1111 / Forge API base */
   a1111BaseUrl: z.string().default('http://127.0.0.1:7860'),
@@ -124,6 +131,8 @@ export const SettingsSchema = z.object({
 
   /** Multi-layer generative: music / video (engines optional; off by default) */
   musicGenEnabled: z.boolean().default(false),
+  /** auto = pick ACE if eligible else skip YuE if low VRAM */
+  musicPreferredBackend: z.enum(['auto', 'ace-step', 'yue', 'off']).default('auto'),
   musicProviderMode: z.enum(['off', 'local', 'smart']).default('off'),
   videoGenEnabled: z.boolean().default(false),
   videoProviderMode: z.enum(['off', 'local', 'smart']).default('off')

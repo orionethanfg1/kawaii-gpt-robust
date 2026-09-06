@@ -1,3 +1,6 @@
+import { GitSyncPanel } from '@/features/git/GitSyncPanel'
+import { ensureVisualDescriptionFromAvatar } from '@features/settings/ensureVisualDescription'
+import { runAutoBootstrap } from '@features/assistant/autoBootstrap'
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { Settings } from 'lucide-react'
 import { Button } from '@shared/ui/Button'
@@ -7,9 +10,9 @@ import { Sidebar } from '@features/chat/components/Sidebar'
 import { ChatView } from '@features/chat/components/ChatView'
 import { RecoveryBanner } from '@features/chat/components/RecoveryBanner'
 import { useDownloadStore } from '@features/models/downloadStore'
-import { useRecoveryStore } from '@shared/lib/stores/recoveryStore'
 import { GenerativeLayersBadge } from '@features/generative/GenerativeLayersBadge'
 import { ActivityToasts } from '@shared/ui/ActivityToasts'
+import { AgentApprovalBanner } from '@shared/ui/AgentApprovalBanner'
 
 /**
  * Wizard / settings / download bar: lazy (optional surface).
@@ -27,12 +30,6 @@ const DownloadBar = lazy(() =>
 const ContextualTips = lazy(() =>
   import('@features/assistant/ContextualTips').then((m) => ({ default: m.ContextualTips }))
 )
-const ModelsStatusPanel = lazy(() =>
-  import('@features/models/ModelsStatusPanel').then((m) => ({
-    default: m.ModelsStatusPanel
-  }))
-)
-
 function useOllamaPullBridge() {
   const upsert = useDownloadStore((s) => s.upsert)
   const remove = useDownloadStore((s) => s.remove)
@@ -112,6 +109,13 @@ function useBackgroundSummarySafe() {
 }
 
 export function AppShell() {
+  useEffect(() => {
+    void runAutoBootstrap()
+    // Extra pass for avatar description if bootstrap is still downloading vision
+    const t = window.setTimeout(() => void ensureVisualDescriptionFromAvatar(), 12_000)
+    return () => window.clearTimeout(t)
+  }, [])
+
   const uiComplexity = useSettingsStore((s) => s.settings.uiComplexity || 'smart')
 
 
@@ -178,6 +182,27 @@ export function AppShell() {
 
   const hasCompletedSetup = useSettingsStore((s) => s.settings.hasCompletedSetup)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [gitOpen, setGitOpen] = useState(false)
+
+  // ESC cierra ajustes / Git / asistente
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (settingsOpen) {
+        e.preventDefault()
+        setSettingsOpen(false)
+        return
+      }
+      if (gitOpen) {
+        e.preventDefault()
+        setGitOpen(false)
+        return
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [settingsOpen, gitOpen])
+
   const [showWizard, setShowWizard] = useState(() => !hasCompletedSetup)
   // Persist rehydration: open wizard only if setup never completed
   useEffect(() => {
@@ -244,6 +269,14 @@ export function AppShell() {
           >
             Asistente
           </Button>
+          <Button
+            variant="ghost"
+            onClick={() => setGitOpen(true)}
+            title="GitHub Sync — identidad SSH y push"
+            className="!text-violet-800 !border-violet-300 border"
+          >
+            GitHub
+          </Button>
           <Button variant="ghost" onClick={() => setSettingsOpen(true)} title="Ajustes">
             <Settings className="w-4 h-4" />
             Ajustes
@@ -252,6 +285,7 @@ export function AppShell() {
       </header>
 
       <RecoveryBanner />
+      <AgentApprovalBanner />
 
       <div className="flex-1 flex min-h-0">
         <ErrorBoundary
@@ -295,6 +329,11 @@ export function AppShell() {
           <Suspense fallback={null}>
             <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
           </Suspense>
+        </ErrorBoundary>
+      )}
+      {gitOpen && (
+        <ErrorBoundary name="GitHub">
+          <GitSyncPanel open={gitOpen} onClose={() => setGitOpen(false)} />
         </ErrorBoundary>
       )}
     </div>

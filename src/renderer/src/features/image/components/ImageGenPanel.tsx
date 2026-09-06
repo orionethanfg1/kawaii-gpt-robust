@@ -1,3 +1,5 @@
+import { pickBestCheckpoint } from '@core/generative/smart-checkpoint'
+import { recommendSdParams } from '@core/generative/prompt-compose'
 import { useEffect, useId, useRef, useState } from 'react'
 import { FolderOpen, Image as ImageIcon, Loader2, Square, X } from 'lucide-react'
 import {
@@ -47,10 +49,6 @@ function enhancePrompt(raw: string, styleHint?: string): string {
   const isPhoto =
     /\b(foto|photo|realista|realistic|photoreal)\b/i.test(lower) ||
     /\bfoto de\b/i.test(lower)
-  const isAnime =
-    /\b(anime|manga|kawaii|chibi|ilustración|illustration)\b/i.test(lower) ||
-    !isPhoto
-
   const quality = isPhoto
     ? 'photorealistic, natural lighting, detailed skin, high detail, sharp focus'
     : 'masterpiece, best quality, highly detailed, clean lineart, soft lighting'
@@ -573,7 +571,7 @@ export function ImageGenPanel({
             [
               ['cloud', 'Cloud (CF FLUX / Pollinations)'],
               ['local', 'Local (Forge/SD)'],
-              ['smart', 'Smart (local→CF→Pollinations)']
+              ['smart', 'Smart (OpenAI→local→CF→Pollinations)']
             ] as const
           ).map(([id, label]) => (
             <button
@@ -611,7 +609,11 @@ export function ImageGenPanel({
             <button
               type="button"
               className="text-[10px] text-kawaii-pink-deep hover:underline"
-              onClick={() => void probeLocal().then((ok) => ok && loadCheckpoints())}
+              onClick={() => {
+                void probeLocal().then((ok) => {
+                  if (ok) void loadCheckpoints()
+                })
+              }}
             >
               Detectar Forge
             </button>
@@ -627,7 +629,14 @@ export function ImageGenPanel({
           disabled={busy}
         />
 
-        {/* Aspect / size */}
+        {/* Aspect / size — full controls only in advanced */}
+        {settings.uiComplexity === 'smart' && !showAdvanced && (
+          <p className="text-[10px] text-kawaii-text-muted px-0.5">
+            Modo simple: tamaño, checkpoint y CFG se eligen solos al generar (como ChatGPT/Grok).
+            Usa «Más opciones…» o UI Avanzado para control manual.
+          </p>
+        )}
+        {(settings.uiComplexity === 'advanced' || showAdvanced) && (
         <div className="space-y-1.5">
           <p className="text-[11px] font-semibold text-kawaii-text">Tamaño / aspecto</p>
           <div className="flex flex-wrap gap-1.5">
@@ -724,10 +733,11 @@ export function ImageGenPanel({
             </span>
           </div>
         </div>
+        )}
 
-
-        {/* Local checkpoint */}
-        {(mode === 'local' || mode === 'smart') && (
+        {/* Local checkpoint — advanced only; chat auto-picks in smart mode */}
+        {(mode === 'local' || mode === 'smart') &&
+          (settings.uiComplexity === 'advanced' || showAdvanced) && (
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <p className="text-[11px] font-semibold">Checkpoint local (SD)</p>

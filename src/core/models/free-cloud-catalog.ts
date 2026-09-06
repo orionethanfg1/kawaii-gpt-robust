@@ -117,7 +117,7 @@ export const SAFE_DEFAULT_MODEL: Record<string, string> = {
   openrouter: 'openrouter/free',
   groq: 'llama-3.1-8b-instant',
   gemini: 'gemini-2.0-flash',
-  openai: 'gpt-4o-mini'
+  openai: 'gpt-5.6-luna'
 }
 
 export function resolveModelId(modelId: string): string {

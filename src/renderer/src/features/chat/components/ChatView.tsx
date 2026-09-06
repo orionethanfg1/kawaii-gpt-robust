@@ -1,5 +1,6 @@
-import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ImageLightbox } from '@shared/ui/ImageLightbox'
+import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { useChatStore } from '@shared/lib/stores/chatStore'
 import { useChat } from '../hooks/useChat'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
@@ -27,6 +28,7 @@ function formatSummaryAge(ts?: number, now = Date.now()): string | null {
 }
 
 export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const { activeId, conversations, create } = useChatStore()
   const {
     isLoading,
@@ -118,7 +120,9 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
               <img
                 src={character.visualImageUrl}
                 alt=""
-                className="w-full h-full object-cover"
+                title="Ver avatar ampliado"
+                className="w-full h-full object-cover cursor-zoom-in"
+                onClick={() => character?.visualImageUrl && setLightboxSrc(character.visualImageUrl)}
               />
             ) : (
               <span>{character?.visualEmoji ?? '🌸'}</span>
@@ -156,6 +160,7 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
   }
 
   return (
+    <>
     <div className="flex-1 flex flex-col min-h-0">
       <header className="px-5 py-3 border-b border-kawaii-border bg-white/60 backdrop-blur">
         <div className="flex items-start justify-between gap-3 min-w-0">
@@ -165,7 +170,9 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
                 <img
                   src={character.visualImageUrl}
                   alt=""
-                  className="w-full h-full object-cover"
+                  title="Ver avatar ampliado"
+                  className="w-full h-full object-cover cursor-zoom-in"
+                  onClick={() => character?.visualImageUrl && setLightboxSrc(character.visualImageUrl)}
                 />
               ) : (
                 <span>{character?.visualEmoji ?? '🌸'}</span>
@@ -276,5 +283,9 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
         onStop={stopStreaming}
       />
     </div>
+    {lightboxSrc ? (
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+    ) : null}
+    </>
   )
 }

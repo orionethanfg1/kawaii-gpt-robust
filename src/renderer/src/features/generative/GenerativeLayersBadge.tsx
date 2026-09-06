@@ -41,7 +41,7 @@ export function GenerativeLayersBadge() {
             className={`px-1.5 py-0.5 rounded-full border ${color}`}
             title={c.reason || c.displayName}
           >
-            {c.modality === 'image' ? '🖼' : c.modality === 'music' ? '🎵' : '🎬'}{' '}
+            {c.modality === 'image' ? '🖼 Imagen' : c.modality === 'music' ? '🎵 Música' : '🎬 Video'}{' · '}
             {c.status === 'available' ? 'on' : c.status === 'not_configured' ? 'off' : c.status}
           </span>
         )

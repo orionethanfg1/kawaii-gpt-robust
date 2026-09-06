@@ -1,6 +1,6 @@
 {
   "name": "kawaii-gpt-robust",
-  "version": "0.8.14",
+  "version": "0.8.49",
   "description": "KawaiiGPT Robust — chat de escritorio híbrido (Ollama + cloud) con personalidad, smart routing, failover automático y autodiagnóstico",
   "author": "Azrael",
   "license": "MIT",

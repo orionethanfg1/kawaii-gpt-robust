@@ -17,13 +17,8 @@ import {
 } from './machine-profile'
 import { syncCheckpointsToForge } from './sd-workspace'
 import {
-  ensurePortablePython,
   ensureForgeVenvWithTorch,
   ensureForgeWebStack,
-  isPortablePythonReady,
-  portablePythonExe,
-  forgeVenvPython,
-  isForgeVenvReady
 } from './python-runtime'
 
 /** Preferred API ports — skip ones already in use */
@@ -70,6 +65,7 @@ export type ForgeRuntimeStatus = {
   /** 0–100 estimated while starting (API not up yet) */
   bootProgress?: number
   elapsedMs?: number
+  apiOk?: boolean
 }
 
 let child: ChildProcess | null = null
@@ -550,16 +546,6 @@ async function resolveForgePythonAndLaunch(
 }
 
 /** Human message when no compatible Python is found. */
-function noCompatiblePythonMessage(forgeRoot: string): string {
-  return (
-    'Forge necesita Python 3.10–3.12 (con venv). ' +
-    'Se detectó o se usaría Python del sistema incompatible (p. ej. 3.14), ' +
-    'con el que no existe torch==2.3.1. ' +
-    'Solución: instala Python 3.11 desde python.org (marca «py launcher»), ' +
-    'o reinstala Forge portable que trae su propio Python en system\\python o venv. ' +
-    `Carpeta: ${forgeRoot}`
-  )
-}
 
 /**
  * Force webui-user.bat to keep --api (stock file often sets COMMANDLINE_ARGS= empty).
@@ -779,7 +765,7 @@ export async function startForgeRuntime(options?: {
 
   // Always prefer app-managed 3.11 venv under Forge (never system 3.14)
   let resolved = await resolveForgePythonAndLaunch(forgeRoot)
-  const dataRoot = profile.dataRoot || profile.forgeInstallPath
+  const dataRoot = profile.preferredDataRoot || profile.forgeInstallPath
 
   // Locate webui dir (launch.py)
   let webuiDir = forgeRoot

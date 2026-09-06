@@ -1,4 +1,7 @@
 import { safePlanGenerativeTurn } from '@core/generative'
+import { pickBestCheckpoint } from '@core/generative/smart-checkpoint'
+import { detectGenerativeIntent } from '@core/generative/intent'
+import { composeImagePrompt, recommendSdParams, parseImageIntent } from '@core/generative/prompt-compose'
 import { useCallback, useRef, useState } from 'react'
 import { useChatStore } from '@shared/lib/stores/chatStore'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
@@ -19,9 +22,10 @@ import {
   type LivePhase,
   type LiveStatus
 } from '../components/RouteLiveIndicator'
-import { tryHandleAppControl } from '../services/appControl'
 import { syncRelationshipFromTurn } from '../services/relationshipSync'
-import { buildAppAgentSystemBlock, runActionsFromAssistantText } from '../services/appAgent'
+import { buildAppAgentSystemBlock, runActionsFromAssistantText, buildToolObservationPrompt } from '../services/appAgent'
+import { ensureVisualDescriptionFromAvatar } from '@features/settings/ensureVisualDescription'
+import { looksLikeAppearanceQuestion } from '@core/character/profile'
 import { setBackgroundSummaryBusy } from '../services/backgroundSummary'
 import {
   extractUserFactsFromMessage,
@@ -29,7 +33,9 @@ import {
 } from '@core/conversation/user-memory'
 import {
   looksLikeImageRevision,
+  shouldForceImageRevision,
   reviseImagePrompt,
+  looksLikeIdentityReject,
   type ImageRevisionMemory
 } from '@core/generative/image-revision'
 
@@ -97,7 +103,6 @@ export function useChat() {
       if (!trimmed || inFlightRef.current) return
 
       // Multi-layer generative (fail-soft): never block pure chat if media stack fails
-      let genPlan = { useText: true, sideJobs: [] as { modality: string; prompt: string }[], reason: 'text' }
       let mediaRequests: Array<{
         modality: string
         prompt?: string
@@ -156,7 +161,6 @@ export function useChat() {
           imageWidth: live.imageWidth || 1024,
           imageHeight: live.imageHeight || 1024
         })
-        genPlan = safe.plan
         mediaRequests = safe.mediaRequests as typeof mediaRequests
         if (safe.mediaHint) console.debug('[kawaii:generative-bridge]', safe.mediaHint)
         if (safe.error) console.warn('[kawaii:generative-bridge]', safe.error)
@@ -165,34 +169,122 @@ export function useChat() {
       }
 
       // Natural revision of last image even without «genera imagen»
-      if ((settings.imageGenEnabled || imageOn) && looksLikeImageRevision(trimmed)) {
+      // Detect prior image early (ChatGPT-style short edits: "hazla más joven")
+      const convPeekEarly = activeId
+        ? useChatStore.getState().conversations.find((c) => c.id === activeId)
+        : null
+      const hasPrevImg = Boolean(
+        convPeekEarly?.messages.some(
+          (m) =>
+            m.meta?.imageFilePath ||
+            m.meta?.imagePrompt ||
+            m.attachments?.some((a) => a.mimeType?.startsWith('image/'))
+        )
+      )
+
+      // Hard guarantee: explicit "haz una foto/imagen…" must generate, not only chat
+      try {
+        const intent = detectGenerativeIntent(trimmed)
+        if (intent.modality === 'image' && imageOn) {
+          if (mediaRequests.length === 0) {
+            mediaRequests = [
+              {
+                modality: 'image',
+                prompt: intent.prompt || trimmed,
+                width: settings.imageWidth || 1024,
+                height: settings.imageHeight || 1024
+              }
+            ]
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+
+      // Force image revision path (must work even if planner returned text-only)
+      if (
+        imageOn &&
+        hasPrevImg &&
+        mediaRequests.length === 0 &&
+        (looksLikeImageRevision(trimmed, true) || shouldForceImageRevision(trimmed, true))
+      ) {
+        mediaRequests = [
+          {
+            modality: 'image',
+            prompt: trimmed,
+            width: settings.imageWidth || 1024,
+            height: settings.imageHeight || 1024
+          }
+        ]
+      }
+
+      // Analyze / describe last image → text only with generation memory (ChatGPT-style)
+      let imageContextForText = ''
+      if (
+        /\b(analiz|describ|explic|cu[eé]ntame|qu[eé]\s+ves|c[oó]mo\s+se\s+ve|opina)\b/i.test(
+          trimmed
+        ) &&
+        /\b(foto|imagen|dibujo)\b/i.test(trimmed)
+      ) {
         const convPeek = activeId
           ? useChatStore.getState().conversations.find((c) => c.id === activeId)
           : null
-        const hasPrevImg = convPeek?.messages.some(
-          (m) =>
-            m.meta?.imageFilePath ||
-            m.attachments?.some((a) => a.mimeType?.startsWith('image/'))
-        )
-        if (hasPrevImg && mediaRequests.length === 0) {
-          mediaRequests = [
-            {
-              modality: 'image',
-              prompt: trimmed,
-              width: settings.imageWidth,
-              height: settings.imageHeight
-            }
+        const lastImg = [...(convPeek?.messages || [])]
+          .reverse()
+          .find(
+            (m) =>
+              m.meta?.imagePrompt ||
+              m.meta?.imageFilePath ||
+              m.attachments?.some((a) => a.mimeType?.startsWith('image/'))
+          )
+        if (lastImg) {
+          const att = lastImg.attachments?.find((a) => a.mimeType?.startsWith('image/'))
+          imageContextForText = [
+            '[Análisis de imagen en este chat — responde en texto, NO generes otra imagen]',
+            lastImg.meta?.imagePrompt
+              ? `Prompt usado: ${String(lastImg.meta.imagePrompt).slice(0, 500)}`
+              : '',
+            lastImg.meta?.imageProvider
+              ? `Proveedor: ${lastImg.meta.imageProvider}`
+              : '',
+            lastImg.meta?.imageWidth
+              ? `Tamaño: ${lastImg.meta.imageWidth}×${lastImg.meta.imageHeight}`
+              : '',
+            att?.name ? `Archivo adjunto: ${att.name}` : '',
+            lastImg.meta?.imageFilePath
+              ? `Ruta local: ${String(lastImg.meta.imageFilePath)}`
+              : '',
+            'Analiza con honestidad: composición, estilo, defectos (manos, ojos, texto), coherencia con el pedido y con el avatar del personaje si aplica. Si no ves la imagen real, basa el análisis en el prompt y sé transparente.'
           ]
-          genPlan = {
-            useText: false,
-            sideJobs: [{ modality: 'image', prompt: trimmed }],
-            reason: 'Revisión de imagen anterior'
-          }
+            .filter(Boolean)
+            .join('\n')
         }
       }
 
       // Meta capability ONLY when not generating a concrete image
       const lowerQ = trimmed.toLowerCase()
+      // "esa no eres tú" after an image → must regenerate, not only apologize in text
+      if (
+        mediaRequests.length === 0 &&
+        looksLikeIdentityReject(trimmed) &&
+        hasPrevImg
+      ) {
+        const char = settings.character
+        const look = (char?.visualDescription || '').trim()
+        mediaRequests = [
+          {
+            modality: 'image' as const,
+            prompt: look
+              ? `photorealistic portrait of ${char?.name || 'character'}, ${look}`
+              : `photorealistic portrait of ${char?.name || 'the character'}, match avatar identity`,
+            negativePrompt:
+              'wrong person, different face, wrong hair color, two people, blurry',
+            width: settings.imageWidth || 768,
+            height: settings.imageHeight || 1024
+          }
+        ]
+      }
+
       const hasMediaJob = mediaRequests.some(
         (r) => (r.modality === 'image' || r.modality === 'music') && String(r.prompt || '').trim()
       )
@@ -230,8 +322,10 @@ export function useChat() {
         return
       }
 
+      let mediaHandled = false
       try {
         if (mediaRequests.some((r) => r.modality === "image" && (r.prompt || "").trim())) {
+          mediaHandled = true
           const req = mediaRequests.find((r) => r.modality === 'image') || mediaRequests[0]
           if (req.modality === 'image' && (req.prompt || '').trim()) {
             let convId = activeId
@@ -275,8 +369,19 @@ export function useChat() {
               let width = req.width || liveSz.imageWidth || 1024
               let height = req.height || liveSz.imageHeight || 1024
               let negative = req.negativePrompt
-              if (prevMem?.prompt && looksLikeImageRevision(trimmed)) {
-                const revised = reviseImagePrompt(prevMem, trimmed)
+              if (prevMem && looksLikeImageRevision(trimmed, true)) {
+                const base = {
+                  ...prevMem,
+                  prompt:
+                    prevMem.prompt ||
+                    'photorealistic portrait of a young woman, detailed face, natural lighting'
+                }
+                const char = useSettingsStore.getState().settings.character
+                const revised = reviseImagePrompt(base, trimmed, {
+                  characterLook:
+                    (char?.visualDescription || '').trim() || undefined,
+                  characterName: char?.name
+                })
                 finalPrompt = revised.prompt
                 width = revised.width || width
                 height = revised.height || height
@@ -302,6 +407,71 @@ export function useChat() {
                   tried: [...triedRef.current]
                 })
               })
+              // Local SD: re-compose as SD1.5 tags + auto steps/CFG/size
+              if (providerPref === 'a1111' || providerPref === 'smart') {
+                try {
+                  const composed = composeImagePrompt(
+                    prevMem && looksLikeImageRevision(trimmed, true)
+                      ? finalPrompt
+                      : trimmed,
+                    'sd15'
+                  )
+                  // If revision, keep merged identity prompt but ensure tag style when short
+                  if (!prevMem || !looksLikeImageRevision(trimmed, true)) {
+                    finalPrompt = composed.prompt
+                    negative = composed.negativePrompt || negative
+                  } else {
+                    // Merge deltas already in finalPrompt; still use strong SD negative
+                    negative = [negative, composed.negativePrompt].filter(Boolean).join(', ')
+                  }
+                  const rec = recommendSdParams({ prompt: finalPrompt, framing: composed.parsed?.framing })
+                  if (!req.width && !liveSz.imageWidth) {
+                    width = rec.width
+                    height = rec.height
+                  }
+                  // Prefer recommended when user left defaults
+                  if (!liveMode.a1111Steps && !settings.a1111Steps) {
+                    /* steps applied below */
+                  }
+                } catch {
+                  /* ignore */
+                }
+              }
+              let autoSteps = liveMode.a1111Steps || settings.a1111Steps || 0
+              let autoCfg = liveMode.a1111CfgScale || settings.a1111CfgScale || 0
+              try {
+                const fr = parseImageIntent(trimmed).framing
+                const rec = recommendSdParams({ prompt: finalPrompt, framing: fr })
+                if (!autoSteps) autoSteps = rec.steps
+                if (!autoCfg) autoCfg = rec.cfgScale
+                const smartUi = (liveMode.uiComplexity || 'smart') !== 'advanced'
+                // Smart mode: always use SD-native friendly sizes unless user asked 2x/4k in text
+                if (smartUi && !/\b(el doble|2x|4k|m[aá]s grande)\b/i.test(trimmed)) {
+                  width = rec.width
+                  height = rec.height
+                } else if (width < 640) {
+                  width = rec.width
+                  height = rec.height
+                }
+              } catch {
+                if (!autoSteps) autoSteps = 28
+                if (!autoCfg) autoCfg = 7
+              }
+
+              let checkpoint =
+                liveMode.a1111Checkpoint || settings.a1111Checkpoint || undefined
+              if (!checkpoint) {
+                try {
+                  const list = await window.kawaii?.imageA1111Models?.(
+                    liveMode.a1111BaseUrl || settings.a1111BaseUrl
+                  )
+                  const models = (list as { models?: Array<{ title?: string; model_name?: string }> })
+                    ?.models || (Array.isArray(list) ? list : [])
+                  checkpoint = pickBestCheckpoint(models as Array<{ title?: string; model_name?: string }>, finalPrompt)
+                } catch {
+                  /* ignore */
+                }
+              }
               const result = await window.kawaii?.imageGenerate?.({
                 prompt: finalPrompt,
                 negativePrompt: negative,
@@ -310,10 +480,9 @@ export function useChat() {
                 seed: req.seed,
                 provider: providerPref,
                 a1111BaseUrl: liveMode.a1111BaseUrl || settings.a1111BaseUrl,
-                steps: liveMode.a1111Steps || settings.a1111Steps || 28,
-                cfgScale: liveMode.a1111CfgScale || settings.a1111CfgScale || 7,
-                checkpoint:
-                  liveMode.a1111Checkpoint || settings.a1111Checkpoint || undefined,
+                steps: autoSteps || 28,
+                cfgScale: autoCfg || 7,
+                checkpoint,
                 cloudflareAccountId:
                   (liveMode.cloudflareAccountId || settings.cloudflareAccountId || '').trim() ||
                   undefined,
@@ -358,9 +527,6 @@ export function useChat() {
                   }
                 })
               } else {
-                const err =
-                  (result && 'error' in result && result.error) ||
-                  'No se pudo generar la imagen'
                 updateMessage(convId, assistantId, {
                   content:
                     'No pude generar la imagen ahora. Estoy dejando los motores listos en segundo plano; ' +
@@ -383,13 +549,6 @@ export function useChat() {
             }
             return // image path done — never run text LLM / context summary
           }
-          if (req.modality === 'music') {
-            setError(
-              'Capa de música: motor pendiente. Prompt preparado: ' +
-                String(req.stylePrompt || req.prompt || '').slice(0, 120)
-            )
-            return
-          }
           if (req.modality === 'video') {
             setError(
               'Capa de video pendiente. Prompt preparado: ' +
@@ -400,8 +559,82 @@ export function useChat() {
         }
 
         // Image jobs already handled inline above; avoid opening the separate panel.
-      } catch (e) {
+      
+        // Music generation (ACE-Step local)
+        if (mediaRequests.some((r) => r.modality === 'music' && String(r.prompt || r.stylePrompt || '').trim())) {
+          mediaHandled = true
+          const req = mediaRequests.find((r) => r.modality === 'music')!
+          let convId = activeId
+          if (!convId) convId = create()
+          addMessage(convId, { role: 'user', content: trimmed })
+          const assistantId = addMessage(convId, {
+            role: 'assistant',
+            content: 'Preparando motor de música (ACE-Step)…',
+            isStreaming: true
+          })
+          armLoading()
+          setError(null)
+          setPhase('generating', null)
+          const prompt = String(req.stylePrompt || req.prompt || trimmed).trim()
+          const lyrics = String((req as { lyrics?: string }).lyrics || '').trim()
+          try {
+            // Auto-enable on first use if the user asked for music
+            if (!settings.musicGenEnabled) {
+              try {
+                useSettingsStore.getState().update({ musicGenEnabled: true })
+              } catch {
+                /* ignore */
+              }
+            }
+            const gen = await window.kawaii.musicGenerate?.({
+              prompt,
+              lyrics: lyrics || undefined,
+              durationSec: 60,
+              vocalLanguage: 'es'
+            })
+            if (!gen?.ok) {
+              throw new Error(gen?.error || 'No se pudo generar la pista')
+            }
+            const pathLabel = gen.path ? String(gen.path) : ''
+            updateMessage(convId, assistantId, {
+              content:
+                'Listo — pista generada con ACE-Step.' +
+                (pathLabel ? `\n\nArchivo: \`${pathLabel}\`` : '') +
+                (gen.taskId ? `\nTask: \`${gen.taskId}\`` : ''),
+              isStreaming: false,
+              meta: {
+                musicPath: gen.path,
+                musicTaskId: gen.taskId,
+                modality: 'music'
+              }
+            })
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e)
+            updateMessage(convId, assistantId, {
+              content: `Error al generar música: ${msg}`,
+              isStreaming: false,
+              meta: { isError: true }
+            })
+            setError(msg)
+          } finally {
+            clearLoading()
+          }
+          return
+        }
+
+} catch (e) {
         console.error('[kawaii:media-handoff] isolated failure', e)
+        if (mediaHandled) {
+          // Do not fall through to cloud chat after a failed image job
+          setError(e instanceof Error ? e.message : String(e))
+          clearLoading()
+          inFlightRef.current = false
+          return
+        }
+      }
+      if (mediaHandled) {
+        inFlightRef.current = false
+        return
       }
 
       let convId = activeId
@@ -475,16 +708,38 @@ export function useChat() {
         }
       }
 
-      let routeSnapshot: RouteInfo | null = null
+      const routeSnapshot = { current: null as RouteInfo | null }
 
       try {
         const convState = getActive()
         let extraSystem = ''
         try {
-          extraSystem = await buildAppAgentSystemBlock()
+          // No app-agent tools while generating/revising media — avoids health_forge noise
+          if (!hasMediaJob) {
+            extraSystem = await buildAppAgentSystemBlock()
+          } else {
+            extraSystem =
+              'El usuario pidió generar o revisar una imagen. Responde breve en lenguaje natural. ' +
+              'NO uses bloques APP_ACTION ni herramientas de Forge/Ollama en este turno. ' +
+              (looksLikeIdentityReject(trimmed)
+                ? 'El usuario rechazó la imagen anterior porque NO era tu apariencia. ' +
+                  'No digas "aquí tienes la imagen" hasta que el sistema adjunte una nueva. ' +
+                  'Disculpate en 1 frase y espera el adjunto real.'
+                : '')
+          }
+          if (imageContextForText) {
+            extraSystem = (extraSystem ? extraSystem + '\n\n' : '') + imageContextForText
+          }
         } catch {
           /* ignore */
         }
+        // Never block the reply on vision re-scan (was adding 30–90s). Background only.
+        try {
+          void ensureVisualDescriptionFromAvatar({ force: false })
+        } catch {
+          /* ignore */
+        }
+
         await sendChatMessage({
           settings,
           apiKey: apiKey || undefined,
@@ -509,7 +764,7 @@ export function useChat() {
               })
             },
             onRoute: (info) => {
-              routeSnapshot = info
+              routeSnapshot.current = info
               setLastRoute(info)
               const modelKey = `${info.model}`
               if (modelKey && !triedRef.current.includes(modelKey)) {
@@ -530,8 +785,8 @@ export function useChat() {
               })
             },
             onPhase: (phase) => {
-              if (phase === 'summarizing') setPhase('summarizing', routeSnapshot)
-              if (phase === 'failover') setPhase('failover', routeSnapshot)
+              if (phase === 'summarizing') setPhase('summarizing', routeSnapshot.current)
+              if (phase === 'failover') setPhase('failover', routeSnapshot.current)
             },
             onSummary: ({ summary, coveredCount, source }) => {
               setRollingSummary(convId!, summary, coveredCount, source)
@@ -547,11 +802,11 @@ export function useChat() {
                 /* ignore */
               }
               useRecoveryStore.getState().markClean()
-              if (routeSnapshot?.failover) {
-                markRemedyWorked('PROVIDER_MODEL_NOT_FOUND', routeSnapshot.target)
+              if (routeSnapshot.current?.failover) {
+                markRemedyWorked('PROVIDER_MODEL_NOT_FOUND', routeSnapshot.current.target)
               }
 
-              // App agent: execute tool tags and clean visible text
+              // App agent: execute tool tags, clean text, optional second micro-turn
               void (async () => {
                 try {
                   const cur = useChatStore
@@ -559,7 +814,8 @@ export function useChat() {
                     .conversations.find((c) => c.id === convId)
                     ?.messages.find((m) => m.id === assistantId)
                   const raw = cur?.content || ''
-                  const { cleanText, actionLog } = await runActionsFromAssistantText(raw)
+                  const { cleanText, actionLog, observations, hadActions } =
+                    await runActionsFromAssistantText(raw)
                   let final = cleanText
                   if (actionLog.length) {
                     const lines = actionLog.map((l) => '• ' + l).join('\n')
@@ -567,6 +823,93 @@ export function useChat() {
                   }
                   if (final !== raw) {
                     updateMessage(convId!, assistantId, { content: final, isStreaming: false })
+                  }
+
+                  // Phase A: real second turn — model sees tool observations
+                  if (hadActions && observations.length > 0 && convId) {
+                    const follow = buildToolObservationPrompt(observations, trimmed)
+                    if (!follow) return
+                    setPhase('generating', routeSnapshot.current)
+                    const followId = addMessage(convId, {
+                      role: 'assistant',
+                      content: '',
+                      isStreaming: true
+                    })
+                    try {
+                      let extraSystem2 = ''
+                      try {
+                        extraSystem2 = await buildAppAgentSystemBlock()
+                      } catch {
+                        /* ignore */
+                      }
+                      const liveSettings = useSettingsStore.getState().settings
+                      const hist: ChatMessage[] = (
+                        useChatStore.getState().conversations.find((c) => c.id === convId)
+                          ?.messages ?? []
+                      )
+                        .filter((m) => m.id !== followId && m.role !== 'system')
+                        .slice(-10)
+                        .map((m) => ({
+                          role: m.role as 'user' | 'assistant',
+                          content: m.content
+                        }))
+                      // Never block the reply on vision re-scan (was adding 30–90s). Background only.
+        try {
+          void ensureVisualDescriptionFromAvatar({ force: false })
+        } catch {
+          /* ignore */
+        }
+
+        await sendChatMessage({
+                        settings: liveSettings,
+                        userContent: follow,
+                        history: hist,
+                        signal: abortRef.current?.signal,
+                        extraSystem: extraSystem2,
+                        callbacks: {
+                          onToken: (tok) => {
+                            const live = useChatStore
+                              .getState()
+                              .conversations.find((c) => c.id === convId)
+                              ?.messages.find((m) => m.id === followId)
+                            updateMessage(convId, followId, {
+                              content: (live?.content || '') + tok,
+                              isStreaming: true
+                            })
+                          },
+                          onDone: (meta2) => {
+                            updateMessage(convId, followId, {
+                              isStreaming: false,
+                              meta: {
+                                model: meta2.model,
+                                provider: meta2.provider,
+                                latencyMs: meta2.latencyMs,
+                                route: meta2.route.target,
+                                reason:
+                                  'Seguimiento tras herramientas · ' + (meta2.route.reason || '')
+                              }
+                            })
+                          },
+                          onError: () => {
+                            const live = useChatStore
+                              .getState()
+                              .conversations.find((c) => c.id === convId)
+                              ?.messages.find((m) => m.id === followId)
+                            updateMessage(convId, followId, {
+                              isStreaming: false,
+                              content:
+                                live?.content ||
+                                'No pude completar el seguimiento tras las acciones.'
+                            })
+                          }
+                        }
+                      })
+                    } catch {
+                      updateMessage(convId, followId, {
+                        isStreaming: false,
+                        content: 'Seguimiento de herramientas no disponible en este turno.'
+                      })
+                    }
                   }
                 } catch {
                   /* ignore */
@@ -606,7 +949,7 @@ export function useChat() {
                 code,
                 message: msg,
                 provider,
-                model: routeSnapshot?.model
+                model: routeSnapshot.current?.model
               })
               useRecoveryStore.getState().touch({
                 dirty: true,
@@ -617,7 +960,7 @@ export function useChat() {
               setError(
                 err instanceof AppError
                   ? friendlyProviderMessage(err.code, err.message, err.provider)
-                  : friendlyProviderMessage('UNKNOWN', err.message)
+                  : friendlyProviderMessage('UNKNOWN', String(err))
               )
               setLiveStatus(null)
               const existing =
@@ -628,7 +971,7 @@ export function useChat() {
               const friendly =
                 err instanceof AppError
                   ? friendlyProviderMessage(err.code, err.message, err.provider)
-                  : friendlyProviderMessage('UNKNOWN', String(err.message))
+                  : friendlyProviderMessage('UNKNOWN', String(err))
               // Only put a short note in the bubble if nothing was streamed
               updateMessage(convId!, assistantId, {
                 isStreaming: false,
@@ -707,7 +1050,7 @@ export function useChat() {
           code: appErr.code,
           message: appErr.message,
           provider: appErr.provider,
-          model: routeSnapshot?.model
+          model: routeSnapshot.current?.model
         })
         useRecoveryStore.getState().touch({
           dirty: true,
@@ -731,11 +1074,11 @@ export function useChat() {
             content: text,
             isStreaming: false,
             meta: {
-              model: routeSnapshot?.model,
-              route: routeSnapshot?.target,
-              reason: routeSnapshot?.reason,
-              switchedAt: routeSnapshot?.at,
-              failover: routeSnapshot?.failover,
+              model: routeSnapshot.current?.model,
+              route: routeSnapshot.current?.target,
+              reason: routeSnapshot.current?.reason,
+              switchedAt: routeSnapshot.current?.at,
+              failover: routeSnapshot.current?.failover,
               isError: true,
               errorCode: appErr.code
             }

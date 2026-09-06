@@ -12,7 +12,9 @@ import {
   Download,
   Play,
   Cpu,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Music2,
+  User
 } from 'lucide-react'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import type { ProviderMode } from '@shared/types/settings'
@@ -23,11 +25,7 @@ import {
   type HardwareProfile,
   type ModelRecommendation
 } from '@core/models/recommendations'
-import {
-  FREE_CLOUD_CATALOG,
-  modelsForProvider,
-  probeCloudProvider
-} from '@core/models/free-cloud-catalog'
+import { modelsForProvider, probeCloudProvider } from '@core/models/free-cloud-catalog'
 import { discoverOpenRouterFreeModels } from '@core/models/discover-openrouter'
 import { recommendGenerativeStack } from '@core/models/generative-catalog'
 import { useDownloadStore } from '@features/models/downloadStore'
@@ -97,7 +95,7 @@ interface Props {
   onComplete: () => void
 }
 
-type StepId = 'welcome' | 'mode' | 'local' | 'cloud' | 'images' | 'done'
+type StepId = 'welcome' | 'mode' | 'local' | 'cloud' | 'images' | 'music' | 'character' | 'done'
 
 /** Detected from existing settings / keys / health */
 interface SetupStatus {
@@ -109,6 +107,10 @@ interface SetupStatus {
   hasLocalModel: boolean
   imageCloudOn: boolean
   imageLocalReady: boolean
+  musicEligible: boolean
+  musicInstalled: boolean
+  musicApiRunning: boolean
+  musicSummary: string
   modeConfigured: boolean
   characterCustomized: boolean
 }
@@ -150,7 +152,10 @@ export function SetupWizard({ onComplete }: Props) {
   const [keyTestDetail, setKeyTestDetail] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   /** Image setup (wizard step) */
-  const [imageWanted, setImageWanted] = useState(false)
+  const [imageWanted, setImageWanted] = useState(settings.imageGenEnabled !== false)
+  const [musicWanted, setMusicWanted] = useState(false)
+  const [musicBusy, setMusicBusy] = useState(false)
+  const [musicMsg, setMusicMsg] = useState('')
   const [imageMode, setImageMode] = useState<'cloud' | 'smart' | 'local'>('cloud')
   const [a1111Url, setA1111Url] = useState(settings.a1111BaseUrl || 'http://127.0.0.1:7860')
   const [a1111Probe, setA1111Probe] = useState<'idle' | 'loading' | 'ok' | 'fail'>('idle')
@@ -169,10 +174,13 @@ export function SetupWizard({ onComplete }: Props) {
     hasLocalModel: false,
     imageCloudOn: false,
     imageLocalReady: false,
+    musicEligible: false,
+    musicInstalled: false,
+    musicApiRunning: false,
+    musicSummary: '',
     modeConfigured: false,
     characterCustomized: false
   })
-  const [existingKeyHint, setExistingKeyHint] = useState('')
   /** Skip steps already satisfied when continuing the wizard */
   const [skipDoneSteps, setSkipDoneSteps] = useState(true)
 
@@ -196,6 +204,10 @@ export function SetupWizard({ onComplete }: Props) {
           (settings.imageProviderMode === 'cloud' ||
             settings.imageProviderMode === 'smart'),
         imageLocalReady: false,
+        musicEligible: false,
+        musicInstalled: false,
+        musicApiRunning: false,
+        musicSummary: '',
         modeConfigured: settings.hasCompletedSetup === true,
         characterCustomized: Boolean(
           (settings.character?.name && settings.character.name !== 'Kawaii') ||
@@ -203,6 +215,28 @@ export function SetupWizard({ onComplete }: Props) {
               settings.character.relationshipRole !==
                 'asistente amigable y de confianza')
         )
+      }
+      try {
+        const ms = await window.kawaii?.musicStatus?.()
+        if (ms && typeof ms === 'object') {
+          const m = ms as {
+            eligibility?: { ace?: { eligible?: boolean }; summary?: string }
+            ace?: { present?: boolean; stage?: string }
+          }
+          status.musicEligible = m.eligibility?.ace?.eligible === true
+          status.musicInstalled =
+            m.ace?.present === true ||
+            m.ace?.stage === 'cloned' ||
+            m.ace?.stage === 'ready'
+          status.musicSummary = m.eligibility?.summary || ''
+          if (settings.musicGenEnabled) setMusicWanted(true)
+        }
+        const mr = await window.kawaii?.musicRuntimeStatus?.()
+        if (mr && (mr as { state?: string }).state === 'running') {
+          status.musicApiRunning = true
+        }
+      } catch {
+        /* music optional */
       }
       try {
         const keys = (await window.kawaii?.getAllProviderKeys?.()) ?? {}
@@ -218,7 +252,6 @@ export function SetupWizard({ onComplete }: Props) {
           }
         }
         if (status.hasOpenRouterKey || (keys.openrouter || '').length >= 8) {
-          setExistingKeyHint('Key de OpenRouter ya guardada en este equipo')
           setSelectedCloudId('openrouter')
           // Don't put real key in the input; mark as present
           setApiKey('')
@@ -274,24 +307,25 @@ export function SetupWizard({ onComplete }: Props) {
     const s: StepId[] = ['welcome', 'mode']
     const localDone =
       skipDoneSteps &&
-      setupStatus.loaded &&
-      needsLocal &&
       setupStatus.ollamaReachable &&
       setupStatus.hasLocalModel
     const cloudDone =
       skipDoneSteps &&
-      setupStatus.loaded &&
-      needsCloud &&
       setupStatus.hasAnyCloudKey
     const imagesDone =
       skipDoneSteps &&
-      setupStatus.loaded &&
       (setupStatus.imageCloudOn || setupStatus.imageLocalReady || settings.imageGenEnabled === false)
+    const musicDone =
+      skipDoneSteps &&
+      (setupStatus.musicApiRunning ||
+        (settings.musicGenEnabled === true && setupStatus.musicInstalled))
+    const charDone = skipDoneSteps && setupStatus.characterCustomized
 
     if (needsLocal && !localDone) s.push('local')
     if (needsCloud && !cloudDone) s.push('cloud')
-    // Images always optional: skip if already configured or user finished setup once
     if (!imagesDone || !setupStatus.modeConfigured) s.push('images')
+    if (!musicDone) s.push('music')
+    if (!charDone) s.push('character')
     s.push('done')
     return s
   }, [
@@ -299,7 +333,8 @@ export function SetupWizard({ onComplete }: Props) {
     needsCloud,
     skipDoneSteps,
     setupStatus,
-    settings.imageGenEnabled
+    settings.imageGenEnabled,
+    settings.musicGenEnabled
   ])
 
   const stepIndex = stepOrder.indexOf(step)
@@ -612,6 +647,8 @@ export function SetupWizard({ onComplete }: Props) {
         imageGenEnabled: imageWanted,
         imageProviderMode: imageWanted ? imageMode : 'off',
         a1111BaseUrl: a1111Url.trim() || 'http://127.0.0.1:7860',
+        musicGenEnabled: musicWanted,
+        musicProviderMode: musicWanted ? 'local' : 'off',
         hasCompletedSetup: true
       })
       onComplete()
@@ -746,14 +783,16 @@ export function SetupWizard({ onComplete }: Props) {
                 KawaiiGPT <span className="text-kawaii-pink-deep">Robust</span>
               </h1>
               <p className="text-kawaii-text-muted text-sm leading-relaxed max-w-sm mx-auto">
-                Detectamos tu hardware, te sugerimos modelos locales y te ayudamos a conectar
-                proveedores cloud gratuitos.
+                Chat multicapa: texto, imágenes y música local. Detectamos tu PC, conectamos
+                cloud (OpenRouter, Groq, OpenAI…) y preparamos Forge y ACE-Step si el hardware
+                lo permite.
               </p>
             </div>
-            <div className="grid grid-cols-3 gap-3 text-left">
-              <FeatureCard emoji="🏠" title="Local" desc="Ollama + modelos a medida" />
-              <FeatureCard emoji="☁️" title="Cloud free" desc="OpenRouter, Groq, Gemini…" />
-              <FeatureCard emoji="✨" title="Smart" desc="Router inteligente" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-left">
+              <FeatureCard emoji="💬" title="Chat" desc="Local + cloud smart" />
+              <FeatureCard emoji="🖼" title="Imagen" desc="Forge / FLUX / OpenAI" />
+              <FeatureCard emoji="🎵" title="Música" desc="ACE-Step local" />
+              <FeatureCard emoji="🌸" title="Persona" desc="Asistente guiado" />
             </div>
 
             {setupStatus.loaded && (
@@ -780,6 +819,15 @@ export function SetupWizard({ onComplete }: Props) {
                       : setupStatus.imageCloudOn
                         ? '✓ Imagen cloud activa'
                         : '○ Imágenes (opcional)'}
+                  </li>
+                  <li>
+                    {setupStatus.musicApiRunning
+                      ? '✓ Música API activa'
+                      : setupStatus.musicInstalled
+                        ? '✓ ACE-Step instalado'
+                        : setupStatus.musicEligible
+                          ? '○ Música (elegible, sin instalar)'
+                          : '○ Música (GPU limitada / opcional)'}
                   </li>
                   <li>
                     {setupStatus.characterCustomized ? '✓' : '○'} Personalidad personalizada
@@ -1359,6 +1407,197 @@ export function SetupWizard({ onComplete }: Props) {
           </div>
         )}
 
+
+        {step === 'music' && (
+          <div className="card-kawaii p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Music2 className="w-5 h-5 text-violet-600" />
+              <div>
+                <h2 className="text-xl font-extrabold text-kawaii-text">Música local (ACE-Step)</h2>
+                <p className="text-xs text-kawaii-text-muted">
+                  Genera canciones en el chat. YuE solo si hay ≥16&nbsp;GB VRAM; si no, se omite solo.
+                </p>
+              </div>
+            </div>
+            {setupStatus.musicSummary ? (
+              <p className="text-[11px] rounded-kawaii border border-kawaii-border bg-white p-2">
+                {setupStatus.musicSummary}
+              </p>
+            ) : (
+              <p className="text-[11px] text-kawaii-text-muted">
+                Analiza el PC o instala desde aquí. La primera vez descarga varios GB.
+              </p>
+            )}
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={musicWanted}
+                onChange={(e) => setMusicWanted(e.target.checked)}
+              />
+              Quiero generar música desde el chat
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="ghost"
+                className="text-xs"
+                disabled={musicBusy}
+                onClick={async () => {
+                  setMusicBusy(true)
+                  setMusicMsg('Analizando…')
+                  try {
+                    const a = await window.kawaii?.musicAnalyze?.()
+                    const st = (a as { state?: { eligibility?: { summary?: string }; ace?: { present?: boolean } } })?.state
+                    const summary =
+                      st?.eligibility?.summary ||
+                      (a as { eligibility?: { summary?: string } })?.eligibility?.summary ||
+                      'Análisis listo'
+                    setMusicMsg(summary)
+                    setSetupStatus((prev) => ({
+                      ...prev,
+                      musicSummary: summary,
+                      musicEligible: true,
+                      musicInstalled: Boolean(st?.ace?.present)
+                    }))
+                  } catch (e) {
+                    setMusicMsg(e instanceof Error ? e.message : String(e))
+                  } finally {
+                    setMusicBusy(false)
+                  }
+                }}
+              >
+                Analizar PC
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-xs"
+                disabled={musicBusy || !musicWanted}
+                onClick={async () => {
+                  setMusicBusy(true)
+                  setMusicMsg('Instalando ACE-Step (puede tardar mucho)…')
+                  try {
+                    await window.kawaii?.musicInstall?.({})
+                    const s = await window.kawaii?.musicStatus?.()
+                    setSetupStatus((prev) => ({
+                      ...prev,
+                      musicInstalled: true,
+                      musicSummary:
+                        (s as { eligibility?: { summary?: string } })?.eligibility?.summary ||
+                        prev.musicSummary
+                    }))
+                    setMusicMsg('Instalación terminada (o reanudada)')
+                  } catch (e) {
+                    setMusicMsg(e instanceof Error ? e.message : String(e))
+                  } finally {
+                    setMusicBusy(false)
+                  }
+                }}
+              >
+                Instalar ACE-Step
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-xs"
+                disabled={musicBusy || !musicWanted}
+                onClick={async () => {
+                  setMusicBusy(true)
+                  setMusicMsg('Arrancando API…')
+                  try {
+                    const r = await window.kawaii?.musicEnsureReady?.()
+                    const running = (r as { state?: string })?.state === 'running'
+                    setSetupStatus((prev) => ({ ...prev, musicApiRunning: running }))
+                    setMusicMsg(String((r as { message?: string })?.message || 'Listo'))
+                  } catch (e) {
+                    setMusicMsg(e instanceof Error ? e.message : String(e))
+                  } finally {
+                    setMusicBusy(false)
+                  }
+                }}
+              >
+                Arrancar motor
+              </Button>
+            </div>
+            {musicMsg ? (
+              <p className="text-[11px] text-violet-900 bg-violet-50 border border-violet-100 rounded p-2">
+                {musicBusy ? '⏳ ' : ''}
+                {musicMsg}
+              </p>
+            ) : null}
+            <p className="text-[10px] text-kawaii-text-muted">
+              También puedes hacerlo después en Ajustes → Capas → Música.
+            </p>
+            <NavRow onBack={goBack} onNext={goNext} nextLabel="Continuar" />
+          </div>
+        )}
+
+        {step === 'character' && (
+          <div className="card-kawaii p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <User className="w-5 h-5 text-kawaii-pink-deep" />
+              <div>
+                <h2 className="text-xl font-extrabold text-kawaii-text">Personalidad</h2>
+                <p className="text-xs text-kawaii-text-muted">
+                  Quién es el chat contigo: rol, tono y avatar. Puedes afinarlo luego en Ajustes.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold">
+                Nombre
+                <input
+                  className="input-kawaii text-sm w-full mt-0.5"
+                  value={settings.character?.name || ''}
+                  onChange={(e) =>
+                    update({
+                      character: {
+                        ...(settings.character || {}),
+                        name: e.target.value
+                      } as typeof settings.character
+                    })
+                  }
+                  placeholder="Ej. Niamh"
+                />
+              </label>
+              <label className="block text-xs font-semibold">
+                Relación con el usuario
+                <input
+                  className="input-kawaii text-sm w-full mt-0.5"
+                  value={settings.character?.relationshipRole || ''}
+                  onChange={(e) =>
+                    update({
+                      character: {
+                        ...(settings.character || {}),
+                        relationshipRole: e.target.value
+                      } as typeof settings.character
+                    })
+                  }
+                  placeholder="Ej. novia, amiga, asistente…"
+                />
+              </label>
+              <label className="block text-xs font-semibold">
+                Personalidad (breve)
+                <textarea
+                  className="input-kawaii text-sm w-full mt-0.5 min-h-[72px]"
+                  value={settings.character?.personality || ''}
+                  onChange={(e) =>
+                    update({
+                      character: {
+                        ...(settings.character || {}),
+                        personality: e.target.value
+                      } as typeof settings.character
+                    })
+                  }
+                  placeholder="Cálida, directa, con humor…"
+                />
+              </label>
+            </div>
+            <p className="text-[11px] text-kawaii-text-muted rounded border border-dashed border-kawaii-border p-2">
+              En <strong>Ajustes → Asistente guiado</strong> hay una encuesta completa (género, arquetipo,
+              tono) y descripción visual desde el avatar.
+            </p>
+            <NavRow onBack={goBack} onNext={goNext} nextLabel="Continuar" />
+          </div>
+        )}
+
         {step === 'done' && (
           <div className="max-w-md mx-auto text-center space-y-6 py-6">
             <div className="text-6xl">✨</div>
@@ -1392,7 +1631,10 @@ export function SetupWizard({ onComplete }: Props) {
               <p>«Explícame closures en JavaScript»</p>
               <p>«Busca noticias de IA de hoy y resúmelas»</p>
               {imageWanted ? (
-                <p className="mt-1">«/image gato kawaii rosa» o el botón Generar imagen</p>
+                <p className="mt-1">«Haz una foto tuya» o «genera una imagen de un gato»</p>
+              ) : null}
+              {musicWanted ? (
+                <p className="mt-1">«Genera una canción pop sobre un viaje»</p>
               ) : null}
             </div>
             <div className="text-left text-xs text-kawaii-text-muted rounded-kawaii border border-kawaii-border bg-white/80 p-2 space-y-1">
@@ -1402,6 +1644,9 @@ export function SetupWizard({ onComplete }: Props) {
               {setupStatus.ollamaReachable && <p>✓ Ollama reachable</p>}
               {needsLocal && !setupStatus.ollamaReachable && <p>○ Local pendiente (puedes configurarlo luego en Ajustes)</p>}
               {!needsCloud && <p>Cloud no requerido en este modo</p>}
+              {imageWanted && <p>✓ Capa de imagen activada</p>}
+              {musicWanted && <p>✓ Capa de música activada</p>}
+              {setupStatus.characterCustomized && <p>✓ Personalidad tocada</p>}
             </div>
             <Button className="w-full py-3 text-base" onClick={handleFinish} disabled={saving}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}

@@ -1,13 +1,15 @@
 import {
   OllamaProvider,
   OpenAICompatibleProvider,
+  resolveLocalRuntime,
   ChatMessage,
   ChatProvider
 } from '@core/providers'
+import { OpenAIResponsesProvider, isOfficialOpenAI } from '@core/providers/openai-responses'
 import { decideRoute, RoutingContext } from '@core/routing'
 import { globalCircuitBreaker, withRetry } from '@core/resilience'
 import { AppError, classifyProviderError } from '@core/errors'
-import { resolveModelId, resolveModelIdForProvider } from '@core/models/free-cloud-catalog'
+import { resolveModelIdForProvider } from '@core/models/free-cloud-catalog'
 import {
   applyModelMemory,
   recordModelFailure,
@@ -19,8 +21,6 @@ import {
 } from '@core/models/model-memory'
 import {
   packContext,
-  defaultBudget,
-  shrinkBudget,
   summarizeConversation,
   shouldSummarize,
   planContext,
@@ -30,11 +30,9 @@ import {
   type ContextPlan
 } from '@core/conversation'
 // app agent injected in useChat for freshness
-import { buildCharacterSystemPrompt } from '@core/character/profile'
+import { buildCharacterSystemPrompt, appearanceReminder, looksLikeAppearanceQuestion, effectiveVisualDescription } from '@core/character/profile'
 import {
-  buildUserMemoryPrompt,
-  extractUserFactsFromMessage,
-  mergeUserMemory
+  buildUserMemoryPrompt
 } from '@core/conversation/user-memory'
 import {
   orderCloudEndpoints,
@@ -87,14 +85,79 @@ export interface OrchestratorDeps {
   availability?: { localAvailable: boolean; cloudAvailable: boolean }
 }
 
-function buildProviders(
+async function buildProviders(
   settings: Settings,
   apiKey?: string
-): { local: ChatProvider | null; cloud: ChatProvider | null } {
-  const local = new OllamaProvider({
-    baseUrl: settings.localBaseUrl,
-    timeoutMs: settings.localTimeoutMs
-  })
+): Promise<{ local: ChatProvider | null; cloud: ChatProvider | null; localLabel?: string }> {
+  // Transparent local runtime: Ollama OR LM Studio / llama.cpp (OpenAI-compatible)
+  let local: ChatProvider | null = null
+  let localLabel: string | undefined
+  try {
+    let pref =
+      (settings as { localRuntimePreference?: 'auto' | 'ollama' | 'openai-compatible' })
+        .localRuntimePreference || 'auto'
+    const openAIUrl =
+      ((settings as { localOpenAIBaseUrl?: string }).localOpenAIBaseUrl || '').trim() || undefined
+    const modelName = (settings.localModel || '').trim()
+    // qwen2.5:14b-style ids → Ollama; bare LM Studio ids → openai-compatible
+    if (pref === 'auto') {
+      if (modelName.includes(':')) pref = 'ollama'
+      else if (openAIUrl) pref = 'openai-compatible'
+    }
+    const resolved = await resolveLocalRuntime({
+      preference: pref,
+      ollamaBaseUrl: settings.localBaseUrl,
+      openAIBaseUrl: openAIUrl
+    })
+    if (resolved) {
+      const chatTimeout = Math.max(120_000, Number(settings.localTimeoutMs) || 180_000)
+      if (resolved.kind === 'openai-compatible') {
+        local = new OpenAICompatibleProvider({
+          id: 'local-openai',
+          displayName: resolved.label,
+          baseUrl: resolved.baseUrl,
+          apiKey: 'not-needed',
+          timeoutMs: chatTimeout
+        })
+        // Prefer LM Studio loaded model if settings.localModel empty or ollama-only name missing
+        if (resolved.defaultModel && !(settings.localModel || '').trim()) {
+          localLabel = `${resolved.label} (${resolved.kind}) · modelo ${resolved.defaultModel}`
+        } else {
+          localLabel = `${resolved.label} (${resolved.kind})`
+        }
+      } else {
+        local = new OllamaProvider({
+          baseUrl: settings.localBaseUrl,
+          timeoutMs: chatTimeout
+        })
+        localLabel = `${resolved.label} (${resolved.kind})`
+      }
+      if (
+        resolved.kind === 'openai-compatible' &&
+        resolved.defaultModel &&
+        !(settings.localModel || '').trim()
+      ) {
+        try {
+          localLabel += localLabel.includes('modelo') ? '' : ` · modelo ${resolved.defaultModel}`
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } catch {
+    local = new OllamaProvider({
+      baseUrl: settings.localBaseUrl,
+      timeoutMs: settings.localTimeoutMs
+    })
+    localLabel = 'Ollama (fallback)'
+  }
+
+  if (!local) {
+    local = new OllamaProvider({
+      baseUrl: settings.localBaseUrl,
+      timeoutMs: settings.localTimeoutMs
+    })
+  }
 
   const cloud = settings.cloudBaseUrl
     ? new OpenAICompatibleProvider({
@@ -106,7 +169,7 @@ function buildProviders(
       })
     : null
 
-  return { local, cloud }
+  return { local, cloud, localLabel }
 }
 
 async function checkAvailability(
@@ -169,7 +232,7 @@ export async function sendChatMessage(options: {
     settings,
     apiKey,
     providerKeys = {},
-    userContent,
+    userContent: initialUserContent,
     history,
     previousSummary,
     previousSummarySource,
@@ -179,8 +242,9 @@ export async function sendChatMessage(options: {
     deps,
     extraSystem
   } = options
+  let userContent = initialUserContent
   const start = Date.now()
-  const built = buildProviders(settings, apiKey)
+  const built = await buildProviders(settings, apiKey)
   const local = deps?.local !== undefined ? deps.local : built.local
   const cloud = built.cloud
 
@@ -233,6 +297,7 @@ export async function sendChatMessage(options: {
   // Ensure every provider with a stored key is in the queue (not only UI slots)
   const known = [
     { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
+    { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
     { id: 'groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1' },
     { id: 'gemini', name: 'Google AI Studio', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai' }
   ]
@@ -241,21 +306,28 @@ export async function sendChatMessage(options: {
     if (!hasKey) continue
     const existing = slots.find((s) => s.id === k.id)
     if (!existing) {
-      // Only auto-add OpenRouter; other providers must be enabled in Ajustes
-      if (k.id !== 'openrouter') continue
+      // Auto-add OpenRouter + OpenAI when key is stored (user paid/quality path)
+      if (k.id !== 'openrouter' && k.id !== 'openai') continue
       slots.push({
         id: k.id,
         name: k.name,
         baseUrl: k.baseUrl,
         model: resolveModelIdForProvider(k.id, ''),
         enabled: true,
-        priority: 0
+        // OpenAI quality first when present
+        priority: k.id === 'openai' ? -2 : 0
       })
     } else {
       // Respect user toggle: never force-enable a disabled provider
       existing.model = resolveModelIdForProvider(k.id, existing.model || '')
       if (k.id === 'openrouter' && existing.enabled) {
         existing.priority = Math.min(existing.priority, 0)
+      }
+      if (k.id === 'openai' && existing.enabled) {
+        existing.priority = Math.min(existing.priority, -2)
+        if (!(existing.model || '').trim()) {
+          existing.model = resolveModelIdForProvider('openai', 'gpt-4o-mini')
+        }
       }
     }
   }
@@ -332,17 +404,36 @@ export async function sendChatMessage(options: {
     const health = await checkAvailability(
       local,
       cloudQueue[0]
-        ? new OpenAICompatibleProvider({
-            id: cloudQueue[0].id,
-            displayName: cloudQueue[0].name,
-            baseUrl: cloudQueue[0].baseUrl,
-            apiKey: cloudQueue[0].apiKey,
-            timeoutMs: settings.cloudTimeoutMs
-          })
+        ? (isOfficialOpenAI(cloudQueue[0].baseUrl, cloudQueue[0].id)
+            ? new OpenAIResponsesProvider({
+                id: cloudQueue[0].id,
+                displayName: cloudQueue[0].name,
+                baseUrl: cloudQueue[0].baseUrl,
+                apiKey: cloudQueue[0].apiKey,
+                timeoutMs: settings.cloudTimeoutMs
+              })
+            : new OpenAICompatibleProvider({
+                id: cloudQueue[0].id,
+                displayName: cloudQueue[0].name,
+                baseUrl: cloudQueue[0].baseUrl,
+                apiKey: cloudQueue[0].apiKey,
+                timeoutMs: settings.cloudTimeoutMs
+              }))
         : cloud
     )
     localAvailable = health.localAvailable
     cloudAvailable = health.cloudAvailable || cloudQueue.length > 0
+  }
+
+  // Optimistic local: if user configured a local model + runtime, try it even when
+  // a quick health probe failed (Ollama waking up, LM Studio JIT load, etc.)
+  const localModelConfigured = Boolean((settings.localModel || '').trim() && local)
+  if (
+    !localAvailable &&
+    localModelConfigured &&
+    settings.providerMode !== 'cloud'
+  ) {
+    localAvailable = true
   }
 
 
@@ -422,6 +513,36 @@ export async function sendChatMessage(options: {
     systemMessages.push({ role: 'system', content: extraSystem.trim() })
   }
 
+  // Local models often ignore long system prose — reinforce appearance facts on demand
+  try {
+    const charForLook = {
+      name: settings.character?.name || 'Kawaii',
+      tagline: settings.character?.tagline || '',
+      personality: settings.character?.personality || '',
+      style: settings.character?.style || '',
+      visualEmoji: settings.character?.visualEmoji || '🌸',
+      visualImageUrl: settings.character?.visualImageUrl,
+      visualDescription: settings.character?.visualDescription,
+      visualFromAvatar: settings.character?.visualFromAvatar,
+      relationshipRole: settings.character?.relationshipRole,
+      traits: Array.isArray(settings.character?.traits) ? settings.character.traits : []
+    }
+    if (looksLikeAppearanceQuestion(userContent)) {
+      const tip = appearanceReminder(charForLook)
+      if (tip) systemMessages.push({ role: 'system', content: tip })
+      const facts = effectiveVisualDescription(charForLook)
+      if (facts) {
+        // Local models (Qwen etc.) often ignore system — put facts in the user turn
+        userContent =
+          `[Ficha física de ${charForLook.name} — USA SOLO ESTO al describirte]\n` +
+          facts +
+          `\n\nPregunta del usuario: ${userContent}`
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
   if (decision.useWebSearch && typeof window !== 'undefined' && window.kawaii) {
     try {
       const results = await window.kawaii.webSearch(
@@ -477,9 +598,13 @@ export async function sendChatMessage(options: {
   const olderCount = Math.max(0, history.length - budgetHint.keepRecentMessages)
   // Local models: never spend a full LLM turn on summary (slow + steals context).
   // Use rolling heuristic/pack only. Cloud keeps model summary when the window is tight.
-  const routeIsLocal = decision.target === 'local' || settings.providerMode === 'local'
+  const localHistoryChars = history.reduce((total, message) => total + message.content.length, 0)
+  const localVeryLongHistory =
+    (decision.target === 'local' || settings.providerMode === 'local') &&
+    (olderCount > 24 || localHistoryChars > 1_800)
   const needsFreshSummary =
-    !routeIsLocal &&
+    !contextPlan.isTight &&
+    !localVeryLongHistory &&
     (contextPlan.forceSummary ||
       shouldSummarize(history.length, budgetHint.keepRecentMessages, 10)) &&
     olderCount > summaryCoveredCount &&
@@ -531,7 +656,7 @@ export async function sendChatMessage(options: {
       openrouter: 'openrouter/free',
       gemini: 'gemini-2.0-flash',
       groq: 'llama-3.1-8b-instant',
-      openai: 'gpt-4o-mini'
+      openai: 'gpt-5.6-luna'
     }
     cloudQueue = cloudQueue.map((ep) => {
       const preferred = wideMap[ep.id]
@@ -581,6 +706,8 @@ export async function sendChatMessage(options: {
         reason:
           attempt > 0
             ? `${reason} · reintento con contexto reducido (${attempt + 1}/3)`
+            : contextPlan.isTight
+              ? `${reason} · contexto reducido para dejar margen de respuesta`
             : activeSummary
               ? `${reason} · contexto con resumen ${activeSummarySource ?? 'previo'}`
               : reason,
@@ -627,6 +754,12 @@ export async function sendChatMessage(options: {
         lastErr = appErr
 
         if (appErr.code === 'CONTEXT_OVERFLOW' && attempt < 2) {
+          callbacks.onRoute?.({
+            ...routeInfo,
+            reason: `${routeInfo.reason} · reintento con contexto reducido (${attempt + 2}/3)`,
+            contextPacked: true,
+            at: Date.now()
+          })
           currentBudget = aggressiveShrink(currentBudget, attempt + 1)
           // Also drop maxTokens a bit to leave room
           maxTokens = Math.max(256, Math.floor(maxTokens * 0.7))
@@ -648,21 +781,30 @@ export async function sendChatMessage(options: {
   }
 
   const tryLocal = (reason: string, failover = false) => {
-    if (!local || !localModel) {
+    let modelId = (localModel || '').trim()
+    if (!local) {
       throw new AppError({
         code: 'PROVIDER_UNAVAILABLE',
-        message: 'Modelo local no configurado',
+        message: 'Runtime local no disponible (Ollama/LM Studio)',
+        retryable: true
+      })
+    }
+    if (!modelId) {
+      throw new AppError({
+        code: 'PROVIDER_MODEL_NOT_FOUND',
+        message:
+          'No hay modelo local seleccionado. En Ajustes → Modelo local elige uno de Ollama o LM Studio (cargado en el servidor).',
         retryable: false
       })
     }
-    const localBudget = budgetForModel(localModel, 'local')
+    const localBudget = budgetForModel(modelId, 'local')
     const reasonWithCtx =
       contextPlan.isTight || contextPlan.forceSummary
         ? `${reason} · ${contextPlan.note}`
         : reason
     return runOn(
       local,
-      localModel,
+      modelId,
       'local',
       reasonWithCtx,
       decision.temperature ?? settings.temperature,
@@ -676,20 +818,31 @@ export async function sendChatMessage(options: {
     (injectedCloud ?? []).map((item) => [item.endpoint.id, item.provider] as const)
   )
 
-  const tryCloudEndpoint = (
-    endpoint: CloudEndpointWithKey,
-    reason: string,
-    failover = false
-  ) => {
-    const provider =
-      injectedById.get(endpoint.id) ??
-      new OpenAICompatibleProvider({
+  const makeCloudProvider = (endpoint: CloudEndpointWithKey) => {
+    if (isOfficialOpenAI(endpoint.baseUrl, endpoint.id)) {
+      return new OpenAIResponsesProvider({
         id: endpoint.id,
         displayName: endpoint.name,
         baseUrl: endpoint.baseUrl,
         apiKey: endpoint.apiKey,
         timeoutMs: settings.cloudTimeoutMs
       })
+    }
+    return new OpenAICompatibleProvider({
+      id: endpoint.id,
+      displayName: endpoint.name,
+      baseUrl: endpoint.baseUrl,
+      apiKey: endpoint.apiKey,
+      timeoutMs: settings.cloudTimeoutMs
+    })
+  }
+
+  const tryCloudEndpoint = (
+    endpoint: CloudEndpointWithKey,
+    reason: string,
+    failover = false
+  ) => {
+    const provider = injectedById.get(endpoint.id) ?? makeCloudProvider(endpoint)
     const cloudBudget = budgetForModel(endpoint.model, 'cloud')
     const reasonWithCtx =
       contextPlan.isTight || contextPlan.forceSummary
@@ -886,10 +1039,38 @@ export async function sendChatMessage(options: {
         return
       } catch (err) {
         const appErr = AppError.fromUnknown(err)
-        if (cloudQueue.length > 0) {
+        // Forced local mode: never silent OpenRouter
+        if (settings.providerMode === 'local') {
+          throw new AppError({
+            code: appErr.code,
+            message:
+              `Modelo local falló (${appErr.code}): ${appErr.message}. ` +
+              `Revisa Ollama/LM Studio (servidor activo + modelo cargado: ${settings.localModel || 'sin modelo'}). ` +
+              (appErr.code === 'PROVIDER_TIMEOUT'
+                ? 'El modelo puede estar cargando (LM Studio JIT); espera e inténtalo de nuevo.'
+                : ''),
+            provider: appErr.provider || local?.id,
+            retryable: true
+          })
+        }
+        // Timeout / unavailable local → prefer clear error over fake RATE_LIMIT cloud spam
+        if (
+          cloudQueue.length > 0 &&
+          appErr.code !== 'PROVIDER_TIMEOUT' &&
+          appErr.code !== 'STREAM_ABORTED'
+        ) {
           globalCircuitBreaker.recordFailure(local?.id ?? 'ollama', appErr.message)
           await tryCloudQueue(
-            `Failover automático → cloud (${appErr.code}: ${decision.reason})`,
+            `Failover tras fallo local [${appErr.code}] ${appErr.message.slice(0, 80)} · modelo=${settings.localModel || '?'}`,
+            true
+          )
+          return
+        }
+        if (appErr.code === 'PROVIDER_TIMEOUT' && cloudQueue.length > 0) {
+          // One soft cloud fallback only after local timeout, with explicit reason
+          globalCircuitBreaker.recordFailure(local?.id ?? 'local-openai', appErr.message)
+          await tryCloudQueue(
+            `Local timeout (${settings.localModel || 'modelo'}) — cloud temporal`,
             true
           )
           return

@@ -107,7 +107,7 @@ export function CharacterSetupAssistant({
     setMsg('Analizando avatar…')
     try {
       const key = (await getOpenRouterKey?.()) || ''
-      const res = await describeAvatarFromDataUrl(avatarUrl, {
+      let res = await describeAvatarFromDataUrl(avatarUrl, {
         apiKey: key,
         characterName: name || preview.name
       })

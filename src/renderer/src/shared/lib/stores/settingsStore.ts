@@ -48,10 +48,21 @@ function safeParseSettings(raw: unknown): Settings {
           typeof charRaw.relationshipRole === 'string'
             ? charRaw.relationshipRole
             : DEFAULT_SETTINGS.character.relationshipRole,
-        visualDescription:
-          typeof charRaw.visualDescription === 'string'
-            ? charRaw.visualDescription
-            : DEFAULT_SETTINGS.character.visualDescription,
+        visualDescription: (() => {
+          const raw =
+            typeof charRaw.visualDescription === 'string'
+              ? charRaw.visualDescription.trim()
+              : ''
+          // Drop legacy weak fallback that made the chat invent nothing useful
+          if (
+            !raw ||
+            /aspecto definido por el avatar/i.test(raw) ||
+            /rasgos coherentes con esa imagen/i.test(raw)
+          ) {
+            return ''
+          }
+          return raw
+        })(),
         visualFromAvatar:
           typeof charRaw.visualFromAvatar === 'boolean'
             ? charRaw.visualFromAvatar

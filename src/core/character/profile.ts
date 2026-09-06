@@ -19,7 +19,13 @@ export interface CharacterProfile {
    */
   relationshipRole?: string
   relationshipReaction?: string
-  relationshipHistory?: { at: string; fromRole: string; toRole: string; trigger: string; reaction: string }[]
+  relationshipHistory?: {
+    at: number
+    fromRole: string
+    toRole: string
+    trigger: string
+    reaction: string
+  }[]
   traits: string[]
 }
 
@@ -38,6 +44,10 @@ export const DEFAULT_CHARACTER: CharacterProfile = {
   traits: ['amable', 'directo', 'curioso']
 }
 
+/**
+ * Build system prompt. Keep identity blocks SHORT and FACTUAL — small local models
+ * follow concrete lists better than long prose (best practice for 7–14B).
+ */
 export function buildCharacterSystemPrompt(
   character: CharacterProfile,
   extraSystem?: string
@@ -48,62 +58,75 @@ export function buildCharacterSystemPrompt(
       : ''
 
   const hasAvatar = Boolean(character.visualImageUrl && character.visualImageUrl.trim())
-  const visualDesc = (character.visualDescription || '').trim()
+  const visualDesc = effectiveVisualDescription(character)
   const role = (character.relationshipRole || '').trim()
+  const reaction = (character.relationshipReaction || '').trim()
+  const history = character.relationshipHistory || []
+  const lastShift = history.length ? history[history.length - 1] : null
 
   const identityBlock = [
-    `# Identidad fija (no la inventes ni la contradigas)`,
-    `Tu nombre es exactamente: ${character.name}.`,
-    character.tagline ? `Frase / vibe: ${character.tagline}` : '',
-    traits ? `Rasgos de personalidad: ${traits}.` : '',
-    `Debes responder siempre como ${character.name}. No digas que eres un modelo genérico (GPT, Claude, Llama, etc.) salvo que el usuario pregunte por la infraestructura técnica.`
+    `# Identidad`,
+    `Nombre: ${character.name}`,
+    character.tagline ? `Vibe: ${character.tagline}` : '',
+    traits ? `Rasgos: ${traits}` : '',
+    `Responde siempre como ${character.name}. No digas que eres un LLM genérico salvo pregunta técnica.`
   ]
     .filter(Boolean)
     .join('\n')
 
-  const reaction = (character.relationshipReaction || '').trim()
-  const history = character.relationshipHistory || []
-  const lastShift = history.length ? history[history.length - 1] : null
   const relationshipBlock = role
     ? [
         `# Relación con el usuario`,
-        `Tu rol / vínculo actual con quien te habla: ${role}.`,
-        reaction
-          ? `Tu reacción auténtica a este vínculo (mantiene coherencia emocional): ${reaction}`
-          : '',
+        `Rol actual: ${role}`,
+        reaction ? `Reacción auténtica a este vínculo: ${reaction}` : '',
         lastShift
-          ? `Último cambio de relación (${new Date(lastShift.at).toLocaleString()}): de «${lastShift.fromRole}» a «${lastShift.toRole}» porque ${lastShift.trigger}. Tu reacción entonces: ${lastShift.reaction}`
+          ? `Último cambio: «${lastShift.fromRole}» → «${lastShift.toRole}» (${lastShift.trigger}). Reacción: ${lastShift.reaction}`
           : '',
-        `Mantén ese tono de relación de forma coherente (cercanía, formalidad, cuidado) en todas las respuestas.`,
-        `Si el usuario redefine el vínculo de forma clara y consentida, puedes reconocerlo con naturalidad; la app actualizará el rol en ajustes.`
+        `Mantén coherencia de tono con este rol.`
       ]
         .filter(Boolean)
         .join('\n')
     : ''
 
-  const visualBlock = [
-    `# Apariencia y avatar`,
-    character.visualEmoji
-      ? `Símbolo / emoji asociado a ti: ${character.visualEmoji}`
-      : '',
-    hasAvatar
-      ? character.visualFromAvatar && visualDesc
-        ? `Tu aspecto oficial viene del AVATAR que el usuario configuró en la app. Descripción derivada de esa imagen (canónica): ${visualDesc}. Cuando te pidan cómo te ves, un retrato, selfie, o “una imagen de ti”, usa SOLO esta descripción (identidad visual fija). En generación de imágenes de ti misma, el prompt debe basarse en esta descripción + el avatar; no inventes otro look.`
-        : visualDesc
-          ? `Tienes un avatar de imagen configurado. Descripción visual canónica: ${visualDesc}. Al descríbete, alinea con el avatar y esta descripción.`
-          : `Tienes un avatar de imagen configurado por el usuario: es tu aspecto oficial. Si te piden descripción física, describe un retrato coherente con un avatar de personaje (rostro, cabello, expresión) y mantén esa descripción estable en el chat.`
-      : visualDesc
-        ? `Descripción visual canónica: ${visualDesc}`
-        : `No hay avatar ni descripción física detallada; si preguntan cómo te ves, inventa algo coherente con nombre/vibe/emoji y no lo cambies después.`,
-  ]
-    .filter(Boolean)
-    .join('\n')
+  // Hard FACTS for appearance — never invite inventing placeholders
+  let visualBlock = ''
+  if (visualDesc) {
+    visualBlock = [
+      `# Apariencia física (HECHOS — no inventes otros)`,
+      `Descripción canónica de tu cuerpo/rostro:`,
+      visualDesc,
+      hasAvatar ? `Hay un avatar de imagen configurado; esta descripción es la referencia oficial.` : '',
+      character.visualEmoji ? `Emoji asociado: ${character.visualEmoji}` : '',
+      `REGLAS:`,
+      `- Si preguntan cómo te ves / descríbete / apariencia: copia y parafrasea SOLO los hechos de arriba (cabello, ojos, rostro, estilo).`,
+      `- PROHIBIDO usar placeholders tipo "[Descripción del cabello]" o "según el avatar" sin detalle.`,
+      `- PROHIBIDO inventar otro look. Si falta un detalle en la descripción, dilo con naturalidad o omítelo.`,
+      `- Para "foto tuya" / selfie, el generador de imágenes usará esta misma descripción.`
+    ]
+      .filter(Boolean)
+      .join('\n')
+  } else if (hasAvatar) {
+    visualBlock = [
+      `# Apariencia`,
+      `Tienes un avatar de imagen, pero aún NO hay descripción textual detallada.`,
+      `Si preguntan cómo te ves: di con honestidad que tu referencia es el avatar en Ajustes y pide al usuario que pulse "Generar descripción desde avatar" o escriba tu descripción física.`,
+      `No inventes rasgos concretos que no estén configurados.`
+    ].join('\n')
+  } else {
+    visualBlock = [
+      `# Apariencia`,
+      character.visualEmoji ? `Emoji: ${character.visualEmoji}` : '',
+      `No hay descripción física configurada. Si preguntan cómo te ves, dilo y sugiere configurarla en Ajustes.`
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
 
   const behaviorBlock = [
     `# Comportamiento`,
     character.personality || '',
-    character.style ? `Estilo de respuesta: ${character.style}` : '',
-    `Cuando pregunten por tu nombre, rol, personalidad o aspecto, usa esta ficha — no improvises otra identidad.`
+    character.style ? `Estilo: ${character.style}` : '',
+    `Usa esta ficha; no improvises otra identidad.`
   ]
     .filter(Boolean)
     .join('\n')
@@ -113,13 +136,49 @@ export function buildCharacterSystemPrompt(
     .join('\n\n')
 }
 
+/** Extra system nudge when the user asks about appearance (local models need this). */
+export function appearanceReminder(character: CharacterProfile): string | null {
+  const q = effectiveVisualDescription(character)
+  if (!q) {
+    return (
+      '[Apariencia] NO tienes descripción física detallada guardada (solo avatar o texto vacío/genérico). ' +
+      'Responde con honestidad: pide al usuario que en Ajustes pulse "Generar descripción desde avatar" ' +
+      '(necesita OpenRouter o un modelo vision en Ollama como llava). ' +
+      'PROHIBIDO inventar cabello/ojos ni usar frases como "definido por el avatar" o placeholders entre corchetes.'
+    )
+  }
+  return (
+    `[DATOS FÍSICOS OBLIGATORIOS — copia estos hechos en tu respuesta]\n` +
+    `${q}\n\n` +
+    `Redacta 2–5 frases en primera persona con ESOS detalles (cabello, ojos, rostro, estilo). ` +
+    `PROHIBIDO: "según el avatar", "rasgos característicos" sin especificar, corchetes, inventar otros rasgos.`
+  )
+}
+
+export function effectiveVisualDescription(character: CharacterProfile): string {
+  const t = (character.visualDescription || '').trim()
+  if (!t) return ''
+  if (/aspecto definido por el avatar/i.test(t)) return ''
+  if (/rasgos coherentes con esa imagen/i.test(t)) return ''
+  if (t.length < 24) return ''
+  if (
+    !/\b(cabello|pelo|ojos|piel|rostro|cara|labios|nariz|cejas|ropa|estilo|anime|realista|hair|eyes|eye|skin|face|lips|nose|dress|clothing|woman|girl|portrait|red|blonde|brunette)\b/i.test(
+      t
+    )
+  ) {
+    return ''
+  }
+  return t
+}
+
+export function looksLikeAppearanceQuestion(text: string): boolean {
+  return /\b(describ\w*|apariencia|c[oó]mo\s+te\s+ves|c[oó]mo\s+eres\s+f[ií]sic|aspecto\s+f[ií]sic|qu[eé]\s+tal\s+est[aá]s\s+de\s+look|tu\s+look|f[ií]sicamente)\b/i.test(
+    text
+  )
+}
+
 export function characterIdentitySummary(character: CharacterProfile): string {
-  return [
-    character.name,
-    character.visualEmoji,
-    character.relationshipRole,
-    character.tagline
-  ]
+  return [character.name, character.visualEmoji, character.relationshipRole, character.tagline]
     .filter(Boolean)
     .join(' · ')
 }

@@ -3,6 +3,7 @@
  */
 
 import type { CharacterProfile } from '../character/profile'
+import { effectiveVisualDescription } from '../character/profile'
 import type { GenerativePlan } from './types'
 import { composeImagePrompt, resolveImageSize } from './prompt-compose'
 
@@ -56,6 +57,29 @@ export function sanitizeUserMediaPrompt(raw: string): string {
     .trim()
 }
 
+
+/** Pull hard visual tokens from free-text description for SD weighting */
+function lookTraitsFromDescription(look: string): string {
+  const t = look.toLowerCase()
+  const tags: string[] = []
+  if (/cabello\s+rojo|pelo\s+rojo|red\s+hair|ginger|pelirroj/i.test(look)) {
+    tags.push('(long wavy red hair:1.35)', 'auburn red hair', 'ginger hair')
+  } else if (/rubia|blonde|cabello\s+rubio|pelo\s+rubio/i.test(look)) {
+    tags.push('(blonde hair:1.3)')
+  } else if (/casta[nñ]o|brunette|brown hair|pelo\s+casta/i.test(look)) {
+    tags.push('(brown hair:1.25)')
+  } else if (/negro|black hair|pelo\s+negro|cabello\s+negro/i.test(look)) {
+    tags.push('(black hair:1.25)')
+  }
+  if (/ojos\s+verdes|green eyes/i.test(look)) tags.push('(green eyes:1.2)')
+  if (/ojos\s+azules|blue eyes/i.test(look)) tags.push('(blue eyes:1.2)')
+  if (/ojos\s+(caf[eé]|marr[oó]n|brown)|brown eyes/i.test(look)) tags.push('(brown eyes:1.15)')
+  if (/p[aá]lida|fair skin|piel clara/i.test(look)) tags.push('fair skin')
+  if (/vestido\s+rojo|red dress/i.test(look)) tags.push('red dress')
+  if (/cuero|leather/i.test(look)) tags.push('black leather outfit')
+  return tags.join(', ')
+}
+
 export function bridgeImageRequest(
   userPrompt: string,
   opts: {
@@ -74,7 +98,7 @@ export function bridgeImageRequest(
   const size = resolveImageSize(opts.width ?? 768, opts.height ?? 1024, parsed)
 
   const asksForCharacter =
-    /\b(tuya|tuyo|tuya para|foto tuya|imagen tuya|de ti(?:\s+misma)?|como t[uú]|tu avatar|autorretrato|selfie tuya|retrátate|retratate)\b/i.test(
+    /\b(tuya|tuyo|foto tuya|imagen tuya|de ti(?:\s+misma)?|como t[uú]|tu avatar|autorretrato|selfie|env[ií]a(?:me|rme).*foto|m[aá]nda(?:me|rme).*foto)\b/i.test(
       userPrompt
     ) ||
     (opts.character?.name
@@ -84,41 +108,65 @@ export function bridgeImageRequest(
         ).test(userPrompt)
       : false)
 
-  // Self-portrait: lead with identity, not a weak suffix (avoids random dual subjects)
-  if (
-    opts.useCharacterStyle !== false &&
-    opts.character &&
-    asksForCharacter
-  ) {
+  // Self-portrait: identity FIRST (ChatGPT/Grok-style consistent character)
+  if (opts.useCharacterStyle !== false && opts.character && asksForCharacter) {
     const name = (opts.character.name || 'character').trim()
-    const look = (opts.character.visualDescription || '').trim().slice(0, 280)
-    const vibe = (opts.character.tagline || '').trim().slice(0, 80)
-    // Keep scene hints from user after stripping "foto tuya / genera..."
+    const look = (
+      effectiveVisualDescription(opts.character) ||
+      (opts.character.visualDescription || '').trim()
+    ).slice(0, 480)
     const scene = sanitizeUserMediaPrompt(userPrompt)
       .replace(
-        /\b(genera|generame|genérame|crea|haz|dibuja|ilustra|una|un|foto|imagen|retrato|picture|image|photo|tuya|tuyo|de ti|misma|mismo|por favor|please)\b/gi,
+        /\b(genera|generame|genérame|crea|haz|dibuja|env[ií]a(?:me|rme)|m[aá]nda(?:me|rme)|muéstrame|muestrame|una|un|foto|imagen|retrato|picture|image|photo|tuya|tuyo|de ti|misma|mismo|por favor|please|selfie|autorretrato)\b/gi,
         ' '
       )
       .replace(/\s+/g, ' ')
       .trim()
+    // Keep look near the start of the prompt (SD pays more attention to early tokens)
+    const traitTags = look ? lookTraitsFromDescription(look) : ''
     const identity = look
-      ? `solo portrait of one young woman named ${name}, ${look}`
-      : `solo portrait of one character named ${name}${vibe ? `, ${vibe}` : ''}`
+      ? `(masterpiece:1.2), (best quality:1.15), photorealistic portrait of ${name}, ${traitTags ? traitTags + ', ' : ''}(${look}:1.3)`
+      : `(masterpiece:1.1), photorealistic portrait of one young woman named ${name}`
     prompt = [
       identity,
-      'single person, one face only, looking at camera, natural expression',
-      scene && scene.length > 3 ? scene : 'upper body, soft natural light',
-      'photorealistic, detailed face, coherent identity, no duplicate people'
+      'solo one person, single subject, one face only, looking at camera',
+      'upper body headshot, shallow depth of field, soft natural light, realistic skin texture',
+      scene && scene.length > 3 ? scene : '',
+      'coherent identity matching description, detailed face, sharp eyes, accurate hair color'
     ]
       .filter(Boolean)
       .join(', ')
+    const antiHair = /red hair|pelirroj|cabello rojo|pelo rojo/i.test(look)
+      ? '(black hair:1.2), (brown hair:1.2), (brunette:1.2), (blonde hair:1.15),'
+      : ''
     negativePrompt = [
       negativePrompt,
-      'two people, twin, clone, duplicate face, multiple faces, crowd, couple, second person, mirror clone, extra head'
+      antiHair,
+      '(two people:1.4), (twin:1.3), (clone:1.3), (duplicate:1.3), (multiple faces:1.4), (double face:1.4),',
+      'extra head, second person, couple, crowd, mirror image, split face, fused faces,',
+      'deformed face, asymmetrical eyes, blurry, lowres, worst quality, watermark, text, wrong hair color'
     ]
       .filter(Boolean)
-      .join(', ')
+      .join(' ')
   }
+  // Any human portrait: force single subject (SD often doubles faces otherwise)
+  const looksHumanPortrait =
+    /\b(chica|chico|mujer|hombre|girl|woman|man|person|retrato|portrait|cara|face|ojos|eyes|selfie)\b/i.test(
+      userPrompt
+    ) || parsed.isPortrait || parsed.isPhoto
+  if (looksHumanPortrait && !asksForCharacter) {
+    prompt = [
+      prompt,
+      'solo one person, single subject, one face only, looking at camera',
+      'upper body headshot, coherent anatomy'
+    ].join(', ')
+    negativePrompt = [
+      negativePrompt,
+      '(two people:1.45), (multiple faces:1.5), (double face:1.5), twins, clone, extra head,',
+      'second person, couple, crowd, mirror image, split face, fused faces'
+    ].join(' ')
+  }
+
   if (opts.extraStyle) prompt = `${prompt} ${opts.extraStyle}`
 
   return {

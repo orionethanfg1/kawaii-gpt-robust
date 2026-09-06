@@ -8,8 +8,7 @@ import {
   recordModelFailure,
   suggestSafeModel,
   isModelBlocked,
-  applyModelMemory,
-  markProviderCooldown
+  applyModelMemory
 } from '@core/models/model-memory'
 import { SAFE_DEFAULT_MODEL } from '@core/models/free-cloud-catalog'
 

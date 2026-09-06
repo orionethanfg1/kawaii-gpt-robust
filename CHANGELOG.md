@@ -1,3 +1,65 @@
+## 0.8.24
+
+- Adaptador local OpenAI-compatible: detección automática de LM Studio / llama.cpp / Ollama shim.
+- Bootstrap transparente: inicia Ollama, descarga visión (moondream/llava) si hace falta, rellena descripción del avatar.
+- Router local usa runtime resuelto (auto) sin que el usuario elija puerto.
+
+## 0.8.22
+
+- Prioridad 1: herramientas de modelos — list_installed_models, download_model, pause/resume/cancel_download, delete_model, list_download_jobs.
+- Catálogo ampliado (Qwen 7B/14B, Llama 3.1 8B, LLaVA, Phi-3). Sync de instalados desde Ollama.
+- Aprobación UI para descarga y borrado.
+
+## 0.8.21
+
+- Agente: segundo micro-turno real tras ejecutar herramientas (observaciones estructuradas → modelo).
+- Sync con plan de continuidad 0.8.20 + docs.
+
+## 0.8.20
+
+- Agente: bucle multi-turno observe/decide/execute/observe con presupuesto de turnos.
+- Auditoría: registro saneado de herramientas, riesgos, aprobaciones, resultados y duración.
+- Modelos: herramientas de listar, recomendar, comprobar runtime y activar modelos conocidos.
+- Routing: selección por capacidades de chat, código, visión, tools y resumen.
+- Runtime: contrato `LocalRuntimeAdapter` para Ollama, llama.cpp y OpenAI-compatible.
+- Catálogo: verificación opcional antes de aceptar actualizaciones remotas.
+- Evolución: persistencia validada de propuestas de mejora.
+- Validación: 53 tests, typecheck, verify y build correctos.
+
+## 0.8.19
+
+- TypeScript: typecheck completo limpio en main, preload y renderer.
+- Contexto local: historial completo cuando cabe; compactacion solo por limite real o overflow.
+- Seguridad: aprobacion no modal para iniciar Ollama o Forge desde el agente.
+- UI: solicitudes de permiso visibles con permitir/rechazar.
+
+## 0.8.18
+
+- Harness: runtime multi-paso con limites de pasos, timeout, validacion Zod y politica de permisos.
+- Chat: acciones del agente conectadas al runtime con limite de cuatro pasos, timeout y deduplicacion.
+- Contexto local: conserva el historial completo cuando cabe y reduce solo por exceso real o `CONTEXT_OVERFLOW`.
+- Seguridad: arranque de Forge/Ollama desde el agente requiere confirmacion explicita.
+- Tests: 50 tests pasan; typecheck queda con 20 diagnósticos heredados de UI/Forge.
+- Modelos: registro offline-first con capacidades, requisitos, runtime, licencia y checksum opcional.
+- Catalogo: sincronizacion remota con timeout y fallback seguro a cache o catalogo embebido.
+- Arranque: refresco del catalogo en segundo plano con `KAWAII_MODEL_CATALOG_URL` opcional.
+- Evolucion controlada: propuestas revisables sin auto-modificacion del codigo ni de los pesos.
+- Base: contrato preload/renderer unificado y soporte de resumen local cuando el contexto lo requiere.
+
+### Pendiente de integracion
+
+- Conectar `AgentRuntime` al ciclo completo del chat y devolver resultados al modelo.
+- Conectar `ModelRegistry` al arranque de Electron y a la UI de descargas.
+- Añadir dialogos de aprobacion para acciones de recursos y destructivas.
+- Limpiar los errores TypeScript heredados del renderer y completar los tests de retry.
+
+## 0.8.16
+
+- Chat: apariencia física con hechos canónicos (sin placeholders); refuerzo en preguntas de descripción.
+- Router: prioriza cloud en prompts complejos cuando está disponible (inteligencia primero).
+- Descargas: purge de jobs completados/fantasma; mensajes de recovery más claros.
+- Forge: auto-arranque solo si hay instalación detectada; timeout ampliado.
+
 ## [0.6.1] — 2026-09-01
 
 ### Fixed

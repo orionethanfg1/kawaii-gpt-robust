@@ -250,7 +250,6 @@ export async function listInstalledCheckpoints(): Promise<
     return out
   }
   for (const entry of CHECKPOINT_CATALOG) {
-    const candidates = [entry.filename, ...names.filter((n) => n === entry.filename)]
     const loose = names.find(
       (n) =>
         n.toLowerCase() === entry.filename.toLowerCase() ||
