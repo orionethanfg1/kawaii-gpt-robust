@@ -1,234 +1,107 @@
-import {
-  ChatProvider,
-  ChatCompletionRequest,
-  ChatCompletionResult,
-  ChatCompletionChunk,
-  ModelInfo,
-  ProviderHealth
-} from './types'
+import type { ChatProvider, ChatRequest, ChatResult, ChatChunk, HealthResult } from './types'
 import { AppError, classifyProviderError } from '../errors'
-
-export interface OllamaProviderOptions {
-  baseUrl?: string
-  timeoutMs?: number
-}
 
 export class OllamaProvider implements ChatProvider {
   readonly id = 'ollama'
-  readonly kind = 'ollama' as const
-  readonly displayName = 'Ollama (Local)'
-
+  readonly displayName = 'Ollama'
   private baseUrl: string
   private timeoutMs: number
 
-  constructor(options: OllamaProviderOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? 'http://localhost:11434').replace(/\/$/, '')
-    this.timeoutMs = options.timeoutMs ?? 120_000
+  constructor(opts?: { baseUrl?: string; timeoutMs?: number }) {
+    this.baseUrl = (opts?.baseUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '')
+    this.timeoutMs = opts?.timeoutMs ?? 180_000
   }
 
-  private async fetchWithTimeout(
-    path: string,
-    init: RequestInit = {},
-    signal?: AbortSignal
-  ): Promise<Response> {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
-
-    const onAbort = () => controller.abort()
-    signal?.addEventListener('abort', onAbort)
-
+  async healthCheck(): Promise<HealthResult> {
+    const t0 = Date.now()
     try {
-      const res = await fetch(`${this.baseUrl}${path}`, {
-        ...init,
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(init.headers ?? {})
-        }
+      const res = await fetch(`${this.baseUrl}/api/tags`, {
+        signal: AbortSignal.timeout(5_000)
       })
-      return res
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        throw new AppError({
-          code: 'PROVIDER_TIMEOUT',
-          message: `Ollama request timed out after ${this.timeoutMs}ms`,
-          provider: this.id,
-          retryable: true
-        })
-      }
-      throw classifyProviderError(String(err), this.id)
-    } finally {
-      clearTimeout(timeout)
-      signal?.removeEventListener('abort', onAbort)
+      return { ok: res.ok, latencyMs: Date.now() - t0, error: res.ok ? undefined : `HTTP ${res.status}` }
+    } catch (e) {
+      return { ok: false, latencyMs: Date.now() - t0, error: e instanceof Error ? e.message : String(e) }
     }
   }
 
-  async healthCheck(signal?: AbortSignal): Promise<ProviderHealth> {
-    const start = Date.now()
+  async chat(request: ChatRequest): Promise<ChatResult> {
     try {
-      const res = await this.fetchWithTimeout('/api/tags', { method: 'GET' }, signal)
-      if (!res.ok) {
-        return { ok: false, latencyMs: Date.now() - start, error: `HTTP ${res.status}` }
-      }
-      const data = (await res.json()) as { models?: unknown[] }
-      return {
-        ok: true,
-        latencyMs: Date.now() - start,
-        modelsCount: data.models?.length ?? 0
-      }
-    } catch (err) {
-      return {
-        ok: false,
-        latencyMs: Date.now() - start,
-        error: err instanceof Error ? err.message : String(err)
-      }
-    }
-  }
-
-  async listModels(signal?: AbortSignal): Promise<ModelInfo[]> {
-    const res = await this.fetchWithTimeout('/api/tags', { method: 'GET' }, signal)
-    if (!res.ok) {
-      throw classifyProviderError(`Failed to list models: HTTP ${res.status}`, this.id)
-    }
-    const data = (await res.json()) as {
-      models?: Array<{
-        name: string
-        size?: number
-        details?: { family?: string; parameter_size?: string; quantization_level?: string }
-      }>
-    }
-
-    return (data.models ?? []).map((m) => ({
-      id: m.name,
-      name: m.name,
-      sizeBytes: m.size,
-      family: m.details?.family,
-      parameterSize: m.details?.parameter_size,
-      quantization: m.details?.quantization_level,
-      isLocal: true
-    }))
-  }
-
-  async chat(request: ChatCompletionRequest): Promise<ChatCompletionResult> {
-    const res = await this.fetchWithTimeout(
-      '/api/chat',
-      {
+      const res = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: request.model,
-          messages: request.messages,
+          messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
           stream: false,
           options: {
             temperature: request.temperature,
             num_predict: request.maxTokens
           }
-        })
-      },
-      request.signal
-    )
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw classifyProviderError(text || `HTTP ${res.status}`, this.id)
-    }
-
-    const data = (await res.json()) as {
-      message?: { content?: string }
-      model?: string
-      eval_count?: number
-      prompt_eval_count?: number
-    }
-
-    return {
-      content: data.message?.content ?? '',
-      model: data.model ?? request.model,
-      usage: {
-        promptTokens: data.prompt_eval_count,
-        completionTokens: data.eval_count,
-        totalTokens:
-          (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0) || undefined
-      }
+        }),
+        signal: request.signal ?? AbortSignal.timeout(this.timeoutMs)
+      })
+      const text = await res.text()
+      if (!res.ok) throw classifyProviderError(text || `HTTP ${res.status}`, this.id)
+      const json = JSON.parse(text) as { message?: { content?: string }; model?: string }
+      return { content: json.message?.content || '', model: json.model || request.model }
+    } catch (e) {
+      if (e instanceof AppError) throw e
+      throw classifyProviderError(e instanceof Error ? e.message : String(e), this.id)
     }
   }
 
-  async chatStream(
-    request: ChatCompletionRequest,
-    onChunk: (chunk: ChatCompletionChunk) => void
-  ): Promise<ChatCompletionResult> {
-    const res = await this.fetchWithTimeout(
-      '/api/chat',
-      {
+  async chatStream(request: ChatRequest, onChunk: (c: ChatChunk) => void): Promise<void> {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/chat`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: request.model,
-          messages: request.messages,
+          messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
           stream: true,
           options: {
             temperature: request.temperature,
             num_predict: request.maxTokens
           }
-        })
-      },
-      request.signal
-    )
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw classifyProviderError(text || `HTTP ${res.status}`, this.id)
-    }
-
-    if (!res.body) {
-      throw new AppError({
-        code: 'PROVIDER_UNAVAILABLE',
-        message: 'Ollama returned empty body for stream',
-        provider: this.id,
-        retryable: true
+        }),
+        signal: request.signal ?? AbortSignal.timeout(this.timeoutMs)
       })
-    }
-
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let fullContent = ''
-    let buffer = ''
-
-    try {
+      if (!res.ok) {
+        const text = await res.text()
+        throw classifyProviderError(text || `HTTP ${res.status}`, this.id)
+      }
+      if (!res.body) {
+        const r = await this.chat(request)
+        if (r.content) onChunk({ content: r.content })
+        return
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
         buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split(String.fromCharCode(10))
-        buffer = lines.pop() ?? ''
-
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
         for (const line of lines) {
           const trimmed = line.trim()
           if (!trimmed) continue
           try {
-            const parsed = JSON.parse(trimmed) as {
+            const json = JSON.parse(trimmed) as {
               message?: { content?: string }
               done?: boolean
-              model?: string
             }
-            const piece = parsed.message?.content ?? ''
-            if (piece) {
-              fullContent += piece
-              onChunk({ content: piece, done: false, model: parsed.model })
-            }
-            if (parsed.done) {
-              onChunk({ content: '', done: true, model: parsed.model })
-            }
+            if (json.message?.content) onChunk({ content: json.message.content })
+            if (json.done) onChunk({ done: true })
           } catch {
-            // ignore malformed lines
+            /* ignore */
           }
         }
       }
-    } finally {
-      reader.releaseLock()
-    }
-
-    return {
-      content: fullContent,
-      model: request.model
+    } catch (e) {
+      if (e instanceof AppError) throw e
+      throw classifyProviderError(e instanceof Error ? e.message : String(e), this.id)
     }
   }
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell, ipcMain, nativeImage } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, nativeImage, protocol, net } from 'electron'
 import { join } from 'path'
 import { arch, cpus, totalmem } from 'os'
 import { spawn, type ChildProcess } from 'child_process'
@@ -42,6 +42,31 @@ import {
   getForgeLogPath,
   getForgeLogTail
 } from './forge-runtime'
+import * as gitSync from './git-sync'
+import { refreshModelCatalog } from './model-catalog-runtime'
+import {
+  speakText,
+  stopSpeak,
+  listVoices,
+  voiceStatus,
+  ensureEdgeTts,
+  voiceOutDir,
+  DEFAULT_VOICE_ID
+} from './voice-tts'
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'kawaii-media',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+      corsEnabled: true
+    }
+  }
+])
 
 const windowStore = new Store<{ windowBounds: Electron.Rectangle }>({
   name: 'window-state'
@@ -153,12 +178,293 @@ ipcMain.handle('shell:openExternal', async (_e, url: string) => {
 ipcMain.handle('sd:ensureWorkspace', async () => {
   return ensureSdWorkspace()
 })
+
+ipcMain.handle('music:ensureWorkspace', async () => {
+  try {
+    const { ensureMusicWorkspace } = await import('./music-workspace')
+    return { ok: true, ...(await ensureMusicWorkspace()) }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('music:status', async () => {
+  try {
+    const { getMusicStatusSnapshot } = await import('./music-workspace')
+    return await getMusicStatusSnapshot()
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      ace: { present: false, path: '', stage: 'none' },
+      yue: { present: false, path: '', stage: 'disabled' },
+      eligibility: null,
+      musicRoot: ''
+    }
+  }
+})
+
+ipcMain.handle('music:analyze', async () => {
+  try {
+    const { loadMusicState } = await import('./music-workspace')
+    const state = await loadMusicState()
+    return { ok: true, eligibility: state.eligibility, state }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('music:install', async (_e, opts?: { forceAce?: boolean; forceYue?: boolean }) => {
+  try {
+    const { installMusicStack } = await import('./music-installer')
+    return await installMusicStack(opts || {})
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('music:installCancel', async () => {
+  try {
+    const { cancelMusicInstall } = await import('./music-installer')
+    cancelMusicInstall()
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+
+ipcMain.handle('music:setup', async () => {
+  try {
+    const { ensureAceEnvironment } = await import('./music-runtime')
+    return await ensureAceEnvironment()
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('music:start', async (_e, preferredPort?: number) => {
+  try {
+    const { startMusicRuntime } = await import('./music-runtime')
+    return await startMusicRuntime({ preferredPort })
+  } catch (err) {
+    return {
+      state: 'error',
+      port: null,
+      baseUrl: null,
+      pid: null,
+      message: err instanceof Error ? err.message : String(err),
+      backend: 'none'
+    }
+  }
+})
+
+ipcMain.handle('music:stop', async () => {
+  try {
+    const { stopMusicRuntime } = await import('./music-runtime')
+    return await stopMusicRuntime()
+  } catch (err) {
+    return { state: 'error', message: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('music:runtimeStatus', async () => {
+  try {
+    const { getMusicRuntimeStatus } = await import('./music-runtime')
+    return getMusicRuntimeStatus()
+  } catch {
+    return { state: 'stopped', port: null, baseUrl: null, message: 'N/A', backend: 'none' }
+  }
+})
+
+ipcMain.handle('music:logTail', async () => {
+    try {
+      const { getMusicLogTail, getMusicLogPath } = await import('./music-runtime')
+      return { lines: getMusicLogTail(), path: getMusicLogPath() }
+    } catch {
+      return { lines: [], path: null }
+    }
+  })
+
+  ipcMain.handle('music:logPath', async () => {
+    try {
+      const { getMusicLogPath } = await import('./music-runtime')
+      return { ok: true, path: getMusicLogPath() }
+    } catch (e) {
+      return { ok: false, path: null, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('music:ensureReady', async (_e, preferredPort?: number) => {
+  try {
+    const { ensureMusicReady } = await import('./music-runtime')
+    return await ensureMusicReady(preferredPort)
+  } catch (err) {
+    return {
+      state: 'error',
+      message: err instanceof Error ? err.message : String(err),
+      port: null,
+      baseUrl: null,
+      backend: 'none'
+    }
+  }
+})
+
+
+ipcMain.handle('voice:speak', async (_e, req?: { text?: string; voiceId?: string }) => {
+  try {
+    return await speakText({
+      text: String(req?.text || ''),
+      voiceId: req?.voiceId || DEFAULT_VOICE_ID
+    })
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+})
+
+ipcMain.handle('voice:stop', async () => {
+  try {
+    stopSpeak()
+    return { ok: true }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+})
+
+ipcMain.handle('voice:list', async () => {
+  try {
+    return { ok: true, voices: listVoices() }
+  } catch (e) {
+    return { ok: false, voices: [], error: e instanceof Error ? e.message : String(e) }
+  }
+})
+
+ipcMain.handle('voice:ensure', async () => {
+  try {
+    const messages: string[] = []
+    const r = await ensureEdgeTts({
+      onProgress: (m) => messages.push(m)
+    })
+    return { ...r, messages }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e), messages: [] }
+  }
+})
+
+ipcMain.handle('voice:getLog', async () => {
+  try {
+    const { getVoiceLogTail } = await import('./voice-tts')
+    return { ok: true, lines: getVoiceLogTail() }
+  } catch (e) {
+    return { ok: false, lines: [], error: e instanceof Error ? e.message : String(e) }
+  }
+})
+
+ipcMain.handle('voice:status', async () => {
+  try {
+    return await voiceStatus()
+  } catch (e) {
+    return {
+      ok: false,
+      engine: 'edge-tts',
+      defaultVoice: DEFAULT_VOICE_ID,
+      edgeTtsReady: false,
+      message: e instanceof Error ? e.message : String(e)
+    }
+  }
+})
+
+ipcMain.handle('layers:prepare', async (_e, target?: string, reason?: string) => {
+  const { prepareHeavyLayer } = await import('./layer-scheduler')
+  const t = target === 'image' || target === 'music' || target === 'none' ? target : 'none'
+  return prepareHeavyLayer(t, { reason: reason || 'ui' })
+})
+ipcMain.handle('layers:active', async () => {
+  const { getActiveHeavyLayer, getLastLayerEvent } = await import('./layer-scheduler')
+  return { active: getActiveHeavyLayer(), last: getLastLayerEvent() }
+})
+
+ipcMain.handle('music:generate', async (_e, req?: {
+  prompt?: string
+  lyrics?: string
+  durationSec?: number
+  vocalLanguage?: string
+}) => {
+  try {
+    const { generateMusicTrack } = await import('./music-runtime')
+    const r = await generateMusicTrack({
+      prompt: String(req?.prompt || '').trim() || 'instrumental ambient',
+      lyrics: req?.lyrics,
+      durationSec: req?.durationSec,
+      vocalLanguage: req?.vocalLanguage
+    })
+    const path = (r as { path?: string; audioPath?: string }).path
+      || (r as { audioPath?: string }).audioPath
+    return { ...r, path, audioPath: path }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+
 ipcMain.handle('sd:openWorkspace', async () => {
   await openSdWorkspace()
   return true
 })
 ipcMain.handle('sd:listCheckpoints', async () => {
   return listLocalCheckpoints()
+})
+
+  ipcMain.handle('sd:searchHuggingFace', async (_e, query?: string, limit?: number) => {
+    const q = String(query || '').trim().slice(0, 80)
+    if (q.length < 2) return { ok: false, error: 'query too short', results: [] }
+    const lim = Math.min(20, Math.max(3, Number(limit) || 12))
+    try {
+      const url =
+        'https://huggingface.co/api/models?search=' +
+        encodeURIComponent(q) +
+        '&filter=text-to-image&sort=downloads&direction=-1&limit=' +
+        lim
+      const res = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(15000)
+      })
+      if (!res.ok) return { ok: false, error: `HF HTTP ${res.status}`, results: [] }
+      const raw = (await res.json()) as Array<{
+        id?: string
+        modelId?: string
+        downloads?: number
+        likes?: number
+        tags?: string[]
+        pipeline_tag?: string
+      }>
+      const results = (Array.isArray(raw) ? raw : []).map((m) => {
+        const id = String(m.id || m.modelId || '')
+        return {
+          id,
+          label: id.split('/').pop() || id,
+          repo: id,
+          downloads: m.downloads || 0,
+          likes: m.likes || 0,
+          tags: (m.tags || []).slice(0, 8),
+          // User must pick a file on the repo; we expose resolve URL pattern hint
+          pageUrl: `https://huggingface.co/${id}`,
+          filesUrl: `https://huggingface.co/api/models/${id}/tree/main`
+        }
+      })
+      return { ok: true, results }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e), results: [] }
+    }
+  })
+
+ipcMain.handle('sd:listWeights', async () => {
+  try {
+    const { listLocalWeightsDetailed } = await import('./sd-workspace')
+    return { ok: true, weights: await listLocalWeightsDetailed() }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), weights: [] }
+  }
 })
 ipcMain.handle('sd:listCheckpointsCatalog', async () => {
   try {
@@ -279,6 +585,39 @@ ipcMain.handle('sd:downloadCheckpoint', async (event, modelId?: string) => {
     /* ignore */
   }
   return result
+})
+
+ipcMain.handle('app:notify', async (_e, payload?: { title?: string; body?: string; silent?: boolean }) => {
+  try {
+    const { Notification, BrowserWindow } = await import('electron')
+    const title = (payload?.title || 'KawaiiGPT').slice(0, 120)
+    const body = (payload?.body || '').slice(0, 240)
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title,
+        body,
+        silent: Boolean(payload?.silent),
+        urgency: 'normal'
+      })
+      n.on('click', () => {
+        const wins = BrowserWindow.getAllWindows()
+        const w = wins[0]
+        if (w) {
+          if (w.isMinimized()) w.restore()
+          w.show()
+          w.focus()
+        }
+      })
+      n.show()
+      return { ok: true }
+    }
+    // Fallback: flash taskbar
+    const wins = BrowserWindow.getAllWindows()
+    wins[0]?.flashFrame?.(true)
+    return { ok: false, error: 'notifications_unsupported' }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
 })
 
 ipcMain.handle('app:version', () => {
@@ -521,7 +860,15 @@ async function fetchA1111Image(
   cfg: number,
   seed: number | undefined,
   signal: AbortSignal,
-  checkpoint?: string
+  checkpoint?: string,
+  referenceImage?: string,
+  denoisingStrength = 0.42,
+  ipAdapter?: {
+    model: string
+    module: string
+    weight: number
+    image: string
+  }
 ): Promise<{ buf: Buffer; contentType: string; info?: string; model?: string }> {
   const root = baseUrl.replace(/\/$/, '')
   const body: Record<string, unknown> = {
@@ -541,7 +888,36 @@ async function fetchA1111Image(
     body.override_settings = { sd_model_checkpoint: checkpoint.trim() }
     body.override_settings_restore_afterwards = true
   }
-  const res = await fetch(`${root}/sdapi/v1/txt2img`, {
+  let endpoint = `${root}/sdapi/v1/txt2img`
+  if (referenceImage?.startsWith('data:image/')) {
+    const encoded = referenceImage.slice(referenceImage.indexOf(',') + 1).replace(/\s/g, '')
+    if (encoded.length > 80) {
+      endpoint = `${root}/sdapi/v1/img2img`
+      body.init_images = [encoded]
+      body.denoising_strength = Math.min(0.7, Math.max(0.2, denoisingStrength))
+      body.resize_mode = 0
+    }
+  }
+  if (ipAdapter?.model && ipAdapter.image) {
+    body.alwayson_scripts = {
+      ControlNet: {
+        args: [
+          {
+            enabled: true,
+            module: ipAdapter.module,
+            model: ipAdapter.model,
+            weight: ipAdapter.weight,
+            image: ipAdapter.image,
+            resize_mode: 'Crop and Resize',
+            guidance_start: 0,
+            guidance_end: 1,
+            control_mode: 'Balanced'
+          }
+        ]
+      }
+    }
+  }
+  const res = await fetch(endpoint, {
     method: 'POST',
     signal,
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
@@ -576,12 +952,26 @@ ipcMain.handle('image:a1111Health', async (_e, baseUrl?: string) => {
     } catch {
       /* ignore */
     }
-    candidates.push('http://127.0.0.1:7860', 'http://localhost:7860')
+    // Always probe the full candidate list — settings may point at a dead port (e.g. 7890)
+    try {
+      const { FORGE_PORT_CANDIDATES } = await import('./forge-runtime')
+      for (const p of FORGE_PORT_CANDIDATES) {
+        candidates.push(`http://127.0.0.1:${p}`, `http://localhost:${p}`)
+      }
+    } catch {
+      candidates.push('http://127.0.0.1:7860', 'http://localhost:7860')
+    }
 
     let uiOnlyHint = ''
+    let lastProbeErr = ''
     for (const root of [...new Set(candidates)]) {
-      const h = await probeForgeHealth(root, 7000)
+      const h = await probeForgeHealth(root, 4500)
       if (h.ok) {
+        try {
+          await refreshForgeHealth()
+        } catch {
+          /* ignore */
+        }
         return {
           ok: true,
           latencyMs: Date.now() - start,
@@ -589,6 +979,7 @@ ipcMain.handle('image:a1111Health', async (_e, baseUrl?: string) => {
           error: undefined
         }
       }
+      lastProbeErr = h.error || lastProbeErr
       if ((h as { uiOnly?: boolean }).uiOnly) {
         uiOnlyHint =
           h.error ||
@@ -597,13 +988,6 @@ ipcMain.handle('image:a1111Health', async (_e, baseUrl?: string) => {
     }
 
     const scan = await scanForgeApiPorts()
-    if (!scan.ok && uiOnlyHint) {
-      return {
-        ok: false,
-        latencyMs: Date.now() - start,
-        error: uiOnlyHint
-      }
-    }
     if (scan.ok && scan.baseUrl) {
       try {
         await refreshForgeHealth()
@@ -616,10 +1000,20 @@ ipcMain.handle('image:a1111Health', async (_e, baseUrl?: string) => {
         baseUrl: scan.baseUrl
       }
     }
+    if (uiOnlyHint) {
+      return {
+        ok: false,
+        latencyMs: Date.now() - start,
+        error: uiOnlyHint
+      }
+    }
     return {
       ok: false,
       latencyMs: Date.now() - start,
-      error: scan.error || 'Forge/A1111 no responde en puertos conocidos'
+      error:
+        scan.error ||
+        lastProbeErr ||
+        'Forge/A1111 no responde. Capas → Arrancar Forge (API --nowebui) y espera a que health sea OK.'
     }
   } catch (err) {
     return {
@@ -653,7 +1047,7 @@ ipcMain.handle('image:a1111Models', async (_e, baseUrl?: string) => {
         hash: undefined as string | undefined
       }))
     } catch {
-      return [] as { title: string; modelName: string; hash?: string }[]
+      return [] as { title: string; modelName: string; hash: string | undefined }[]
     }
   }
 
@@ -714,7 +1108,7 @@ ipcMain.handle('image:a1111Models', async (_e, baseUrl?: string) => {
         const raw = (await res.json()) as Array<{
           title?: string
           model_name?: string
-          hash?: string
+              hash?: string
           filename?: string
         }>
         let models = (Array.isArray(raw) ? raw : []).map((m) => ({
@@ -798,12 +1192,14 @@ ipcMain.handle(
       seed?: number
       timeoutMs?: number
       jobId?: string
-      provider?: 'pollinations' | 'a1111' | 'cloudflare' | 'smart'
+      provider?: 'pollinations' | 'a1111' | 'cloudflare' | 'openai' | 'smart'
       a1111BaseUrl?: string
       steps?: number
       cfgScale?: number
       checkpoint?: string
       cloudflareAccountId?: string
+      referenceImage?: string
+      referenceDenoisingStrength?: number
     }
   ) => {
     const prompt = (payload?.prompt || '').trim()
@@ -860,6 +1256,22 @@ ipcMain.handle(
           })
         } catch {
           /* ignore */
+        }
+      }
+
+      // Capa imagen bajo demanda (libera ACE si hacía falta)
+      if (providerPref === 'a1111' || providerPref === 'smart') {
+        try {
+          sendProgress('local', 2, 'Preparando capa de imagen (Forge)…')
+          const { prepareHeavyLayer } = await import('./layer-scheduler')
+          const prep = await prepareHeavyLayer('image', {
+            reason: 'generación de imagen desde el chat'
+          })
+          if (!prep.ok) {
+            sendProgress('local', 3, prep.message || 'Forge no listo')
+          }
+        } catch {
+          /* continue; tryA1111 still attempts */
         }
       }
 
@@ -947,24 +1359,87 @@ ipcMain.handle(
         }
         void poll()
         try {
+          let localPrompt = prompt
+          let localNegative = payload.negativePrompt || ''
+          let localCheckpoint = payload.checkpoint
+          let ipAdapter: {
+            model: string
+            module: string
+            weight: number
+            image: string
+          } | undefined
+          if (!localCheckpoint) {
+            try {
+              const listed = await fetch(`${root}/sdapi/v1/sd-models`, {
+                signal: AbortSignal.timeout(8000)
+              })
+              if (listed.ok) {
+                const models = (await listed.json()) as Array<{
+                  title?: string
+                  model_name?: string
+                  filename?: string
+                }>
+                const { pickBestCheckpoint } = await import('../core/generative/smart-checkpoint')
+                localCheckpoint = pickBestCheckpoint(models, prompt)
+              }
+            } catch {
+              /* Forge can still use its currently loaded checkpoint */
+            }
+          }
+          if (payload.referenceImage?.startsWith('data:image/')) {
+            try {
+              const adapterRes = await fetch(`${root}/controlnet/model_list`, {
+                signal: AbortSignal.timeout(5000)
+              })
+              if (adapterRes.ok) {
+                const raw = (await adapterRes.json()) as {
+                  model_list?: string[]
+                  models?: string[]
+                }
+                const { buildIpAdapterConfig, pickIpAdapterModel } = await import('../core/image/ip-adapter')
+                const selected = pickIpAdapterModel(raw.model_list || raw.models || [])
+                if (selected) {
+                  ipAdapter = buildIpAdapterConfig(selected, payload.referenceImage, 0.8)
+                  sendProgress('local', 18, `Forge · ${selected.kind === 'faceid' ? 'FaceID' : 'IP-Adapter'} activo`)
+                }
+              }
+            } catch {
+              // ControlNet is optional; img2img below remains the local fallback.
+            }
+          }
+          // Forge/SD benefits from weighted tags; cloud models benefit from prose.
+          // Convert only prompts that have not already been prepared for SD.
+          if (!/\(masterpiece|\(best quality|one face:|solo, single person/i.test(prompt)) {
+            try {
+              const { composeImagePrompt } = await import('../core/generative/prompt-compose')
+              const composed = composeImagePrompt(prompt, 'sd15')
+              localPrompt = composed.prompt
+              localNegative = [localNegative, composed.negativePrompt].filter(Boolean).join(', ')
+            } catch {
+              /* keep the user's prompt if composition is unavailable */
+            }
+          }
           const r = await fetchA1111Image(
             root,
-            prompt,
-            payload.negativePrompt || '',
+            localPrompt,
+            localNegative,
             width,
             height,
             payload.steps ?? 32,
             payload.cfgScale ?? 7,
             payload.seed,
             controller.signal,
-            payload.checkpoint
+            localCheckpoint,
+            payload.referenceImage,
+            payload.referenceDenoisingStrength,
+            ipAdapter
           )
           sendProgress('local', 100, 'Listo')
           return saveBuf(
             r.buf,
             r.contentType,
             'a1111',
-            r.model || payload.checkpoint || 'stable-diffusion'
+            r.model || localCheckpoint || 'stable-diffusion'
           )
         } finally {
           stopPoll = true
@@ -1039,8 +1514,35 @@ ipcMain.handle(
           return pol
         }
       }
+      const tryOpenAI = async () => {
+        sendProgress('openai', 8, 'OpenAI Images…')
+        const key =
+          (secureStore.get('providerKey:openai', '') as string) ||
+          (secureStore.get('cloudApiKey', '') as string) ||
+          ''
+        if (!key || key.trim().length < 8) {
+          throw new Error('Sin API key de OpenAI')
+        }
+        const { generateOpenAIImage } = await import('../core/image/openai-images')
+        const r = await generateOpenAIImage({
+          apiKey: key.trim(),
+          prompt,
+          width,
+          height,
+          model: 'gpt-image-1.5',
+          quality: 'high',
+          signal: controller.signal
+        })
+        return saveBuf(r.buf, r.contentType, 'openai', r.model)
+      }
+
+      if (providerPref === 'openai') {
+        return await tryOpenAI()
+      }
       if (providerPref === 'smart') {
-        // Local → Cloudflare FLUX → Pollinations
+        // Local Forge first: the user's installed checkpoint is the primary asset.
+        // Cloud providers are fallbacks only when local generation is unavailable.
+
         const errors: string[] = []
         try {
           return await tryA1111()
@@ -1048,7 +1550,11 @@ ipcMain.handle(
           errors.push(`Local: ${e instanceof Error ? e.message : String(e)}`)
         }
         try {
-          sendProgress('cloudflare', 5, 'Local no disponible · Cloudflare FLUX…')
+          return await tryOpenAI()
+        } catch (e) {
+          errors.push(`OpenAI: ${e instanceof Error ? e.message : String(e)}`)
+        }
+        try {
           return await tryCloudflare()
         } catch (e) {
           errors.push(`Cloudflare: ${e instanceof Error ? e.message : String(e)}`)
@@ -1078,9 +1584,13 @@ ipcMain.handle(
       }
       // cloud default
       try {
-        return await tryCloudflare()
+        return await tryOpenAI()
       } catch {
-        return await tryPollinations()
+        try {
+          return await tryCloudflare()
+        } catch {
+          return await tryPollinations()
+        }
       }
 
     } catch (err) {
@@ -1546,10 +2056,35 @@ if (!gotLock) {
     mainWindowRef.focus()
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+  try {
+    const { pathToFileURL } = require('url') as typeof import('url')
+    protocol.handle('kawaii-media', async (request) => {
+      try {
+        const u = new URL(request.url)
+        const host = u.hostname
+        const name = decodeURIComponent((u.pathname || '').replace(/^\/+/, ''))
+        if (host !== 'voice' || !name || name.includes('..') || /[\\/]/.test(name)) {
+          return new Response('Forbidden', { status: 403 })
+        }
+        return net.fetch(pathToFileURL(join(voiceOutDir(), name)).href)
+      } catch (e) {
+        return new Response(String(e), { status: 500 })
+      }
+    })
+  } catch (e) {
+    console.error('[kawaii-media]', e)
+  }
     if (process.platform === 'win32') {
       app.setAppUserModelId('com.kawaiigpt.robust')
     }
+    try {
+      const { registerActivityWindowIpc } = await import('./activity-windows')
+      registerActivityWindowIpc()
+    } catch {
+      /* ignore */
+    }
+    void refreshModelCatalog()
     createWindow()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -1561,7 +2096,8 @@ if (!gotLock) {
           if (!(await isOllamaReachable('http://127.0.0.1:11434'))) {
             // best-effort start via same handler logic
             try {
-              const bin = resolveOllamaBin()
+              const bin = resolveOllamaBinary()
+              if (!bin) return
               const { spawn } = await import('child_process')
               const c = spawn(bin, ['serve'], {
                 detached: true,
@@ -1569,7 +2105,7 @@ if (!gotLock) {
                 windowsHide: true,
                 shell: process.platform === 'win32'
               })
-              c.unref()
+              if (typeof c?.unref === 'function') c.unref()
             } catch {
               /* ignore */
             }
@@ -1578,11 +2114,27 @@ if (!gotLock) {
           /* ignore */
         }
         try {
-          const st = getForgeRuntimeStatus()
-          if (st.state !== 'running') {
-            void startForgeRuntime({ readyTimeoutMs: 180_000 }).catch(() => null)
-          } else {
-            void refreshForgeHealth().catch(() => null)
+          // Heavy layers cold at boot (VRAM libre). Chat/image/music arrancan capa bajo demanda.
+          const { scheduleBootLayers } = await import('./layer-scheduler')
+          await scheduleBootLayers({ autoImage: false })
+          try {
+            const st = getForgeRuntimeStatus()
+            if (st.state === 'running') void refreshForgeHealth().catch(() => null)
+          } catch {
+            /* ignore */
+          }
+        } catch {
+          /* ignore */
+        }
+        try {
+          const { purgeStaleJobs } = await import('./resumable-download')
+          const { loadMachineProfile } = await import('./machine-profile')
+          const { join } = await import('path')
+          const p = await loadMachineProfile().catch(() => null)
+          const root = (p as { sdWorkRoot?: string; forgeInstallPath?: string } | null)?.sdWorkRoot
+            || (p as { forgeInstallPath?: string } | null)?.forgeInstallPath
+          if (root) {
+            await purgeStaleJobs(join(String(root), 'downloads')).catch(() => 0)
           }
         } catch {
           /* ignore */
@@ -1681,6 +2233,26 @@ app.on('window-all-closed', () => {
     return { profile, drives, created, workspace: ws, forgePresent }
   })
 
+  
+  ipcMain.handle('forge:extensionsStatus', async () => {
+    const { getForgeExtensionsStatus } = await import('./forge-extensions')
+    return getForgeExtensionsStatus()
+  })
+  ipcMain.handle('forge:ensureControlNet', async () => {
+    const { ensureControlNetFolders } = await import('./forge-extensions')
+    return ensureControlNetFolders()
+  })
+  ipcMain.handle('forge:installControlNetModels', async (event) => {
+    const { installBasicControlNetModels } = await import('./forge-extensions')
+    return installBasicControlNetModels((msg, pct) => {
+      try {
+        event.sender.send('forge:cn-progress', { msg, pct })
+      } catch {
+        /* ignore */
+      }
+    })
+  })
+
   ipcMain.handle('forge:install', async () => {
     try {
       const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null
@@ -1772,10 +2344,10 @@ app.on('window-all-closed', () => {
       const { ensureMachineProfile } = await import('./machine-profile')
       const { ensurePortablePython, isPortablePythonReady, portablePythonExe } = await import('./python-runtime')
       const { profile } = await ensureMachineProfile({} as never)
-      if (isPortablePythonReady(profile.dataRoot)) {
-        return { ok: true, python: portablePythonExe(profile.dataRoot), already: true }
+      if (isPortablePythonReady(profile.preferredDataRoot)) {
+        return { ok: true, python: portablePythonExe(profile.preferredDataRoot), already: true }
       }
-      const r = await ensurePortablePython(profile.dataRoot)
+      const r = await ensurePortablePython(profile.preferredDataRoot)
       return r
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) }
@@ -1840,6 +2412,46 @@ app.on('window-all-closed', () => {
     }
   })
 
+
+  // ── Git sync (multi-account SSH) ─────────────────────────────────────────
+  ipcMain.handle('git:status', async () => {
+    try {
+      return await gitSync.getGitStatus()
+    } catch (e) {
+      return { ok: false, lastError: String(e) }
+    }
+  })
+  ipcMain.handle('git:listKeys', async () => {
+    try {
+      return await gitSync.listSshKeys()
+    } catch {
+      return []
+    }
+  })
+  ipcMain.handle('git:applyIdentity', async (_e, identity) => {
+    try {
+      return await gitSync.applyGitIdentity(identity)
+    } catch (e) {
+      return { ok: false, steps: [], stdout: '', stderr: String(e), error: String(e) }
+    }
+  })
+  ipcMain.handle('git:savedIdentity', async () => {
+    try {
+      return await gitSync.loadSavedIdentity()
+    } catch {
+      return null
+    }
+  })
+  ipcMain.handle('git:add', async () => gitSync.gitAddAll())
+  ipcMain.handle('git:commit', async (_e, message?: string) => gitSync.gitCommit(message || ''))
+  ipcMain.handle('git:push', async (_e, force?: boolean) =>
+    force ? gitSync.gitForcePush() : gitSync.gitPush({ setUpstream: true })
+  )
+  ipcMain.handle('git:sync', async (_e, message?: string, force?: boolean) =>
+    gitSync.gitSyncAll({ message: message || '', force: Boolean(force) })
+  )
+  ipcMain.handle('git:testAuth', async () => gitSync.testSshAuth())
+
   ipcMain.handle('sd:syncCheckpointsToForge', async () => {
     try {
       return await syncCheckpointsToForge()
@@ -1869,3 +2481,113 @@ app.on('window-all-closed', () => {
     }
   })
 
+
+
+ipcMain.handle('files:toDataUrl', async (_e, filePath?: string) => {
+  try {
+    if (!filePath || !existsSync(filePath)) {
+      return { ok: false, error: 'Archivo no encontrado' }
+    }
+    const { readFile } = await import('node:fs/promises')
+    const buf = await readFile(filePath)
+    const lower = filePath.toLowerCase()
+    const mime = lower.endsWith('.wav')
+      ? 'audio/wav'
+      : lower.endsWith('.ogg')
+        ? 'audio/ogg'
+        : lower.endsWith('.flac')
+          ? 'audio/flac'
+          : lower.endsWith('.png')
+            ? 'image/png'
+            : lower.endsWith('.jpg') || lower.endsWith('.jpeg')
+              ? 'image/jpeg'
+              : lower.endsWith('.webp')
+                ? 'image/webp'
+                : 'audio/mpeg'
+    // Cap ~25MB to keep renderer healthy
+    if (buf.length > 25 * 1024 * 1024) {
+      return { ok: false, error: 'Archivo demasiado grande para incrustar; ábrelo en carpeta', path: filePath }
+    }
+    return {
+      ok: true,
+      dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
+      mime,
+      path: filePath
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('files:showInFolder', async (_e, filePath?: string) => {
+  try {
+    const { shell } = await import('electron')
+    if (filePath && existsSync(filePath)) {
+      shell.showItemInFolder(filePath)
+      return { ok: true, path: filePath }
+    }
+    return { ok: false, error: 'Ruta no válida' }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('files:openPath', async (_e, filePath?: string) => {
+  try {
+    const { shell } = await import('electron')
+    if (!filePath || !existsSync(filePath)) return { ok: false, error: 'Ruta no válida' }
+    const err = await shell.openPath(filePath)
+    return err ? { ok: false, error: err } : { ok: true, path: filePath }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+})
+
+ipcMain.handle('files:listKnownDirs', async () => {
+  try {
+    const { ensureMachineProfile } = await import('./machine-profile')
+    const profile = await ensureMachineProfile()
+    const dirs: Array<{ id: string; label: string; path: string }> = []
+    if (profile.preferredDataRoot) {
+      dirs.push({ id: 'data', label: 'Datos Kawaii (D:/ o preferido)', path: profile.preferredDataRoot })
+    }
+    if (profile.forgeInstallPath) {
+      dirs.push({ id: 'forge', label: 'Forge / SD workspace', path: profile.forgeInstallPath })
+      const { join } = await import('path')
+      dirs.push({
+        id: 'sd-checkpoints',
+        label: 'Checkpoints Stable Diffusion',
+        path: join(profile.forgeInstallPath, 'models', 'Stable-diffusion')
+      })
+      dirs.push({
+        id: 'lora',
+        label: 'LoRAs (modelos de capa)',
+        path: join(profile.forgeInstallPath, 'models', 'Lora')
+      })
+      try {
+        const { ensureLoraDirs } = await import('./sd-workspace')
+        await ensureLoraDirs()
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      const { ensureMusicWorkspace } = await import('./music-workspace')
+      const m = await ensureMusicWorkspace()
+      if (m?.musicRoot) dirs.push({ id: 'music', label: 'Música ACE-Step', path: m.musicRoot })
+      if (m?.aceDir) dirs.push({ id: 'ace', label: 'ACE-Step app', path: m.aceDir })
+      if (m?.musicRoot) {
+        const { join } = await import('path')
+        dirs.push({ id: 'music-out', label: 'Salidas de audio (outputs)', path: join(m.musicRoot, 'outputs') })
+      }
+    } catch { /* optional */ }
+    try {
+      const { app } = await import('electron')
+      const img = join(app.getPath('userData'), 'generated-images')
+      dirs.push({ id: 'images', label: 'Imágenes generadas (userData)', path: img })
+    } catch { /* ignore */ }
+    return { ok: true, dirs }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), dirs: [] }
+  }
+})

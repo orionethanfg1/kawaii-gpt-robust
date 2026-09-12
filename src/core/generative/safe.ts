@@ -48,8 +48,11 @@ export function safePlanGenerativeTurn(
       music: modalityAvailable(genCaps, 'music'),
       video: modalityAvailable(genCaps, 'video')
     })
+    // Local Forge/A1111 models (Realistic Vision, SD1.5) need tag prompts, not FLUX prose
     const family =
-      opts.imageProviderMode === 'local' ? 'sd15' : 'flux'
+      opts.imageProviderMode === 'local' || opts.imageProviderMode === 'smart'
+        ? 'sd15'
+        : 'flux'
     const mediaRequests = bridgePlanToRequests(plan, {
       character: opts.character,
       useCharacterStyle: opts.useCharacterStyle,

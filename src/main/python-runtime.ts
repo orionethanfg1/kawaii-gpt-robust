@@ -77,15 +77,6 @@ function saveJob(job: EnvJobState): void {
   }
 }
 
-function clearJob(dataRoot: string): void {
-  try {
-    const p = jobPath(dataRoot)
-    if (existsSync(p)) writeFileSync(p, '', 'utf-8')
-  } catch {
-    /* ignore */
-  }
-}
-
 export function portablePythonDir(dataRoot: string): string {
   return join(dataRoot, 'runtime', `python-${EMBED_PYTHON_VERSION}`)
 }
@@ -722,3 +713,165 @@ export async function ensureForgeWebStack(
   emit({ phase: 'ready', message: 'Stack Gradio/API compatible', percent: 96 })
   return { ok: true }
 }
+
+
+/**
+ * Fix numpy ↔ scikit-image ABI mismatch:
+ * "Expected 96 from C header, got 88" = skimage built for NumPy 2, runtime is NumPy 1
+ * (or the reverse). Strategy: clean uninstall + pin NumPy 1.26 + skimage wheels for 1.x.
+ */
+export async function ensureForgeNumpySkimage(
+  forgeWebuiDir: string,
+  onProgress?: (p: PythonEnsureProgress) => void
+): Promise<{ ok: true; repaired: boolean } | { ok: false; error: string }> {
+  const emit = (p: PythonEnsureProgress) => {
+    try {
+      onProgress?.(p)
+    } catch {
+      /* ignore */
+    }
+  }
+  const venvPy = forgeVenvPython(forgeWebuiDir)
+  if (!existsSync(venvPy)) {
+    return { ok: false, error: 'venv no encontrado' }
+  }
+
+  const probeCmd =
+    'import numpy; print("np", numpy.__version__); from skimage import exposure; print("skimage_ok")'
+
+  const probe = runPy(venvPy, ['-c', probeCmd], { timeout: 45000 })
+  const out = `${probe.stdout || ''}\n${probe.stderr || ''}`
+  if (probe.status === 0 && /skimage_ok/.test(out)) {
+    emit({ phase: 'ready', message: 'numpy/skimage OK', percent: 97 })
+    return { ok: true, repaired: false }
+  }
+
+  emit({
+    phase: 'pip',
+    message: 'Reparando numpy/scikit-image (ABI) — puede tardar varios minutos…',
+    percent: 92
+  })
+
+  // 1) Hard uninstall both (order matters)
+  for (const pkg of ['scikit-image', 'numpy']) {
+    runPy(venvPy, ['-m', 'pip', 'uninstall', '-y', pkg], {
+      cwd: forgeWebuiDir,
+      timeout: 180_000
+    })
+  }
+
+  // 2) Try strategy list until probe passes
+  const strategies: string[][] = [
+    // NumPy 1.26 + skimage 0.22 (classic A1111/Forge stack)
+    ['numpy==1.26.4', 'scikit-image==0.22.0'],
+    ['numpy==1.26.4', 'scikit-image==0.21.0'],
+    ['numpy==1.26.4', 'scikit-image==0.23.2'],
+    // Single-line force
+    ['numpy==1.26.4', 'scikit-image==0.22.0', 'scipy==1.11.4', 'imageio==2.34.0'],
+    // Last resort: let pip resolve skimage against pinned numpy
+    ['numpy==1.26.4', 'scikit-image']
+  ]
+
+  let lastErr = out.slice(0, 400)
+  for (let i = 0; i < strategies.length; i++) {
+    const pkgs = strategies[i]
+    emit({
+      phase: 'pip',
+      message: `Estrategia ABI ${i + 1}/${strategies.length}: ${pkgs.join(', ')}…`,
+      percent: 93 + i
+    })
+    // Uninstall skimage before each try
+    runPy(venvPy, ['-m', 'pip', 'uninstall', '-y', 'scikit-image'], {
+      cwd: forgeWebuiDir,
+      timeout: 120_000
+    })
+    const inst = runPy(
+      venvPy,
+      [
+        '-m',
+        'pip',
+        'install',
+        '--force-reinstall',
+        '--no-cache-dir',
+        '--retries',
+        '8',
+        '--timeout',
+        '180',
+        '--prefer-binary',
+        ...pkgs
+      ],
+      { cwd: forgeWebuiDir, timeout: 900_000 }
+    )
+    if (inst.status !== 0) {
+      lastErr = (inst.stderr || inst.stdout || '').slice(0, 400)
+      continue
+    }
+    const v = runPy(venvPy, ['-c', probeCmd], { timeout: 45000 })
+    const vout = `${v.stdout || ''}\n${v.stderr || ''}`
+    if (v.status === 0 && /skimage_ok/.test(vout)) {
+      emit({ phase: 'ready', message: `numpy/skimage OK (estrategia ${i + 1})`, percent: 98 })
+      return { ok: true, repaired: true }
+    }
+    lastErr = vout.slice(0, 500)
+  }
+
+  // 3) Optional: remove residual .pyd by reinstalling numpy only then skimage --no-deps + deps
+  emit({ phase: 'pip', message: 'Último intento: numpy limpio + skimage --no-deps…', percent: 97 })
+  runPy(venvPy, ['-m', 'pip', 'uninstall', '-y', 'scikit-image', 'numpy'], {
+    cwd: forgeWebuiDir,
+    timeout: 180_000
+  })
+  runPy(
+    venvPy,
+    ['-m', 'pip', 'install', '--force-reinstall', '--no-cache-dir', 'numpy==1.26.4'],
+    { cwd: forgeWebuiDir, timeout: 600_000 }
+  )
+  runPy(
+    venvPy,
+    [
+      '-m',
+      'pip',
+      'install',
+      '--force-reinstall',
+      '--no-cache-dir',
+      '--prefer-binary',
+      'scikit-image==0.22.0',
+      '--no-deps'
+    ],
+    { cwd: forgeWebuiDir, timeout: 600_000 }
+  )
+  // deps of skimage 0.22
+  runPy(
+    venvPy,
+    [
+      '-m',
+      'pip',
+      'install',
+      '--prefer-binary',
+      'scipy>=1.8,<1.13',
+      'networkx>=2.8',
+      'pillow>=9.0.1',
+      'imageio>=2.27',
+      'tifffile>=2022.8.12',
+      'packaging>=21',
+      'lazy_loader>=0.2'
+    ],
+    { cwd: forgeWebuiDir, timeout: 600_000 }
+  )
+  const final = runPy(venvPy, ['-c', probeCmd], { timeout: 45000 })
+  if (final.status === 0 && /skimage_ok/.test(`${final.stdout || ''}`)) {
+    emit({ phase: 'ready', message: 'numpy/skimage OK (no-deps)', percent: 98 })
+    return { ok: true, repaired: true }
+  }
+
+  lastErr = `${final.stderr || final.stdout || lastErr}`.slice(0, 500)
+  return {
+    ok: false,
+    error:
+      `Verificación skimage falló tras varias estrategias. ` +
+      `En la carpeta Forge puedes borrar solo "venv" y pulsar Arrancar de nuevo. Detalle: ${lastErr}`
+  }
+}
+
+
+

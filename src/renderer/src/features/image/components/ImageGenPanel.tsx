@@ -1,3 +1,5 @@
+import { pickBestCheckpoint } from '@core/generative/smart-checkpoint'
+import { recommendSdParams } from '@core/generative/prompt-compose'
 import { useEffect, useId, useRef, useState } from 'react'
 import { FolderOpen, Image as ImageIcon, Loader2, Square, X } from 'lucide-react'
 import {
@@ -12,6 +14,7 @@ import { useChatStore } from '@shared/lib/stores/chatStore'
 import { recommendImageStack, resolveImageRoute } from '@core/image'
 import { useDownloadStore } from '@features/models/downloadStore'
 import { ModelsStatusPanel } from '@features/models/ModelsStatusPanel'
+import { HfModelSearch } from './HfModelSearch'
 
 interface Props {
   open: boolean
@@ -47,10 +50,6 @@ function enhancePrompt(raw: string, styleHint?: string): string {
   const isPhoto =
     /\b(foto|photo|realista|realistic|photoreal)\b/i.test(lower) ||
     /\bfoto de\b/i.test(lower)
-  const isAnime =
-    /\b(anime|manga|kawaii|chibi|ilustración|illustration)\b/i.test(lower) ||
-    !isPhoto
-
   const quality = isPhoto
     ? 'photorealistic, natural lighting, detailed skin, high detail, sharp focus'
     : 'masterpiece, best quality, highly detailed, clean lineart, soft lighting'
@@ -284,28 +283,69 @@ export function ImageGenPanel({
     }
     setModelsLoading(true)
     setModelsError(null)
+    const fromDisk = async () => {
+      try {
+        const disk = await window.kawaii?.sdListWeights?.()
+        const weights =
+          (disk as { weights?: Array<{ filename: string; kind?: string }> })?.weights ||
+          (disk as { checkpoints?: Array<{ filename: string }> })?.checkpoints ||
+          []
+        return (weights as Array<{ filename: string; kind?: string }>)
+          .filter((w) => w.kind !== 'lora' && !/lora/i.test(w.filename || ''))
+          .map((w) => ({ title: w.filename, modelName: w.filename }))
+      } catch {
+        return [] as { title: string; modelName: string }[]
+      }
+    }
     try {
       const live =
         (await window.kawaii?.forgeStatus?.())?.baseUrl || settings.a1111BaseUrl
       const ok = await probeLocal()
-      if (!ok) {
-        setCheckpoints([])
-        setModelsError('Forge/A1111 no responde. Arranca Forge en Ajustes → Runtime.')
-        return
+      let models: { title: string; modelName: string }[] = []
+      let current = ''
+      if (ok) {
+        const res = await window.kawaii.imageA1111Models?.(live)
+        if (res?.ok && res.models?.length) {
+          models = res.models
+          current = res.current || ''
+        } else if (res && !res.ok) {
+          setModelsError(res.error || 'API modelos con error — usando disco')
+        }
+      } else {
+        setModelsError('Forge no responde — listando checkpoints en disco')
       }
-      const res = await window.kawaii.imageA1111Models?.(live)
-      if (!res?.ok) {
-        setCheckpoints([])
-        setModelsError(res?.error || 'No se pudo listar checkpoints')
-        return
+      if (!models.length) {
+        models = await fromDisk()
       }
-      setCheckpoints(res.models || [])
+      // Merge disk names missing from API list
+      const disk = await fromDisk()
+      const seen = new Set(models.map((m) => (m.modelName || m.title || '').toLowerCase()))
+      for (const d of disk) {
+        const k = (d.modelName || d.title).toLowerCase()
+        if (!seen.has(k)) {
+          models.push(d)
+          seen.add(k)
+        }
+      }
+      setCheckpoints(models)
+      if (!models.length) {
+        setModelsError((e) => e || 'Sin checkpoints visibles. Descarga uno abajo o espera a Forge.')
+      } else if (ok) {
+        setModelsError(null)
+      }
       const preferred =
-        settings.a1111Checkpoint || res.current || res.models?.[0]?.title || ''
+        settings.a1111Checkpoint || current || models[0]?.title || models[0]?.modelName || ''
       if (preferred) setCheckpoint(preferred)
     } catch (err) {
-      setModelsError(err instanceof Error ? err.message : String(err))
-      setCheckpoints([])
+      const disk = await fromDisk()
+      setCheckpoints(disk)
+      setModelsError(
+        disk.length
+          ? `API falló; ${disk.length} desde disco`
+          : err instanceof Error
+            ? err.message
+            : String(err)
+      )
     } finally {
       setModelsLoading(false)
     }
@@ -573,7 +613,7 @@ export function ImageGenPanel({
             [
               ['cloud', 'Cloud (CF FLUX / Pollinations)'],
               ['local', 'Local (Forge/SD)'],
-              ['smart', 'Smart (local→CF→Pollinations)']
+              ['smart', 'Smart (OpenAI→local→CF→Pollinations)']
             ] as const
           ).map(([id, label]) => (
             <button
@@ -611,7 +651,11 @@ export function ImageGenPanel({
             <button
               type="button"
               className="text-[10px] text-kawaii-pink-deep hover:underline"
-              onClick={() => void probeLocal().then((ok) => ok && loadCheckpoints())}
+              onClick={() => {
+                void probeLocal().then((ok) => {
+                  if (ok) void loadCheckpoints()
+                })
+              }}
             >
               Detectar Forge
             </button>
@@ -627,7 +671,14 @@ export function ImageGenPanel({
           disabled={busy}
         />
 
-        {/* Aspect / size */}
+        {/* Aspect / size — full controls only in advanced */}
+        {settings.uiComplexity === 'smart' && !showAdvanced && (
+          <p className="text-[10px] text-kawaii-text-muted px-0.5">
+            Modo simple: tamaño, checkpoint y CFG se eligen solos al generar (como ChatGPT/Grok).
+            Usa «Más opciones…» o UI Avanzado para control manual.
+          </p>
+        )}
+        {(settings.uiComplexity === 'advanced' || showAdvanced) && (
         <div className="space-y-1.5">
           <p className="text-[11px] font-semibold text-kawaii-text">Tamaño / aspecto</p>
           <div className="flex flex-wrap gap-1.5">
@@ -724,10 +775,11 @@ export function ImageGenPanel({
             </span>
           </div>
         </div>
+        )}
 
-
-        {/* Local checkpoint */}
-        {(mode === 'local' || mode === 'smart') && (
+        {/* Local checkpoint — advanced only; chat auto-picks in smart mode */}
+        {(mode === 'local' || mode === 'smart') &&
+          (settings.uiComplexity === 'advanced' || showAdvanced) && (
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <p className="text-[11px] font-semibold">Checkpoint local (SD)</p>
@@ -760,7 +812,15 @@ export function ImageGenPanel({
               </p>
             )}
             {(mode === 'local' || mode === 'smart') && (
-              <ModelsStatusPanel />
+              <>
+                <HfModelSearch
+                  onRefreshInstalled={() => {
+                    void window.kawaii?.sdListWeights?.()
+                    void loadCheckpoints()
+                  }}
+                />
+                <ModelsStatusPanel />
+              </>
             )}
             {catalog.length > 0 && (
               <div className="rounded-kawaii border border-kawaii-border p-2 space-y-2 bg-white/80">

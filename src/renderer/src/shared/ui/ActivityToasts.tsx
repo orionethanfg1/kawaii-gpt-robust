@@ -38,7 +38,12 @@ export function ActivityToasts() {
               {item.kind === 'info' && <Info className="w-3.5 h-3.5 text-sky-600" />}
             </span>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold leading-snug">{item.title}</p>
+              <p className="font-semibold leading-snug">
+                {item.title}
+                {item.sticky ? (
+                  <span className="ml-1 text-[10px] font-normal opacity-70">(fijo)</span>
+                ) : null}
+              </p>
               {item.detail && (
                 <p className="text-[11px] opacity-90 mt-0.5 break-words leading-relaxed">
                   {item.detail}

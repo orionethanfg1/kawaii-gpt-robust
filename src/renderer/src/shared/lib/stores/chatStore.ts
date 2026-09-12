@@ -5,7 +5,6 @@ import {
   Message,
   createConversationId,
   createMessageId,
-  titleFromContent,
   smartConversationTitle
 } from '@core/conversation'
 

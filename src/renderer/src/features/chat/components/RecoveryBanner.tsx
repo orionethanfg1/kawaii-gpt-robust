@@ -28,7 +28,7 @@ export function RecoveryBanner() {
     : ''
 
   return (
-    <div className="mx-3 mt-2 rounded-kawaii border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-kawaii-text space-y-1.5">
+    <div className="mx-3 mt-2 rounded-kawaii border border-amber-200/80 bg-amber-50/90 px-3 py-1.5 text-xs text-kawaii-text">
       <p className="font-semibold text-amber-900">Modo recuperación</p>
       <p className="text-kawaii-text-muted">
         La sesión anterior parece haberse interrumpido

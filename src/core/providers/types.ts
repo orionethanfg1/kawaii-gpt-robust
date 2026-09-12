@@ -1,15 +1,12 @@
-/**
- * Shared provider contracts. Core never imports Electron or React.
- */
+export type ChatRole = 'system' | 'user' | 'assistant' | 'tool'
 
-export type ProviderKind = 'ollama' | 'openai-compatible' | 'legacy'
-
-export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
+export type ChatMessage = {
+  role: ChatRole
   content: string
+  name?: string
 }
 
-export interface ChatCompletionRequest {
+export type ChatRequest = {
   model: string
   messages: ChatMessage[]
   temperature?: number
@@ -18,60 +15,15 @@ export interface ChatCompletionRequest {
   signal?: AbortSignal
 }
 
-export interface ChatCompletionChunk {
-  content: string
-  done: boolean
-  model?: string
-  usage?: {
-    promptTokens?: number
-    completionTokens?: number
-    totalTokens?: number
-  }
-}
+export type ChatChunk = { content?: string; done?: boolean }
+export type ChatResult = { content: string; model?: string }
 
-export interface ChatCompletionResult {
-  content: string
-  model: string
-  usage?: ChatCompletionChunk['usage']
-  finishReason?: string
-}
-
-export interface ModelInfo {
-  id: string
-  name: string
-  sizeBytes?: number
-  family?: string
-  parameterSize?: string
-  quantization?: string
-  isLocal: boolean
-}
-
-export interface ProviderHealth {
-  ok: boolean
-  latencyMs?: number
-  error?: string
-  modelsCount?: number
-}
+export type HealthResult = { ok: boolean; latencyMs?: number; error?: string }
 
 export interface ChatProvider {
-  readonly id: string
-  readonly kind: ProviderKind
-  readonly displayName: string
-
-  healthCheck(signal?: AbortSignal): Promise<ProviderHealth>
-  listModels(signal?: AbortSignal): Promise<ModelInfo[]>
-  chat(request: ChatCompletionRequest): Promise<ChatCompletionResult>
-  chatStream(
-    request: ChatCompletionRequest,
-    onChunk: (chunk: ChatCompletionChunk) => void
-  ): Promise<ChatCompletionResult>
-}
-
-export interface ProviderConfig {
   id: string
-  kind: ProviderKind
-  baseUrl: string
-  apiKey?: string
-  defaultModel?: string
-  timeoutMs?: number
+  displayName: string
+  healthCheck(): Promise<HealthResult>
+  chat(request: ChatRequest): Promise<ChatResult>
+  chatStream(request: ChatRequest, onChunk: (c: ChatChunk) => void): Promise<void>
 }

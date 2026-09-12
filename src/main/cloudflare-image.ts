@@ -142,6 +142,7 @@ export async function probeCloudflareAi(
   accountId: string,
   apiToken: string
 ): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  void accountId
   const start = Date.now()
   try {
     // Lightweight: models list or tiny run is heavy — just auth check via accounts

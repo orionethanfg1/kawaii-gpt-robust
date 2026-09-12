@@ -1,0 +1,1581 @@
+2026-09-01 14:00:56  === KawaiiGPT Robust ===
+2026-09-01 14:00:56  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-01 14:00:56  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-01 14:00:56  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-01 14:00:56  package.json version: 0.6.8
+2026-09-01 14:00:57  Node v24.19.0 | npm 11.17.0
+2026-09-01 14:00:57  Primera vez o faltan paquetes: npm install (5-15 min segun internet).
+2026-09-01 14:00:57  No cierres esta ventana.
+2026-09-01 14:02:32  electron-vite: OK
+2026-09-01 14:02:32  Electron: OK
+2026-09-01 14:02:32  Iniciando modo desarrollo...
+2026-09-01 14:02:32  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-01 14:02:32  ---
+2026-09-01 14:24:00  ---
+2026-09-01 14:24:00  Proceso terminado. Codigo de salida: 0
+2026-09-01 14:24:20  === KawaiiGPT Robust ===
+2026-09-01 14:24:20  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-01 14:24:20  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-01 14:24:20  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-01 14:24:20  package.json version: 0.6.8
+2026-09-01 14:24:20  Limpiando out/ para cargar codigo actual...
+2026-09-01 14:24:21  Node v24.19.0 | npm 11.17.0
+2026-09-01 14:24:21  electron-vite: OK
+2026-09-01 14:24:21  Electron: OK
+2026-09-01 14:24:21  Iniciando modo desarrollo...
+2026-09-01 14:24:21  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-01 14:24:21  ---
+2026-09-01 15:48:00  ---
+2026-09-01 15:48:00  Proceso terminado. Codigo de salida: 0
+2026-09-01 15:50:24  === KawaiiGPT Robust ===
+2026-09-01 15:50:24  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-01 15:50:24  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-01 15:50:24  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-01 15:50:24  package.json version: 0.6.8
+2026-09-01 15:50:24  Limpiando out/ para cargar codigo actual...
+2026-09-01 15:50:24  Node v24.19.0 | npm 11.17.0
+2026-09-01 15:50:24  electron-vite: OK
+2026-09-01 15:50:24  Electron: OK
+2026-09-01 15:50:24  Iniciando modo desarrollo...
+2026-09-01 15:50:24  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-01 15:50:24  ---
+2026-09-01 15:50:46  ---
+2026-09-01 15:50:46  Proceso terminado. Codigo de salida: 0
+2026-09-01 15:51:19  === Actualizar KawaiiGPT (incremental) ===
+2026-09-01 15:51:19  Carpeta destino: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-01 15:51:19  Sin -Fuente: se asume que YA pegaste los archivos nuevos encima de esta carpeta.
+2026-09-01 15:51:19  --- Comprobacion de archivos criticos ---
+2026-09-01 15:51:19    OK  package.json
+2026-09-01 15:51:19    OK  src\shared\version.ts
+2026-09-01 15:51:19    OK  src\main\index.ts
+2026-09-01 15:51:19    OK  src\main\cloudflare-image.ts
+2026-09-01 15:51:19    OK  src\preload\index.ts
+2026-09-01 15:51:19  package.json version = 0.6.8
+2026-09-01 15:51:19  src/shared/version.ts APP_VERSION = 0.6.8
+2026-09-01 15:51:19  Eliminando out/ (cache de compilacion)...
+2026-09-01 15:51:19  node_modules: se conserva (sin reinstalar todo)
+2026-09-01 15:51:19  ---
+2026-09-01 15:51:19  Listo. Version esperada en UI: v0.6.8
+2026-09-01 15:51:19  Ahora ejecuta Abrir.bat y comprueba la esquina inferior izquierda.
+2026-09-01 15:51:37  === KawaiiGPT Robust ===
+2026-09-01 15:51:37  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-01 15:51:37  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-01 15:51:37  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-01 15:51:37  package.json version: 0.6.8
+2026-09-01 15:51:37  Node v24.19.0 | npm 11.17.0
+2026-09-01 15:51:37  electron-vite: OK
+2026-09-01 15:51:37  Electron: OK
+2026-09-01 15:51:37  Iniciando modo desarrollo...
+2026-09-01 15:51:37  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-01 15:51:37  ---
+2026-09-01 15:57:35  ---
+2026-09-01 15:57:35  Proceso terminado. Codigo de salida: 0
+2026-09-01 15:59:01  === KawaiiGPT Robust ===
+2026-09-01 15:59:01  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-01 15:59:01  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-01 15:59:01  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-01 15:59:01  package.json version: 0.7.0
+2026-09-01 15:59:01  UI APP_VERSION: 0.7.0
+2026-09-01 15:59:01  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-01 15:59:01  Node v24.19.0 | npm 11.17.0
+2026-09-01 15:59:01  electron-vite: OK
+2026-09-01 15:59:01  Electron: OK
+2026-09-01 15:59:01  Iniciando modo desarrollo...
+2026-09-01 15:59:01  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-01 15:59:01  ---
+2026-09-01 15:59:02  ---
+2026-09-01 15:59:02  Proceso terminado. Codigo de salida: 0
+2026-09-01 18:19:59  === KawaiiGPT Robust ===
+2026-09-01 18:19:59  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-01 18:19:59  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-01 18:19:59  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-01 18:19:59  package.json version: 0.7.0
+2026-09-01 18:19:59  UI APP_VERSION: 0.7.0
+2026-09-01 18:19:59  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-01 18:20:00  Node v24.19.0 | npm 11.17.0
+2026-09-01 18:20:00  electron-vite: OK
+2026-09-01 18:20:00  Electron: OK
+2026-09-01 18:20:00  Iniciando modo desarrollo...
+2026-09-01 18:20:00  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-01 18:20:00  ---
+2026-09-01 18:23:55  ---
+2026-09-01 18:23:55  Proceso terminado. Codigo de salida: 0
+2026-09-01 20:00:56  === KawaiiGPT Robust ===
+2026-09-01 20:00:56  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-01 20:00:56  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-01 20:00:56  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-01 20:00:56  package.json version: 0.7.1
+2026-09-01 20:00:56  UI APP_VERSION: 0.7.1
+2026-09-01 20:00:56  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-01 20:00:56  Node v24.19.0 | npm 11.17.0
+2026-09-01 20:00:56  electron-vite: OK
+2026-09-01 20:00:56  Electron: OK
+2026-09-01 20:00:56  Iniciando modo desarrollo...
+2026-09-01 20:00:56  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-01 20:00:56  ---
+2026-09-01 20:21:26  ---
+2026-09-01 20:21:26  Proceso terminado. Codigo de salida: 0
+2026-09-01 20:23:08  === KawaiiGPT Robust ===
+2026-09-01 20:23:08  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-01 20:23:08  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-01 20:23:08  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-01 20:23:08  package.json version: 0.7.2
+2026-09-01 20:23:08  UI APP_VERSION: 0.7.2
+2026-09-01 20:23:08  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-01 20:23:09  Node v24.19.0 | npm 11.17.0
+2026-09-01 20:23:09  electron-vite: OK
+2026-09-01 20:23:09  Electron: OK
+2026-09-01 20:23:09  Iniciando modo desarrollo...
+2026-09-01 20:23:09  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-01 20:23:09  ---
+2026-09-01 20:28:17  === KawaiiGPT Robust ===
+2026-09-01 20:28:17  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-01 20:28:17  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-01 20:28:17  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-01 20:28:17  package.json version: 0.7.2
+2026-09-01 20:28:17  UI APP_VERSION: 0.7.2
+2026-09-01 20:28:17  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-01 20:28:17  Node v24.19.0 | npm 11.17.0
+2026-09-01 20:28:17  electron-vite: OK
+2026-09-01 20:28:17  Electron: OK
+2026-09-01 20:28:17  Iniciando modo desarrollo...
+2026-09-01 20:28:17  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-01 20:28:17  ---
+2026-09-01 20:33:50  ---
+2026-09-01 20:33:50  Proceso terminado. Codigo de salida: 0
+2026-09-04 09:23:32  === KawaiiGPT Robust ===
+2026-09-04 09:23:32  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 09:23:32  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 09:23:32  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 09:23:32  package.json version: 0.7.2
+2026-09-04 09:23:32  UI APP_VERSION: 0.7.2
+2026-09-04 09:23:32  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 09:23:33  Node v24.19.0 | npm 11.17.0
+2026-09-04 09:23:33  electron-vite: OK
+2026-09-04 09:23:33  Electron: OK
+2026-09-04 09:23:33  Iniciando modo desarrollo...
+2026-09-04 09:23:33  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 09:23:33  ---
+2026-09-04 09:33:50  === KawaiiGPT Robust ===
+2026-09-04 09:33:50  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 09:33:50  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 09:33:50  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 09:33:50  package.json version: 0.7.2
+2026-09-04 09:33:50  UI APP_VERSION: 0.7.2
+2026-09-04 09:33:50  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 09:33:50  Node v24.19.0 | npm 11.17.0
+2026-09-04 09:33:50  electron-vite: OK
+2026-09-04 09:33:50  Electron: OK
+2026-09-04 09:33:50  Iniciando modo desarrollo...
+2026-09-04 09:33:50  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 09:33:50  ---
+2026-09-04 10:07:32  ---
+2026-09-04 10:07:32  Proceso terminado. Codigo de salida: 0
+2026-09-04 10:07:53  === KawaiiGPT Robust ===
+2026-09-04 10:07:53  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 10:07:53  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 10:07:53  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 10:07:53  package.json version: 0.7.4
+2026-09-04 10:07:53  UI APP_VERSION: 0.7.4
+2026-09-04 10:07:53  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 10:07:54  Node v24.19.0 | npm 11.17.0
+2026-09-04 10:07:54  electron-vite: OK
+2026-09-04 10:07:54  Electron: OK
+2026-09-04 10:07:54  Iniciando modo desarrollo...
+2026-09-04 10:07:54  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 10:07:54  ---
+2026-09-04 10:37:25  ---
+2026-09-04 10:37:25  Proceso terminado. Codigo de salida: 0
+2026-09-04 10:55:51  === KawaiiGPT Robust ===
+2026-09-04 10:55:51  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 10:55:51  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 10:55:51  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 10:55:51  package.json version: 0.7.7
+2026-09-04 10:55:51  UI APP_VERSION: 0.7.7
+2026-09-04 10:55:51  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 10:55:51  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 10:55:51  Node v24.19.0 | npm 11.17.0
+2026-09-04 10:55:51  electron-vite: OK
+2026-09-04 10:55:51  Electron: OK
+2026-09-04 10:55:51  Iniciando modo desarrollo...
+2026-09-04 10:55:51  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 10:55:51  ---
+2026-09-04 11:03:27  ---
+2026-09-04 11:03:27  Proceso terminado. Codigo de salida: 0
+2026-09-04 11:05:16  === KawaiiGPT Robust ===
+2026-09-04 11:05:16  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 11:05:16  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 11:05:16  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 11:05:16  package.json version: 0.7.8
+2026-09-04 11:05:16  UI APP_VERSION: 0.7.8
+2026-09-04 11:05:16  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 11:05:16  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 11:05:17  Node v24.19.0 | npm 11.17.0
+2026-09-04 11:05:17  electron-vite: OK
+2026-09-04 11:05:17  Electron: OK
+2026-09-04 11:05:17  Iniciando modo desarrollo...
+2026-09-04 11:05:17  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 11:05:17  ---
+2026-09-04 11:07:55  ---
+2026-09-04 11:07:55  Proceso terminado. Codigo de salida: 0
+2026-09-04 11:54:28  === KawaiiGPT Robust ===
+2026-09-04 11:54:28  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 11:54:28  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 11:54:28  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 11:54:28  package.json version: 0.8.1
+2026-09-04 11:54:28  UI APP_VERSION: 0.8.1
+2026-09-04 11:54:28  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 11:54:28  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 11:54:29  Node v24.19.0 | npm 11.17.0
+2026-09-04 11:54:29  electron-vite: OK
+2026-09-04 11:54:29  Electron: OK
+2026-09-04 11:54:29  Iniciando modo desarrollo...
+2026-09-04 11:54:29  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 11:54:29  ---
+2026-09-04 11:55:59  ---
+2026-09-04 11:55:59  Proceso terminado. Codigo de salida: 0
+2026-09-04 12:03:58  === KawaiiGPT Robust ===
+2026-09-04 12:03:58  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 12:03:58  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 12:03:58  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 12:03:58  package.json version: 0.8.2
+2026-09-04 12:03:58  UI APP_VERSION: 0.8.2
+2026-09-04 12:03:58  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 12:03:58  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 12:03:58  Node v24.19.0 | npm 11.17.0
+2026-09-04 12:03:58  electron-vite: OK
+2026-09-04 12:03:58  Electron: OK
+2026-09-04 12:03:58  Iniciando modo desarrollo...
+2026-09-04 12:03:58  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 12:03:58  ---
+2026-09-04 12:30:56  ---
+2026-09-04 12:30:56  Proceso terminado. Codigo de salida: 0
+2026-09-04 12:32:16  === KawaiiGPT Robust ===
+2026-09-04 12:32:16  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 12:32:16  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 12:32:16  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 12:32:16  package.json version: 0.8.3
+2026-09-04 12:32:16  UI APP_VERSION: 0.8.3
+2026-09-04 12:32:16  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 12:32:16  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 12:32:17  Node v24.19.0 | npm 11.17.0
+2026-09-04 12:32:17  electron-vite: OK
+2026-09-04 12:32:17  Electron: OK
+2026-09-04 12:32:17  Iniciando modo desarrollo...
+2026-09-04 12:32:17  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 12:32:17  ---
+2026-09-04 13:12:23  ---
+2026-09-04 13:12:23  Proceso terminado. Codigo de salida: 0
+2026-09-04 13:13:01  === KawaiiGPT Robust ===
+2026-09-04 13:13:01  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 13:13:01  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 13:13:01  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 13:13:01  package.json version: 0.8.4
+2026-09-04 13:13:01  UI APP_VERSION: 0.8.4
+2026-09-04 13:13:01  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 13:13:01  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 13:13:01  Node v24.19.0 | npm 11.17.0
+2026-09-04 13:13:01  electron-vite: OK
+2026-09-04 13:13:01  Electron: OK
+2026-09-04 13:13:01  Iniciando modo desarrollo...
+2026-09-04 13:13:01  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 13:13:01  ---
+2026-09-04 13:35:19  ---
+2026-09-04 13:35:19  Proceso terminado. Codigo de salida: 0
+2026-09-04 13:41:53  === KawaiiGPT Robust ===
+2026-09-04 13:41:53  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 13:41:53  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 13:41:53  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 13:41:53  package.json version: 0.8.5
+2026-09-04 13:41:53  UI APP_VERSION: 0.8.5
+2026-09-04 13:41:53  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 13:41:53  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 13:41:54  Node v24.19.0 | npm 11.17.0
+2026-09-04 13:41:54  electron-vite: OK
+2026-09-04 13:41:54  Electron: OK
+2026-09-04 13:41:54  Iniciando modo desarrollo...
+2026-09-04 13:41:54  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 13:41:54  ---
+2026-09-04 13:45:43  ---
+2026-09-04 13:45:43  Proceso terminado. Codigo de salida: 0
+2026-09-04 13:46:09  === KawaiiGPT Robust ===
+2026-09-04 13:46:09  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 13:46:09  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 13:46:09  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 13:46:09  package.json version: 0.8.6
+2026-09-04 13:46:09  UI APP_VERSION: 0.8.6
+2026-09-04 13:46:09  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 13:46:09  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 13:46:10  Node v24.19.0 | npm 11.17.0
+2026-09-04 13:46:10  electron-vite: OK
+2026-09-04 13:46:10  Electron: OK
+2026-09-04 13:46:10  Iniciando modo desarrollo...
+2026-09-04 13:46:10  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 13:46:10  ---
+2026-09-04 13:49:34  ---
+2026-09-04 13:49:34  Proceso terminado. Codigo de salida: 0
+2026-09-04 13:49:48  === KawaiiGPT Robust ===
+2026-09-04 13:49:48  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 13:49:48  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 13:49:48  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 13:49:48  package.json version: 0.8.7
+2026-09-04 13:49:48  UI APP_VERSION: 0.8.7
+2026-09-04 13:49:48  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 13:49:48  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 13:49:49  Node v24.19.0 | npm 11.17.0
+2026-09-04 13:49:49  electron-vite: OK
+2026-09-04 13:49:49  Electron: OK
+2026-09-04 13:49:49  Iniciando modo desarrollo...
+2026-09-04 13:49:49  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 13:49:49  ---
+2026-09-04 14:21:45  ---
+2026-09-04 14:21:45  Proceso terminado. Codigo de salida: 0
+2026-09-04 14:31:45  === KawaiiGPT Robust ===
+2026-09-04 14:31:45  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 14:31:45  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 14:31:45  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 14:31:45  package.json version: 0.8.9
+2026-09-04 14:31:45  UI APP_VERSION: 0.8.9
+2026-09-04 14:31:45  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 14:31:45  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 14:31:45  Node v24.19.0 | npm 11.17.0
+2026-09-04 14:31:45  electron-vite: OK
+2026-09-04 14:31:45  Electron: OK
+2026-09-04 14:31:45  Iniciando modo desarrollo...
+2026-09-04 14:31:45  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 14:31:45  ---
+2026-09-04 14:35:10  ---
+2026-09-04 14:35:10  Proceso terminado. Codigo de salida: 0
+2026-09-04 15:17:58  === KawaiiGPT Robust ===
+2026-09-04 15:17:58  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 15:17:58  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 15:17:58  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 15:17:58  package.json version: 0.8.10
+2026-09-04 15:17:58  UI APP_VERSION: 0.8.10
+2026-09-04 15:17:58  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 15:17:58  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 15:17:58  Node v24.19.0 | npm 11.17.0
+2026-09-04 15:17:58  electron-vite: OK
+2026-09-04 15:17:58  Electron: OK
+2026-09-04 15:17:58  Iniciando modo desarrollo...
+2026-09-04 15:17:58  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 15:17:58  ---
+2026-09-04 15:21:41  ---
+2026-09-04 15:21:41  Proceso terminado. Codigo de salida: 0
+2026-09-04 15:27:01  === KawaiiGPT Robust ===
+2026-09-04 15:27:01  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 15:27:01  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 15:27:01  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 15:27:01  package.json version: 0.8.11
+2026-09-04 15:27:01  UI APP_VERSION: 0.8.11
+2026-09-04 15:27:01  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 15:27:01  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 15:27:02  Node v24.19.0 | npm 11.17.0
+2026-09-04 15:27:02  electron-vite: OK
+2026-09-04 15:27:02  Electron: OK
+2026-09-04 15:27:02  Iniciando modo desarrollo...
+2026-09-04 15:27:02  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 15:27:02  ---
+2026-09-04 15:30:59  ---
+2026-09-04 15:30:59  Proceso terminado. Codigo de salida: 0
+2026-09-04 15:38:54  === KawaiiGPT Robust ===
+2026-09-04 15:38:54  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 15:38:54  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 15:38:54  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 15:38:54  package.json version: 0.8.12
+2026-09-04 15:38:54  UI APP_VERSION: 0.8.12
+2026-09-04 15:38:54  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 15:38:54  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 15:38:55  Node v24.19.0 | npm 11.17.0
+2026-09-04 15:38:55  electron-vite: OK
+2026-09-04 15:38:55  Electron: OK
+2026-09-04 15:38:55  Iniciando modo desarrollo...
+2026-09-04 15:38:55  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 15:38:55  ---
+2026-09-04 15:44:17  ---
+2026-09-04 15:44:17  Proceso terminado. Codigo de salida: 0
+2026-09-04 15:45:08  === KawaiiGPT Robust ===
+2026-09-04 15:45:08  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 15:45:08  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 15:45:08  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 15:45:08  package.json version: 0.8.13
+2026-09-04 15:45:08  UI APP_VERSION: 0.8.13
+2026-09-04 15:45:08  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 15:45:08  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 15:45:08  Node v24.19.0 | npm 11.17.0
+2026-09-04 15:45:08  electron-vite: OK
+2026-09-04 15:45:08  Electron: OK
+2026-09-04 15:45:08  Iniciando modo desarrollo...
+2026-09-04 15:45:08  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 15:45:08  ---
+2026-09-04 15:52:30  ---
+2026-09-04 15:52:30  Proceso terminado. Codigo de salida: 0
+2026-09-04 16:00:07  === KawaiiGPT Robust ===
+2026-09-04 16:00:07  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 16:00:07  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 16:00:07  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 16:00:07  package.json version: 0.8.14
+2026-09-04 16:00:07  UI APP_VERSION: 0.8.14
+2026-09-04 16:00:07  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 16:00:07  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 16:00:07  Node v24.19.0 | npm 11.17.0
+2026-09-04 16:00:07  electron-vite: OK
+2026-09-04 16:00:07  Electron: OK
+2026-09-04 16:00:07  Iniciando modo desarrollo...
+2026-09-04 16:00:07  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 16:00:07  ---
+2026-09-04 16:22:42  ---
+2026-09-04 16:22:42  Proceso terminado. Codigo de salida: 0
+2026-09-04 16:35:17  === KawaiiGPT Robust ===
+2026-09-04 16:35:17  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 16:35:17  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 16:35:17  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 16:35:17  package.json version: 0.8.15
+2026-09-04 16:35:17  UI APP_VERSION: 0.8.15
+2026-09-04 16:35:17  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 16:35:17  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 16:35:17  Node v24.19.0 | npm 11.17.0
+2026-09-04 16:35:17  electron-vite: OK
+2026-09-04 16:35:17  Electron: OK
+2026-09-04 16:35:17  Iniciando modo desarrollo...
+2026-09-04 16:35:17  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 16:35:17  ---
+2026-09-04 16:35:42  ---
+2026-09-04 16:35:42  Proceso terminado. Codigo de salida: 0
+2026-09-04 16:41:38  === KawaiiGPT Robust ===
+2026-09-04 16:41:38  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 16:41:38  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 16:41:38  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 16:41:38  package.json version: 0.8.15
+2026-09-04 16:41:38  UI APP_VERSION: 0.8.15
+2026-09-04 16:41:38  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 16:41:38  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 16:41:38  Node v24.19.0 | npm 11.17.0
+2026-09-04 16:41:38  electron-vite: OK
+2026-09-04 16:41:38  Electron: OK
+2026-09-04 16:41:38  Iniciando modo desarrollo...
+2026-09-04 16:41:38  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 16:41:38  ---
+2026-09-04 16:52:56  ---
+2026-09-04 16:52:56  Proceso terminado. Codigo de salida: 0
+2026-09-04 16:58:37  === KawaiiGPT Robust ===
+2026-09-04 16:58:37  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 16:58:37  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 16:58:37  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 16:58:37  package.json version: 0.8.16
+2026-09-04 16:58:37  UI APP_VERSION: 0.8.16
+2026-09-04 16:58:37  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 16:58:37  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 16:58:37  Node v24.19.0 | npm 11.17.0
+2026-09-04 16:58:37  electron-vite: OK
+2026-09-04 16:58:37  Electron: OK
+2026-09-04 16:58:37  Iniciando modo desarrollo...
+2026-09-04 16:58:37  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 16:58:37  ---
+2026-09-04 17:04:22  ---
+2026-09-04 17:04:22  Proceso terminado. Codigo de salida: 0
+2026-09-04 17:05:03  === KawaiiGPT Robust ===
+2026-09-04 17:05:03  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 17:05:03  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 17:05:03  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-04 17:05:03  package.json version: 0.8.17
+2026-09-04 17:05:03  UI APP_VERSION: 0.8.17
+2026-09-04 17:05:03  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 17:05:03  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 17:05:03  Node v24.19.0 | npm 11.17.0
+2026-09-04 17:05:03  electron-vite: OK
+2026-09-04 17:05:03  Electron: OK
+2026-09-04 17:05:03  Iniciando modo desarrollo...
+2026-09-04 17:05:03  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 17:05:03  ---
+2026-09-04 17:05:22  ---
+2026-09-04 17:05:22  Proceso terminado. Codigo de salida: 0
+2026-09-04 19:56:23  === KawaiiGPT Robust ===
+2026-09-04 19:56:23  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-04 19:56:23  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-04 19:56:23  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust_1
+2026-09-04 19:56:23  package.json version: 0.8.20
+2026-09-04 19:56:23  UI APP_VERSION: 0.8.20
+2026-09-04 19:56:23  forge-runtime.ts: OK (launcher endurecido)
+2026-09-04 19:56:23  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-04 19:56:23  Node v24.19.0 | npm 11.17.0
+2026-09-04 19:56:23  electron-vite: OK
+2026-09-04 19:56:23  Electron: OK
+2026-09-04 19:56:23  Iniciando modo desarrollo...
+2026-09-04 19:56:23  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-04 19:56:23  ---
+2026-09-04 20:20:57  ---
+2026-09-04 20:20:57  Proceso terminado. Codigo de salida: 0
+2026-09-05 09:43:50  === KawaiiGPT Robust ===
+2026-09-05 09:43:50  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-05 09:43:50  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-05 09:43:50  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust_1
+2026-09-05 09:43:50  package.json version: 0.8.20
+2026-09-05 09:43:50  UI APP_VERSION: 0.8.20
+2026-09-05 09:43:50  forge-runtime.ts: OK (launcher endurecido)
+2026-09-05 09:43:50  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-05 09:43:51  Node v24.19.0 | npm 11.17.0
+2026-09-05 09:43:51  electron-vite: OK
+2026-09-05 09:43:51  Electron: OK
+2026-09-05 09:43:51  Iniciando modo desarrollo...
+2026-09-05 09:43:51  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-05 09:43:51  ---
+2026-09-05 09:43:58  ---
+2026-09-05 09:43:58  Proceso terminado. Codigo de salida: 0
+2026-09-09 11:31:59  === KawaiiGPT Robust ===
+2026-09-09 11:31:59  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-09 11:31:59  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-09 11:31:59  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-09 11:31:59  package.json version: 0.8.95
+2026-09-09 11:31:59  UI APP_VERSION: 0.8.95
+2026-09-09 11:31:59  forge-runtime.ts: OK (launcher endurecido)
+2026-09-09 11:31:59  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-09 11:31:59  Node v24.19.0 | npm 11.17.0
+2026-09-09 11:31:59  electron-vite: OK
+2026-09-09 11:31:59  Electron: OK
+2026-09-09 11:31:59  Iniciando modo desarrollo...
+2026-09-09 11:31:59  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-09 11:31:59  ---
+2026-09-09 12:03:51  ---
+2026-09-09 12:03:51  Proceso terminado. Codigo de salida: 0
+2026-09-09 12:50:51  === KawaiiGPT Robust ===
+2026-09-09 12:50:51  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-09 12:50:51  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-09 12:50:51  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-09 12:50:51  package.json version: 0.8.95
+2026-09-09 12:50:51  UI APP_VERSION: 0.8.95
+2026-09-09 12:50:51  forge-runtime.ts: OK (launcher endurecido)
+2026-09-09 12:50:51  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-09 12:50:51  Node v24.19.0 | npm 11.17.0
+2026-09-09 12:50:51  electron-vite: OK
+2026-09-09 12:50:51  Electron: OK
+2026-09-09 12:50:51  Iniciando modo desarrollo...
+2026-09-09 12:50:51  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-09 12:50:51  ---
+2026-09-09 13:11:02  ---
+2026-09-09 13:11:02  Proceso terminado. Codigo de salida: 0
+2026-09-09 13:54:44  === KawaiiGPT Robust ===
+2026-09-09 13:54:44  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-09 13:54:44  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-09 13:54:44  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-09 13:54:44  package.json version: 0.9.0
+2026-09-09 13:54:44  UI APP_VERSION: 0.9.0
+2026-09-09 13:54:44  forge-runtime.ts: OK (launcher endurecido)
+2026-09-09 13:54:44  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-09 13:54:45  Node v24.19.0 | npm 11.17.0
+2026-09-09 13:54:45  electron-vite: OK
+2026-09-09 13:54:45  Electron: OK
+2026-09-09 13:54:45  Iniciando modo desarrollo...
+2026-09-09 13:54:45  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-09 13:54:45  ---
+2026-09-09 14:01:11  ---
+2026-09-09 14:01:11  Proceso terminado. Codigo de salida: 0
+2026-09-09 14:02:52  === KawaiiGPT Robust ===
+2026-09-09 14:02:52  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-09 14:02:52  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-09 14:02:52  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-09 14:02:52  package.json version: 0.9.0
+2026-09-09 14:02:52  UI APP_VERSION: 0.9.0
+2026-09-09 14:02:52  forge-runtime.ts: OK (launcher endurecido)
+2026-09-09 14:02:52  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-09 14:02:52  Node v24.19.0 | npm 11.17.0
+2026-09-09 14:02:52  electron-vite: OK
+2026-09-09 14:02:52  Electron: OK
+2026-09-09 14:02:52  Iniciando modo desarrollo...
+2026-09-09 14:02:52  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-09 14:02:52  ---
+2026-09-09 14:22:59  ---
+2026-09-09 14:22:59  Proceso terminado. Codigo de salida: 0
+2026-09-09 14:23:11  === KawaiiGPT Robust ===
+2026-09-09 14:23:11  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-09 14:23:11  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-09 14:23:11  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-09 14:23:11  package.json version: 0.9.0
+2026-09-09 14:23:11  UI APP_VERSION: 0.9.0
+2026-09-09 14:23:11  forge-runtime.ts: OK (launcher endurecido)
+2026-09-09 14:23:11  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-09 14:23:11  Node v24.19.0 | npm 11.17.0
+2026-09-09 14:23:11  electron-vite: OK
+2026-09-09 14:23:11  Electron: OK
+2026-09-09 14:23:11  Iniciando modo desarrollo...
+2026-09-09 14:23:11  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-09 14:23:11  ---
+2026-09-09 14:43:30  ---
+2026-09-09 14:43:30  Proceso terminado. Codigo de salida: 0
+2026-09-09 18:30:59  === KawaiiGPT Robust ===
+2026-09-09 18:30:59  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-09 18:30:59  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-09 18:30:59  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-09 18:30:59  package.json version: 0.9.1
+2026-09-09 18:30:59  UI APP_VERSION: 0.9.1
+2026-09-09 18:30:59  forge-runtime.ts: OK (launcher endurecido)
+2026-09-09 18:30:59  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-09 18:30:59  Node v24.19.0 | npm 11.17.0
+2026-09-09 18:30:59  electron-vite: OK
+2026-09-09 18:30:59  Electron: OK
+2026-09-09 18:30:59  Iniciando modo desarrollo...
+2026-09-09 18:30:59  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-09 18:30:59  ---
+2026-09-09 18:31:00  ---
+2026-09-09 18:31:00  Proceso terminado. Codigo de salida: 0
+2026-09-09 18:41:29  === KawaiiGPT Robust ===
+2026-09-09 18:41:29  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-09 18:41:29  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-09 18:41:29  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-09 18:41:29  package.json version: 0.9.1
+2026-09-09 18:41:29  UI APP_VERSION: 0.9.1
+2026-09-09 18:41:29  forge-runtime.ts: OK (launcher endurecido)
+2026-09-09 18:41:29  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-09 18:41:29  Node v24.19.0 | npm 11.17.0
+2026-09-09 18:41:29  electron-vite: OK
+2026-09-09 18:41:29  Electron: OK
+2026-09-09 18:41:29  Iniciando modo desarrollo...
+2026-09-09 18:41:29  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-09 18:41:29  ---
+2026-09-09 18:42:13  ---
+2026-09-09 18:42:13  Proceso terminado. Codigo de salida: 0
+2026-09-09 18:46:06  === KawaiiGPT Robust ===
+2026-09-09 18:46:06  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-09 18:46:06  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-09 18:46:06  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-09 18:46:06  package.json version: 0.9.1
+2026-09-09 18:46:06  UI APP_VERSION: 0.9.1
+2026-09-09 18:46:06  forge-runtime.ts: OK (launcher endurecido)
+2026-09-09 18:46:06  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-09 18:46:06  Node v24.19.0 | npm 11.17.0
+2026-09-09 18:46:06  electron-vite: OK
+2026-09-09 18:46:06  Electron: OK
+2026-09-09 18:46:06  Iniciando modo desarrollo...
+2026-09-09 18:46:06  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-09 18:46:06  ---
+2026-09-09 18:47:35  ---
+2026-09-09 18:47:35  Proceso terminado. Codigo de salida: 0
+2026-09-10 08:23:05  === KawaiiGPT Robust ===
+2026-09-10 08:23:05  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 08:23:05  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 08:23:05  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 08:23:05  package.json version: 0.9.1
+2026-09-10 08:23:05  UI APP_VERSION: 0.9.1
+2026-09-10 08:23:05  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 08:23:05  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 08:23:05  Node v24.19.0 | npm 11.17.0
+2026-09-10 08:23:05  electron-vite: OK
+2026-09-10 08:23:05  Electron: OK
+2026-09-10 08:23:05  Iniciando modo desarrollo...
+2026-09-10 08:23:05  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 08:23:05  ---
+2026-09-10 08:48:57  ---
+2026-09-10 08:48:57  Proceso terminado. Codigo de salida: 0
+2026-09-10 09:00:17  === KawaiiGPT Robust ===
+2026-09-10 09:00:17  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 09:00:17  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 09:00:17  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 09:00:17  package.json version: 0.9.3
+2026-09-10 09:00:17  UI APP_VERSION: 0.9.3
+2026-09-10 09:00:17  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 09:00:17  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 09:00:18  Node v24.19.0 | npm 11.17.0
+2026-09-10 09:00:18  electron-vite: OK
+2026-09-10 09:00:18  Electron: OK
+2026-09-10 09:00:18  Iniciando modo desarrollo...
+2026-09-10 09:00:18  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 09:00:18  ---
+2026-09-10 09:00:50  ---
+2026-09-10 09:00:50  Proceso terminado. Codigo de salida: 0
+2026-09-10 09:04:22  === KawaiiGPT Robust ===
+2026-09-10 09:04:22  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 09:04:22  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 09:04:22  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 09:04:22  package.json version: 0.9.3
+2026-09-10 09:04:22  UI APP_VERSION: 0.9.3
+2026-09-10 09:04:22  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 09:04:22  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 09:04:22  Node v24.19.0 | npm 11.17.0
+2026-09-10 09:04:22  electron-vite: OK
+2026-09-10 09:04:22  Electron: OK
+2026-09-10 09:04:22  Iniciando modo desarrollo...
+2026-09-10 09:04:22  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 09:04:22  ---
+2026-09-10 10:36:28  ---
+2026-09-10 10:36:28  Proceso terminado. Codigo de salida: 0
+2026-09-10 11:00:33  === KawaiiGPT Robust ===
+2026-09-10 11:00:33  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 11:00:33  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 11:00:33  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 11:00:33  package.json version: 0.9.4
+2026-09-10 11:00:33  UI APP_VERSION: 0.9.4
+2026-09-10 11:00:33  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 11:00:33  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 11:00:33  Node v24.19.0 | npm 11.17.0
+2026-09-10 11:00:33  electron-vite: OK
+2026-09-10 11:00:33  Electron: OK
+2026-09-10 11:00:33  Iniciando modo desarrollo...
+2026-09-10 11:00:33  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 11:00:33  ---
+2026-09-10 11:08:31  ---
+2026-09-10 11:08:31  Proceso terminado. Codigo de salida: 0
+2026-09-10 11:09:07  === KawaiiGPT Robust ===
+2026-09-10 11:09:07  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 11:09:07  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 11:09:07  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 11:09:07  package.json version: 0.9.4
+2026-09-10 11:09:07  UI APP_VERSION: 0.9.4
+2026-09-10 11:09:07  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 11:09:07  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 11:09:07  Node v24.19.0 | npm 11.17.0
+2026-09-10 11:09:07  electron-vite: OK
+2026-09-10 11:09:07  Electron: OK
+2026-09-10 11:09:07  Iniciando modo desarrollo...
+2026-09-10 11:09:07  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 11:09:07  ---
+2026-09-10 11:24:55  ---
+2026-09-10 11:24:55  Proceso terminado. Codigo de salida: 0
+2026-09-10 11:28:41  === KawaiiGPT Robust ===
+2026-09-10 11:28:41  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 11:28:41  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 11:28:41  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 11:28:41  package.json version: 0.9.4
+2026-09-10 11:28:41  UI APP_VERSION: 0.9.4
+2026-09-10 11:28:41  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 11:28:41  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 11:28:41  Node v24.19.0 | npm 11.17.0
+2026-09-10 11:28:41  electron-vite: OK
+2026-09-10 11:28:41  Electron: OK
+2026-09-10 11:28:41  Iniciando modo desarrollo...
+2026-09-10 11:28:41  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 11:28:41  ---
+2026-09-10 11:31:35  ---
+2026-09-10 11:31:35  Proceso terminado. Codigo de salida: 0
+2026-09-10 11:38:58  === KawaiiGPT Robust ===
+2026-09-10 11:38:58  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 11:38:58  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 11:38:58  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 11:38:58  package.json version: 0.9.4
+2026-09-10 11:38:58  UI APP_VERSION: 0.9.4
+2026-09-10 11:38:58  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 11:38:58  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 11:38:58  Node v24.19.0 | npm 11.17.0
+2026-09-10 11:38:58  electron-vite: OK
+2026-09-10 11:38:58  Electron: OK
+2026-09-10 11:38:58  Iniciando modo desarrollo...
+2026-09-10 11:38:58  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 11:38:58  ---
+2026-09-10 11:56:22  ---
+2026-09-10 11:56:22  Proceso terminado. Codigo de salida: 0
+2026-09-10 11:57:11  === KawaiiGPT Robust ===
+2026-09-10 11:57:11  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 11:57:11  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 11:57:11  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 11:57:11  package.json version: 0.9.5
+2026-09-10 11:57:11  UI APP_VERSION: 0.9.5
+2026-09-10 11:57:11  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 11:57:11  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 11:57:11  Node v24.19.0 | npm 11.17.0
+2026-09-10 11:57:11  electron-vite: OK
+2026-09-10 11:57:11  Electron: OK
+2026-09-10 11:57:11  Iniciando modo desarrollo...
+2026-09-10 11:57:11  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 11:57:11  ---
+2026-09-10 11:57:39  ---
+2026-09-10 11:57:39  Proceso terminado. Codigo de salida: 0
+2026-09-10 12:01:02  === KawaiiGPT Robust ===
+2026-09-10 12:01:02  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 12:01:02  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 12:01:02  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 12:01:02  package.json version: 0.9.5
+2026-09-10 12:01:02  UI APP_VERSION: 0.9.5
+2026-09-10 12:01:02  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 12:01:02  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 12:01:02  Node v24.19.0 | npm 11.17.0
+2026-09-10 12:01:02  electron-vite: OK
+2026-09-10 12:01:02  Electron: OK
+2026-09-10 12:01:02  Iniciando modo desarrollo...
+2026-09-10 12:01:02  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 12:01:02  ---
+2026-09-10 12:15:19  ---
+2026-09-10 12:15:19  Proceso terminado. Codigo de salida: 0
+2026-09-10 12:18:36  === KawaiiGPT Robust ===
+2026-09-10 12:18:36  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 12:18:36  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 12:18:36  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 12:18:36  package.json version: 0.9.6
+2026-09-10 12:18:36  UI APP_VERSION: 0.9.6
+2026-09-10 12:18:36  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 12:18:36  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 12:18:37  Node v24.19.0 | npm 11.17.0
+2026-09-10 12:18:37  electron-vite: OK
+2026-09-10 12:18:37  Electron: OK
+2026-09-10 12:18:37  Iniciando modo desarrollo...
+2026-09-10 12:18:37  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 12:18:37  ---
+2026-09-10 12:18:38  ---
+2026-09-10 12:18:38  Proceso terminado. Codigo de salida: 0
+2026-09-10 12:28:52  === KawaiiGPT Robust ===
+2026-09-10 12:28:52  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 12:28:52  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 12:28:52  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 12:28:52  package.json version: 0.9.7
+2026-09-10 12:28:52  UI APP_VERSION: 0.9.7
+2026-09-10 12:28:52  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 12:28:52  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 12:28:52  Node v24.19.0 | npm 11.17.0
+2026-09-10 12:28:52  electron-vite: OK
+2026-09-10 12:28:52  Electron: OK
+2026-09-10 12:28:52  Iniciando modo desarrollo...
+2026-09-10 12:28:52  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 12:28:52  ---
+2026-09-10 12:36:48  === KawaiiGPT Robust ===
+2026-09-10 12:36:48  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 12:36:48  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 12:36:48  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 12:36:48  package.json version: 0.9.8
+2026-09-10 12:36:48  UI APP_VERSION: 0.9.8
+2026-09-10 12:36:48  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 12:36:48  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 12:36:48  Node v24.19.0 | npm 11.17.0
+2026-09-10 12:36:48  electron-vite: OK
+2026-09-10 12:36:48  Electron: OK
+2026-09-10 12:36:48  Iniciando modo desarrollo...
+2026-09-10 12:36:48  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 12:36:48  ---
+2026-09-10 12:51:21  ---
+2026-09-10 12:51:21  Proceso terminado. Codigo de salida: 0
+2026-09-10 12:52:31  === KawaiiGPT Robust ===
+2026-09-10 12:52:31  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 12:52:31  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 12:52:31  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 12:52:31  package.json version: 0.9.9
+2026-09-10 12:52:31  UI APP_VERSION: 0.9.9
+2026-09-10 12:52:31  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 12:52:31  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 12:52:31  Node v24.19.0 | npm 11.17.0
+2026-09-10 12:52:31  electron-vite: OK
+2026-09-10 12:52:31  Electron: OK
+2026-09-10 12:52:31  Iniciando modo desarrollo...
+2026-09-10 12:52:31  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 12:52:31  ---
+2026-09-10 12:57:13  ---
+2026-09-10 12:57:13  Proceso terminado. Codigo de salida: 0
+2026-09-10 13:15:40  === KawaiiGPT Robust ===
+2026-09-10 13:15:40  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 13:15:40  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 13:15:40  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 13:15:40  package.json version: 0.9.10
+2026-09-10 13:15:40  UI APP_VERSION: 0.9.10
+2026-09-10 13:15:40  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 13:15:40  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 13:15:40  Node v24.19.0 | npm 11.17.0
+2026-09-10 13:15:40  electron-vite: OK
+2026-09-10 13:15:40  Electron: OK
+2026-09-10 13:15:40  Iniciando modo desarrollo...
+2026-09-10 13:15:40  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 13:15:40  ---
+2026-09-10 13:16:16  ---
+2026-09-10 13:16:16  Proceso terminado. Codigo de salida: 0
+2026-09-10 13:27:31  === KawaiiGPT Robust ===
+2026-09-10 13:27:31  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 13:27:31  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 13:27:31  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 13:27:31  package.json version: 0.9.10
+2026-09-10 13:27:31  UI APP_VERSION: 0.9.10
+2026-09-10 13:27:31  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 13:27:31  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 13:27:31  Node v24.19.0 | npm 11.17.0
+2026-09-10 13:27:31  electron-vite: OK
+2026-09-10 13:27:31  Electron: OK
+2026-09-10 13:27:31  Iniciando modo desarrollo...
+2026-09-10 13:27:31  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 13:27:31  ---
+2026-09-10 13:30:01  ---
+2026-09-10 13:30:01  Proceso terminado. Codigo de salida: 0
+2026-09-10 13:43:02  === KawaiiGPT Robust ===
+2026-09-10 13:43:02  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 13:43:02  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 13:43:02  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 13:43:02  package.json version: 0.9.11
+2026-09-10 13:43:02  UI APP_VERSION: 0.9.11
+2026-09-10 13:43:02  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 13:43:02  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 13:43:02  Node v24.19.0 | npm 11.17.0
+2026-09-10 13:43:02  electron-vite: OK
+2026-09-10 13:43:02  Electron: OK
+2026-09-10 13:43:02  Iniciando modo desarrollo...
+2026-09-10 13:43:02  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 13:43:02  ---
+2026-09-10 13:54:07  === KawaiiGPT Robust ===
+2026-09-10 13:54:07  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 13:54:07  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 13:54:07  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 13:54:07  package.json version: 0.9.11
+2026-09-10 13:54:07  UI APP_VERSION: 0.9.11
+2026-09-10 13:54:07  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 13:54:07  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 13:54:07  Node v24.19.0 | npm 11.17.0
+2026-09-10 13:54:07  electron-vite: OK
+2026-09-10 13:54:07  Electron: OK
+2026-09-10 13:54:07  Iniciando modo desarrollo...
+2026-09-10 13:54:07  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 13:54:07  ---
+2026-09-10 14:20:21  ---
+2026-09-10 14:20:21  Proceso terminado. Codigo de salida: 0
+2026-09-10 14:21:46  === KawaiiGPT Robust ===
+2026-09-10 14:21:46  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 14:21:46  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 14:21:46  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 14:21:46  package.json version: 0.9.12
+2026-09-10 14:21:46  UI APP_VERSION: 0.9.12
+2026-09-10 14:21:46  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 14:21:46  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 14:21:46  Node v24.19.0 | npm 11.17.0
+2026-09-10 14:21:46  electron-vite: OK
+2026-09-10 14:21:46  Electron: OK
+2026-09-10 14:21:46  Iniciando modo desarrollo...
+2026-09-10 14:21:46  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 14:21:46  ---
+2026-09-10 14:32:06  === KawaiiGPT Robust ===
+2026-09-10 14:32:06  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 14:32:06  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 14:32:06  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 14:32:06  package.json version: 0.9.13
+2026-09-10 14:32:06  UI APP_VERSION: 0.9.13
+2026-09-10 14:32:06  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 14:32:06  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 14:32:06  Node v24.19.0 | npm 11.17.0
+2026-09-10 14:32:06  electron-vite: OK
+2026-09-10 14:32:06  Electron: OK
+2026-09-10 14:32:06  Iniciando modo desarrollo...
+2026-09-10 14:32:06  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 14:32:06  ---
+2026-09-10 14:32:25  ---
+2026-09-10 14:32:25  Proceso terminado. Codigo de salida: 0
+2026-09-10 14:35:25  === KawaiiGPT Robust ===
+2026-09-10 14:35:25  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 14:35:25  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 14:35:25  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 14:35:25  package.json version: 0.9.13
+2026-09-10 14:35:25  UI APP_VERSION: 0.9.13
+2026-09-10 14:35:25  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 14:35:25  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 14:35:25  Node v24.19.0 | npm 11.17.0
+2026-09-10 14:35:25  electron-vite: OK
+2026-09-10 14:35:25  Electron: OK
+2026-09-10 14:35:25  Iniciando modo desarrollo...
+2026-09-10 14:35:25  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 14:35:25  ---
+2026-09-10 14:37:33  === KawaiiGPT Robust ===
+2026-09-10 14:37:33  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 14:37:33  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 14:37:33  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 14:37:33  package.json version: 0.9.13
+2026-09-10 14:37:33  UI APP_VERSION: 0.9.13
+2026-09-10 14:37:33  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 14:37:33  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 14:37:34  Node v24.19.0 | npm 11.17.0
+2026-09-10 14:37:34  electron-vite: OK
+2026-09-10 14:37:34  Electron: OK
+2026-09-10 14:37:34  Iniciando modo desarrollo...
+2026-09-10 14:37:34  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 14:37:34  ---
+2026-09-10 14:45:05  === KawaiiGPT Robust ===
+2026-09-10 14:45:05  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 14:45:05  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 14:45:05  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 14:45:05  package.json version: 0.9.13
+2026-09-10 14:45:05  UI APP_VERSION: 0.9.13
+2026-09-10 14:45:05  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 14:45:05  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 14:45:05  Node v24.19.0 | npm 11.17.0
+2026-09-10 14:45:05  electron-vite: OK
+2026-09-10 14:45:05  Electron: OK
+2026-09-10 14:45:05  Iniciando modo desarrollo...
+2026-09-10 14:45:05  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 14:45:05  ---
+2026-09-10 14:45:26  ---
+2026-09-10 14:45:26  Proceso terminado. Codigo de salida: 0
+2026-09-10 17:48:59  === KawaiiGPT Robust ===
+2026-09-10 17:48:59  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 17:48:59  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 17:48:59  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 17:48:59  package.json version: 0.9.13
+2026-09-10 17:48:59  UI APP_VERSION: 0.9.13
+2026-09-10 17:48:59  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 17:48:59  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 17:49:00  Node v24.19.0 | npm 11.17.0
+2026-09-10 17:49:00  electron-vite: OK
+2026-09-10 17:49:00  Electron: OK
+2026-09-10 17:49:00  Iniciando modo desarrollo...
+2026-09-10 17:49:00  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 17:49:00  ---
+2026-09-10 17:49:04  ---
+2026-09-10 17:49:04  Proceso terminado. Codigo de salida: 0
+2026-09-10 18:01:59  === KawaiiGPT Robust ===
+2026-09-10 18:01:59  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 18:01:59  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 18:01:59  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 18:01:59  package.json version: 0.9.13
+2026-09-10 18:01:59  UI APP_VERSION: 0.9.13
+2026-09-10 18:01:59  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 18:01:59  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 18:01:59  Node v24.19.0 | npm 11.17.0
+2026-09-10 18:01:59  electron-vite: OK
+2026-09-10 18:01:59  Electron: OK
+2026-09-10 18:01:59  Iniciando modo desarrollo...
+2026-09-10 18:01:59  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 18:01:59  ---
+2026-09-10 18:02:00  ---
+2026-09-10 18:02:00  Proceso terminado. Codigo de salida: 0
+2026-09-10 18:03:08  === KawaiiGPT Robust ===
+2026-09-10 18:03:08  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 18:03:08  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 18:03:08  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 18:03:08  package.json version: 0.9.13
+2026-09-10 18:03:08  UI APP_VERSION: 0.9.13
+2026-09-10 18:03:08  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 18:03:08  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 18:03:08  Node v24.19.0 | npm 11.17.0
+2026-09-10 18:03:08  electron-vite: OK
+2026-09-10 18:03:08  Electron: OK
+2026-09-10 18:03:08  Iniciando modo desarrollo...
+2026-09-10 18:03:08  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 18:03:08  ---
+2026-09-10 18:03:09  ---
+2026-09-10 18:03:09  Proceso terminado. Codigo de salida: 0
+2026-09-10 18:09:49  === KawaiiGPT Robust ===
+2026-09-10 18:09:49  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 18:09:49  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 18:09:49  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 18:09:49  package.json version: 0.9.13
+2026-09-10 18:09:49  UI APP_VERSION: 0.9.13
+2026-09-10 18:09:49  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 18:09:49  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 18:09:50  Node v24.19.0 | npm 11.17.0
+2026-09-10 18:09:50  electron-vite: OK
+2026-09-10 18:09:50  Electron: OK
+2026-09-10 18:09:50  Iniciando modo desarrollo...
+2026-09-10 18:09:50  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 18:09:50  ---
+2026-09-10 18:10:14  ---
+2026-09-10 18:10:14  Proceso terminado. Codigo de salida: 0
+2026-09-10 18:22:30  === KawaiiGPT Robust ===
+2026-09-10 18:22:30  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 18:22:30  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 18:22:30  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 18:22:30  package.json version: 0.9.13
+2026-09-10 18:22:30  UI APP_VERSION: 0.9.13
+2026-09-10 18:22:30  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 18:22:30  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 18:22:31  Node v24.19.0 | npm 11.17.0
+2026-09-10 18:22:31  electron-vite: OK
+2026-09-10 18:22:31  Electron: OK
+2026-09-10 18:22:31  Iniciando modo desarrollo...
+2026-09-10 18:22:31  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 18:22:31  ---
+2026-09-10 18:23:15  ---
+2026-09-10 18:23:15  Proceso terminado. Codigo de salida: 0
+2026-09-10 18:28:23  === KawaiiGPT Robust ===
+2026-09-10 18:28:23  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 18:28:23  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 18:28:23  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 18:28:23  package.json version: 0.9.13
+2026-09-10 18:28:23  UI APP_VERSION: 0.9.13
+2026-09-10 18:28:23  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 18:28:23  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 18:28:23  Node v24.19.0 | npm 11.17.0
+2026-09-10 18:28:23  electron-vite: OK
+2026-09-10 18:28:23  Electron: OK
+2026-09-10 18:28:23  Iniciando modo desarrollo...
+2026-09-10 18:28:23  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 18:28:23  ---
+2026-09-10 18:41:47  ---
+2026-09-10 18:41:47  Proceso terminado. Codigo de salida: 0
+2026-09-10 18:42:20  === KawaiiGPT Robust ===
+2026-09-10 18:42:20  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 18:42:20  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 18:42:20  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 18:42:20  package.json version: 0.9.13
+2026-09-10 18:42:20  UI APP_VERSION: 0.9.13
+2026-09-10 18:42:20  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 18:42:20  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 18:42:20  Node v24.19.0 | npm 11.17.0
+2026-09-10 18:42:20  electron-vite: OK
+2026-09-10 18:42:20  Electron: OK
+2026-09-10 18:42:20  Iniciando modo desarrollo...
+2026-09-10 18:42:20  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 18:42:20  ---
+2026-09-10 18:53:05  ---
+2026-09-10 18:53:05  Proceso terminado. Codigo de salida: 0
+2026-09-10 18:53:41  === KawaiiGPT Robust ===
+2026-09-10 18:53:41  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 18:53:41  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 18:53:41  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 18:53:41  package.json version: 0.9.13
+2026-09-10 18:53:41  UI APP_VERSION: 0.9.13
+2026-09-10 18:53:41  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 18:53:41  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 18:53:41  Node v24.19.0 | npm 11.17.0
+2026-09-10 18:53:41  electron-vite: OK
+2026-09-10 18:53:41  Electron: OK
+2026-09-10 18:53:41  Iniciando modo desarrollo...
+2026-09-10 18:53:41  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 18:53:41  ---
+2026-09-10 19:02:47  ---
+2026-09-10 19:02:47  Proceso terminado. Codigo de salida: 0
+2026-09-10 19:03:06  === KawaiiGPT Robust ===
+2026-09-10 19:03:06  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-10 19:03:06  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-10 19:03:06  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-10 19:03:06  package.json version: 0.9.13
+2026-09-10 19:03:06  UI APP_VERSION: 0.9.13
+2026-09-10 19:03:06  forge-runtime.ts: OK (launcher endurecido)
+2026-09-10 19:03:06  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-10 19:03:06  Node v24.19.0 | npm 11.17.0
+2026-09-10 19:03:06  electron-vite: OK
+2026-09-10 19:03:06  Electron: OK
+2026-09-10 19:03:06  Iniciando modo desarrollo...
+2026-09-10 19:03:06  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-10 19:03:06  ---
+2026-09-10 19:09:48  ---
+2026-09-10 19:09:48  Proceso terminado. Codigo de salida: 0
+2026-09-11 08:38:31  === KawaiiGPT Robust ===
+2026-09-11 08:38:31  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-11 08:38:31  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-11 08:38:31  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-11 08:38:31  package.json version: 0.9.13
+2026-09-11 08:38:31  UI APP_VERSION: 0.9.13
+2026-09-11 08:38:31  forge-runtime.ts: OK (launcher endurecido)
+2026-09-11 08:38:31  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-11 08:38:31  Node v24.19.0 | npm 11.17.0
+2026-09-11 08:38:31  electron-vite: OK
+2026-09-11 08:38:31  Electron: OK
+2026-09-11 08:38:31  Iniciando modo desarrollo...
+2026-09-11 08:38:31  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-11 08:38:31  ---
+2026-09-11 08:44:08  ---
+2026-09-11 08:44:08  Proceso terminado. Codigo de salida: 0
+2026-09-11 08:50:38  === KawaiiGPT Robust ===
+2026-09-11 08:50:38  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-11 08:50:38  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-11 08:50:38  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-11 08:50:38  package.json version: 0.9.13
+2026-09-11 08:50:38  UI APP_VERSION: 0.9.13
+2026-09-11 08:50:38  forge-runtime.ts: OK (launcher endurecido)
+2026-09-11 08:50:38  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-11 08:50:38  Node v24.19.0 | npm 11.17.0
+2026-09-11 08:50:38  electron-vite: OK
+2026-09-11 08:50:38  Electron: OK
+2026-09-11 08:50:38  Iniciando modo desarrollo...
+2026-09-11 08:50:38  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-11 08:50:38  ---
+2026-09-11 09:07:13  ---
+2026-09-11 09:07:13  Proceso terminado. Codigo de salida: 0
+2026-09-11 09:07:49  === KawaiiGPT Robust ===
+2026-09-11 09:07:49  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-11 09:07:49  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-11 09:07:49  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-11 09:07:49  package.json version: 0.9.13
+2026-09-11 09:07:49  UI APP_VERSION: 0.9.13
+2026-09-11 09:07:49  forge-runtime.ts: OK (launcher endurecido)
+2026-09-11 09:07:49  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-11 09:07:49  Node v24.19.0 | npm 11.17.0
+2026-09-11 09:07:49  electron-vite: OK
+2026-09-11 09:07:49  Electron: OK
+2026-09-11 09:07:49  Iniciando modo desarrollo...
+2026-09-11 09:07:49  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-11 09:07:49  ---
+2026-09-11 09:16:24  ---
+2026-09-11 09:16:24  Proceso terminado. Codigo de salida: 0
+2026-09-11 09:36:35  === KawaiiGPT Robust ===
+2026-09-11 09:36:35  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-11 09:36:35  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-11 09:36:35  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-11 09:36:35  package.json version: 0.9.13
+2026-09-11 09:36:35  UI APP_VERSION: 0.9.13
+2026-09-11 09:36:35  forge-runtime.ts: OK (launcher endurecido)
+2026-09-11 09:36:35  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-11 09:36:36  Node v24.19.0 | npm 11.17.0
+2026-09-11 09:36:36  electron-vite: OK
+2026-09-11 09:36:36  Electron: OK
+2026-09-11 09:36:36  Iniciando modo desarrollo...
+2026-09-11 09:36:36  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-11 09:36:36  ---
+2026-09-11 09:37:16  ---
+2026-09-11 09:37:16  Proceso terminado. Codigo de salida: 0
+2026-09-11 09:38:46  === KawaiiGPT Robust ===
+2026-09-11 09:38:46  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-11 09:38:46  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-11 09:38:46  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-11 09:38:46  package.json version: 0.9.13
+2026-09-11 09:38:46  UI APP_VERSION: 0.9.13
+2026-09-11 09:38:46  forge-runtime.ts: OK (launcher endurecido)
+2026-09-11 09:38:46  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-11 09:38:46  Node v24.19.0 | npm 11.17.0
+2026-09-11 09:38:46  electron-vite: OK
+2026-09-11 09:38:46  Electron: OK
+2026-09-11 09:38:46  Iniciando modo desarrollo...
+2026-09-11 09:38:46  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-11 09:38:46  ---
+2026-09-11 09:39:23  ---
+2026-09-11 09:39:23  Proceso terminado. Codigo de salida: 0
+2026-09-11 09:50:00  === KawaiiGPT Robust ===
+2026-09-11 09:50:00  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-11 09:50:00  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-11 09:50:00  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-11 09:50:00  package.json version: 0.9.13
+2026-09-11 09:50:00  UI APP_VERSION: 0.9.13
+2026-09-11 09:50:00  forge-runtime.ts: OK (launcher endurecido)
+2026-09-11 09:50:00  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-11 09:50:01  Node v24.19.0 | npm 11.17.0
+2026-09-11 09:50:01  electron-vite: OK
+2026-09-11 09:50:01  Electron: OK
+2026-09-11 09:50:01  Iniciando modo desarrollo...
+2026-09-11 09:50:01  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-11 09:50:01  ---
+2026-09-11 10:25:31  ---
+2026-09-11 10:25:31  Proceso terminado. Codigo de salida: 0
+2026-09-11 10:49:37  === KawaiiGPT Robust ===
+2026-09-11 10:49:37  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-11 10:49:37  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-11 10:49:37  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-11 10:49:37  package.json version: 0.9.13
+2026-09-11 10:49:37  UI APP_VERSION: 0.9.13
+2026-09-11 10:49:37  forge-runtime.ts: OK (launcher endurecido)
+2026-09-11 10:49:37  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-11 10:49:37  Node v24.19.0 | npm 11.17.0
+2026-09-11 10:49:37  electron-vite: OK
+2026-09-11 10:49:37  Electron: OK
+2026-09-11 10:49:37  Iniciando modo desarrollo...
+2026-09-11 10:49:37  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-11 10:49:37  ---
+2026-09-11 10:59:30  ---
+2026-09-11 10:59:30  Proceso terminado. Codigo de salida: 0
+2026-09-11 11:02:09  === KawaiiGPT Robust ===
+2026-09-11 11:02:09  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-11 11:02:09  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-11 11:02:09  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-11 11:02:09  package.json version: 0.9.13
+2026-09-11 11:02:09  UI APP_VERSION: 0.9.13
+2026-09-11 11:02:09  forge-runtime.ts: OK (launcher endurecido)
+2026-09-11 11:02:09  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-11 11:02:09  Node v24.19.0 | npm 11.17.0
+2026-09-11 11:02:09  electron-vite: OK
+2026-09-11 11:02:09  Electron: OK
+2026-09-11 11:02:09  Iniciando modo desarrollo...
+2026-09-11 11:02:09  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-11 11:02:09  ---
+2026-09-11 11:29:31  ---
+2026-09-11 11:29:31  Proceso terminado. Codigo de salida: 0
+2026-09-11 11:35:23  === KawaiiGPT Robust ===
+2026-09-11 11:35:23  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-11 11:35:23  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-11 11:35:23  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-11 11:35:23  package.json version: 0.9.13
+2026-09-11 11:35:24  UI APP_VERSION: 0.9.13
+2026-09-11 11:35:24  forge-runtime.ts: OK (launcher endurecido)
+2026-09-11 11:35:24  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-11 11:35:24  Node v24.19.0 | npm 12.0.2
+2026-09-11 11:35:24  electron-vite: OK
+2026-09-11 11:35:24  Electron: OK
+2026-09-11 11:35:24  Iniciando modo desarrollo...
+2026-09-11 11:35:24  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-11 11:35:24  ---
+2026-09-11 12:06:47  ---
+2026-09-11 12:06:47  Proceso terminado. Codigo de salida: 0
+2026-09-11 17:42:05  === KawaiiGPT Robust ===
+2026-09-11 17:42:05  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-11 17:42:05  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-11 17:42:05  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-11 17:42:05  package.json version: 0.9.13
+2026-09-11 17:42:05  UI APP_VERSION: 0.9.13
+2026-09-11 17:42:05  forge-runtime.ts: OK (launcher endurecido)
+2026-09-11 17:42:05  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-11 17:42:06  Node v24.19.0 | npm 12.0.2
+2026-09-11 17:42:06  electron-vite: OK
+2026-09-11 17:42:06  Electron: OK
+2026-09-11 17:42:06  Iniciando modo desarrollo...
+2026-09-11 17:42:06  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-11 17:42:06  ---
+2026-09-12 08:20:43  === KawaiiGPT Robust ===
+2026-09-12 08:20:43  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 08:20:43  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 08:20:43  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 08:20:43  package.json version: 0.9.13
+2026-09-12 08:20:43  UI APP_VERSION: 0.9.13
+2026-09-12 08:20:43  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 08:20:43  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 08:20:44  Node v24.19.0 | npm 12.0.2
+2026-09-12 08:20:44  electron-vite: OK
+2026-09-12 08:20:44  Electron: OK
+2026-09-12 08:20:44  Iniciando modo desarrollo...
+2026-09-12 08:20:44  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 08:20:44  ---
+2026-09-12 08:37:36  ---
+2026-09-12 08:37:36  Proceso terminado. Codigo de salida: 0
+2026-09-12 09:11:44  === KawaiiGPT Robust ===
+2026-09-12 09:11:44  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 09:11:44  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 09:11:44  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 09:11:44  package.json version: 0.9.13
+2026-09-12 09:11:44  UI APP_VERSION: 0.9.13
+2026-09-12 09:11:44  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 09:11:44  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 09:11:44  Node v24.19.0 | npm 12.0.2
+2026-09-12 09:11:44  electron-vite: OK
+2026-09-12 09:11:44  Electron: OK
+2026-09-12 09:11:44  Iniciando modo desarrollo...
+2026-09-12 09:11:44  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 09:11:44  ---
+2026-09-12 09:11:55  ---
+2026-09-12 09:11:55  Proceso terminado. Codigo de salida: 0
+2026-09-12 09:18:14  === KawaiiGPT Robust ===
+2026-09-12 09:18:14  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 09:18:14  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 09:18:14  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 09:18:14  package.json version: 0.9.14
+2026-09-12 09:18:14  UI APP_VERSION: 0.9.13
+2026-09-12 09:18:14  AVISO: package.json (0.9.14) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 09:18:14  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 09:18:14  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 09:18:15  Node v24.19.0 | npm 12.0.2
+2026-09-12 09:18:15  electron-vite: OK
+2026-09-12 09:18:15  Electron: OK
+2026-09-12 09:18:15  Iniciando modo desarrollo...
+2026-09-12 09:18:15  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 09:18:15  ---
+2026-09-12 09:18:28  ---
+2026-09-12 09:18:28  Proceso terminado. Codigo de salida: 0
+2026-09-12 09:18:52  === KawaiiGPT Robust ===
+2026-09-12 09:18:52  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 09:18:52  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 09:18:52  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 09:18:52  package.json version: 0.9.14
+2026-09-12 09:18:52  UI APP_VERSION: 0.9.13
+2026-09-12 09:18:52  AVISO: package.json (0.9.14) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 09:18:52  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 09:18:52  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 09:18:52  Node v24.19.0 | npm 12.0.2
+2026-09-12 09:18:52  electron-vite: OK
+2026-09-12 09:18:52  Electron: OK
+2026-09-12 09:18:52  Iniciando modo desarrollo...
+2026-09-12 09:18:52  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 09:18:52  ---
+2026-09-12 09:29:45  ---
+2026-09-12 09:29:45  Proceso terminado. Codigo de salida: 0
+2026-09-12 09:32:37  === KawaiiGPT Robust ===
+2026-09-12 09:32:37  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 09:32:37  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 09:32:37  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 09:32:37  package.json version: 0.9.15
+2026-09-12 09:32:37  UI APP_VERSION: 0.9.13
+2026-09-12 09:32:37  AVISO: package.json (0.9.15) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 09:32:37  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 09:32:37  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 09:32:38  Node v24.19.0 | npm 12.0.2
+2026-09-12 09:32:38  electron-vite: OK
+2026-09-12 09:32:38  Electron: OK
+2026-09-12 09:32:38  Iniciando modo desarrollo...
+2026-09-12 09:32:38  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 09:32:38  ---
+2026-09-12 09:59:06  ---
+2026-09-12 09:59:06  Proceso terminado. Codigo de salida: 0
+2026-09-12 09:59:14  === KawaiiGPT Robust ===
+2026-09-12 09:59:14  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 09:59:14  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 09:59:14  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 09:59:14  package.json version: 0.9.16
+2026-09-12 09:59:14  UI APP_VERSION: 0.9.13
+2026-09-12 09:59:14  AVISO: package.json (0.9.16) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 09:59:14  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 09:59:14  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 09:59:15  Node v24.19.0 | npm 12.0.2
+2026-09-12 09:59:15  electron-vite: OK
+2026-09-12 09:59:15  Electron: OK
+2026-09-12 09:59:15  Iniciando modo desarrollo...
+2026-09-12 09:59:15  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 09:59:15  ---
+2026-09-12 10:06:49  === KawaiiGPT Robust ===
+2026-09-12 10:06:49  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 10:06:49  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 10:06:49  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 10:06:49  package.json version: 0.9.16
+2026-09-12 10:06:49  UI APP_VERSION: 0.9.13
+2026-09-12 10:06:49  AVISO: package.json (0.9.16) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 10:06:49  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 10:06:49  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 10:06:49  Node v24.19.0 | npm 12.0.2
+2026-09-12 10:06:49  electron-vite: OK
+2026-09-12 10:06:49  Electron: OK
+2026-09-12 10:06:49  Iniciando modo desarrollo...
+2026-09-12 10:06:49  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 10:06:49  ---
+2026-09-12 10:26:51  === KawaiiGPT Robust ===
+2026-09-12 10:26:51  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 10:26:51  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 10:26:51  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 10:26:51  package.json version: 0.9.17
+2026-09-12 10:26:51  UI APP_VERSION: 0.9.13
+2026-09-12 10:26:51  AVISO: package.json (0.9.17) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 10:26:51  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 10:26:51  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 10:26:52  Node v24.19.0 | npm 12.0.2
+2026-09-12 10:26:52  electron-vite: OK
+2026-09-12 10:26:52  Electron: OK
+2026-09-12 10:26:52  Iniciando modo desarrollo...
+2026-09-12 10:26:52  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 10:26:52  ---
+2026-09-12 10:26:54  ---
+2026-09-12 10:26:54  Proceso terminado. Codigo de salida: 0
+2026-09-12 10:41:59  ---
+2026-09-12 10:41:59  Proceso terminado. Codigo de salida: 0
+2026-09-12 10:50:56  === KawaiiGPT Robust ===
+2026-09-12 10:50:56  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 10:50:56  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 10:50:56  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 10:50:56  package.json version: 0.9.18
+2026-09-12 10:50:56  UI APP_VERSION: 0.9.13
+2026-09-12 10:50:56  AVISO: package.json (0.9.18) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 10:50:56  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 10:50:56  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 10:50:56  Node v24.19.0 | npm 12.0.2
+2026-09-12 10:50:56  electron-vite: OK
+2026-09-12 10:50:56  Electron: OK
+2026-09-12 10:50:56  Iniciando modo desarrollo...
+2026-09-12 10:50:56  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 10:50:56  ---
+2026-09-12 11:13:21  ---
+2026-09-12 11:13:21  Proceso terminado. Codigo de salida: 0
+2026-09-12 11:42:50  === KawaiiGPT Robust ===
+2026-09-12 11:42:50  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 11:42:50  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 11:42:50  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 11:42:50  package.json version: 0.9.21
+2026-09-12 11:42:50  UI APP_VERSION: 0.9.13
+2026-09-12 11:42:50  AVISO: package.json (0.9.21) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 11:42:50  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 11:42:50  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 11:42:51  Node v24.19.0 | npm 12.0.2
+2026-09-12 11:42:51  electron-vite: OK
+2026-09-12 11:42:51  Electron: OK
+2026-09-12 11:42:51  Iniciando modo desarrollo...
+2026-09-12 11:42:51  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 11:42:51  ---
+2026-09-12 11:44:01  ---
+2026-09-12 11:44:01  Proceso terminado. Codigo de salida: 0
+2026-09-12 11:52:00  === KawaiiGPT Robust ===
+2026-09-12 11:52:00  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 11:52:00  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 11:52:00  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 11:52:00  package.json version: 0.9.21
+2026-09-12 11:52:00  UI APP_VERSION: 0.9.13
+2026-09-12 11:52:00  AVISO: package.json (0.9.21) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 11:52:00  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 11:52:00  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 11:52:00  Node v24.19.0 | npm 12.0.2
+2026-09-12 11:52:00  electron-vite: OK
+2026-09-12 11:52:00  Electron: OK
+2026-09-12 11:52:00  Iniciando modo desarrollo...
+2026-09-12 11:52:00  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 11:52:00  ---
+2026-09-12 11:52:07  ---
+2026-09-12 11:52:07  Proceso terminado. Codigo de salida: 0
+2026-09-12 11:54:08  === KawaiiGPT Robust ===
+2026-09-12 11:54:08  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 11:54:08  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 11:54:08  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 11:54:08  package.json version: 0.9.22
+2026-09-12 11:54:08  UI APP_VERSION: 0.9.13
+2026-09-12 11:54:08  AVISO: package.json (0.9.22) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 11:54:08  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 11:54:08  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 11:54:08  Node v24.19.0 | npm 12.0.2
+2026-09-12 11:54:08  electron-vite: OK
+2026-09-12 11:54:08  Electron: OK
+2026-09-12 11:54:08  Iniciando modo desarrollo...
+2026-09-12 11:54:08  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 11:54:08  ---
+2026-09-12 12:03:49  ---
+2026-09-12 12:03:49  Proceso terminado. Codigo de salida: 0
+2026-09-12 12:04:18  === KawaiiGPT Robust ===
+2026-09-12 12:04:18  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 12:04:18  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 12:04:18  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 12:04:18  package.json version: 0.9.23
+2026-09-12 12:04:18  UI APP_VERSION: 0.9.13
+2026-09-12 12:04:18  AVISO: package.json (0.9.23) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 12:04:18  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 12:04:18  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 12:04:18  Node v24.19.0 | npm 12.0.2
+2026-09-12 12:04:18  electron-vite: OK
+2026-09-12 12:04:18  Electron: OK
+2026-09-12 12:04:18  Iniciando modo desarrollo...
+2026-09-12 12:04:18  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 12:04:18  ---
+2026-09-12 12:17:00  ---
+2026-09-12 12:17:00  Proceso terminado. Codigo de salida: 0
+2026-09-12 12:18:22  === KawaiiGPT Robust ===
+2026-09-12 12:18:22  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 12:18:22  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 12:18:22  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 12:18:22  package.json version: 0.9.23
+2026-09-12 12:18:22  UI APP_VERSION: 0.9.13
+2026-09-12 12:18:22  AVISO: package.json (0.9.23) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 12:18:22  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 12:18:22  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 12:18:22  Node v24.19.0 | npm 12.0.2
+2026-09-12 12:18:22  electron-vite: OK
+2026-09-12 12:18:22  Electron: OK
+2026-09-12 12:18:22  Iniciando modo desarrollo...
+2026-09-12 12:18:22  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 12:18:22  ---
+2026-09-12 12:32:53  ---
+2026-09-12 12:32:53  Proceso terminado. Codigo de salida: 0
+2026-09-12 12:34:53  === KawaiiGPT Robust ===
+2026-09-12 12:34:53  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 12:34:53  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 12:34:53  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 12:34:53  package.json version: 0.9.24
+2026-09-12 12:34:53  UI APP_VERSION: 0.9.13
+2026-09-12 12:34:53  AVISO: package.json (0.9.24) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 12:34:53  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 12:34:53  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 12:34:54  Node v24.19.0 | npm 12.0.2
+2026-09-12 12:34:54  electron-vite: OK
+2026-09-12 12:34:54  Electron: OK
+2026-09-12 12:34:54  Iniciando modo desarrollo...
+2026-09-12 12:34:54  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 12:34:54  ---
+2026-09-12 12:48:58  ---
+2026-09-12 12:48:58  Proceso terminado. Codigo de salida: 0
+2026-09-12 14:43:47  === KawaiiGPT Robust ===
+2026-09-12 14:43:47  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 14:43:47  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 14:43:47  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 14:43:47  package.json version: 0.9.26
+2026-09-12 14:43:47  UI APP_VERSION: 0.9.13
+2026-09-12 14:43:47  AVISO: package.json (0.9.26) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 14:43:47  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 14:43:47  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 14:43:47  Node v24.19.0 | npm 12.0.2
+2026-09-12 14:43:47  electron-vite: OK
+2026-09-12 14:43:47  Electron: OK
+2026-09-12 14:43:47  Iniciando modo desarrollo...
+2026-09-12 14:43:47  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 14:43:47  ---
+2026-09-12 14:43:53  ---
+2026-09-12 14:43:53  Proceso terminado. Codigo de salida: 0
+2026-09-12 14:49:25  === KawaiiGPT Robust ===
+2026-09-12 14:49:25  Launcher para usuarios: deja esta ventana abierta mientras usas la app.
+2026-09-12 14:49:25  Si algo falla, el archivo launcher-log.txt guarda el historial.
+2026-09-12 14:49:25  Carpeta: C:\Users\Orion Ethan\Documents\Proyectos Desarrollo\kawaii-gpt-robust
+2026-09-12 14:49:25  package.json version: 0.9.26
+2026-09-12 14:49:25  UI APP_VERSION: 0.9.13
+2026-09-12 14:49:25  AVISO: package.json (0.9.26) != version.ts (0.9.13). Copia src\ completo.
+2026-09-12 14:49:25  forge-runtime.ts: OK (launcher endurecido)
+2026-09-12 14:49:25  Limpiando compilado (out + cache vite) para forzar codigo actual...
+2026-09-12 14:49:25  Node v24.19.0 | npm 12.0.2
+2026-09-12 14:49:25  electron-vite: OK
+2026-09-12 14:49:25  Electron: OK
+2026-09-12 14:49:25  Iniciando modo desarrollo...
+2026-09-12 14:49:25  Deja ESTA ventana abierta. Cierra la app o Ctrl+C aqui para salir.
+2026-09-12 14:49:25  ---
+2026-09-12 14:57:47  ---
+2026-09-12 14:57:47  Proceso terminado. Codigo de salida: 0

@@ -64,6 +64,25 @@ export function decideRoute(ctx: RoutingContext): RouteDecision {
     }
   }
 
+  // 1b. Only send long analytical prompts to cloud when local is unavailable
+  // or the prompt is truly large — short chat stays local (user expectation).
+  const complex =
+    ctx.promptLength > 400 ||
+    (/\b(analiza|compara|razona|planifica|estrategia|código|codigo)\b/i.test(ctx.prompt) &&
+      ctx.promptLength > 250)
+  if (complex && ctx.cloudAvailable && !ctx.localAvailable) {
+    // only cloud
+  } else if (complex && ctx.cloudAvailable && ctx.promptLength > 500 && !ctx.localAvailable) {
+    return {
+      target: 'cloud',
+      reason: 'Prompt muy largo/complejo y sin local — cloud',
+      useWebSearch: false,
+      temperature: isCreative(ctx.prompt) ? 0.85 : 0.55,
+      maxTokens: ctx.cloudMaxTokens,
+      confidence: 0.78
+    }
+  }
+
   // 2. Long prompt → prefer cloud if available
   if (isLong && ctx.cloudAvailable) {
     return {
@@ -95,11 +114,11 @@ export function decideRoute(ctx: RoutingContext): RouteDecision {
 
     return {
       target: 'local',
-      reason: 'Short/local-friendly prompt; local provider available',
+      reason: 'Preferencia local (Ollama/LM Studio disponible)',
       useWebSearch: false,
       temperature,
       maxTokens,
-      confidence: 0.75
+      confidence: 0.85
     }
   }
 

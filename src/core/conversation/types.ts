@@ -4,6 +4,8 @@ export interface Attachment {
   mimeType: string
   sizeBytes: number
   dataUrl?: string
+  /** Absolute path on disk (local generations) */
+  filePath?: string
 }
 
 export interface RouteMeta {
@@ -38,6 +40,12 @@ export interface Message {
     imageWidth?: number
     imageHeight?: number
     imageSeed?: number
+    musicPath?: string
+    knownDirs?: Array<{ id: string; label: string; path: string }>
+    musicTaskId?: string
+    modality?: string
+    isError?: boolean
+    imageFilePath?: string
     imageFilePath?: string
     /** Full prompt used for last image (revision memory) */
     imagePrompt?: string

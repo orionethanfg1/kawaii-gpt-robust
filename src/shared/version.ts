@@ -1,4 +1,4 @@
-/** Single source of truth — MUST match package.json "version" */
-export const APP_VERSION = '0.8.14'
+/** Single source of truth */
+export const APP_VERSION = '0.9.13'
 export const APP_NAME = 'KawaiiGPT Robust'
-export const APP_LABEL = `${APP_NAME} · v${APP_VERSION}`
+export const APP_LABEL = APP_NAME + ' · v' + APP_VERSION

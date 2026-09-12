@@ -6,7 +6,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
-import { mkdir, readFile, writeFile, rename, unlink, readdir, stat } from 'fs/promises'
+import { mkdir, readFile, writeFile, rename, unlink, readdir } from 'fs/promises'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { platform, totalmem } from 'os'

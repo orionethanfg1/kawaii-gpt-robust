@@ -1,9 +1,17 @@
+import { groupMemoryFacts } from '@core/conversation/user-memory'
+import { MusicConsole } from './MusicConsole'
+import { SystemTesterPanel } from './SystemTesterPanel'
+import { ActivitiesPanel } from '@features/activities/ActivitiesPanel'
+import { ForgeExtensionsPanel } from '@features/layers/ForgeExtensionsPanel'
+import { AvatarGalleryPanel } from './AvatarGalleryPanel'
+import { LocalSdModelsPanel } from './LocalSdModelsPanel'
+import { LocalModelPicker } from './LocalModelPicker'
+import { discoverLocalModels, type LocalModelEntry } from '@core/providers'
 import { CharacterSetupAssistant } from './CharacterSetupAssistant'
-import { ForgeConsole } from './ForgeConsole'
 import { ModelCatalogPanel } from '@features/models/ModelCatalogPanel'
 import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { useEffect, useState } from 'react'
-import { X, Stethoscope, Loader2 } from 'lucide-react'
+import { X, Stethoscope, Loader2, Music2, Image as ImageIcon, Video, Sparkles, Download, Play, RefreshCw } from 'lucide-react'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import type { ProviderMode } from '@shared/types/settings'
 import { Button } from '@shared/ui/Button'
@@ -34,6 +42,30 @@ export function SettingsModal({ open, onClose }: Props) {
   const [diag, setDiag] = useState<DiagReport | null>(null)
   const [diagRunning, setDiagRunning] = useState(false)
   const [charAssistOpen, setCharAssistOpen] = useState(false)
+  const [musicSnap, setMusicSnap] = useState<{
+    ok?: boolean
+    ace?: { stage?: string; present?: boolean; lastError?: string }
+    yue?: { stage?: string; disabledReason?: string }
+    eligibility?: {
+      summary?: string
+      vramGB?: number | null
+      ramGB?: number
+      ace?: { eligible?: boolean; tier?: string; reason?: string }
+      yue?: { eligible?: boolean; reason?: string }
+      preferred?: string
+    }
+    musicRoot?: string
+  } | null>(null)
+  const [musicRuntime, setMusicRuntime] = useState<{
+    state?: string
+    message?: string
+    baseUrl?: string
+    bootProgress?: number
+  } | null>(null)
+  const [musicBusy, setMusicBusy] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<
+    'persona' | 'layers' | 'providers' | 'advanced' | 'actividades' | 'tester'
+  >('persona')
   const [traitsText, setTraitsText] = useState(
     (settings.character?.traits ?? []).join(', ')
   )
@@ -41,6 +73,20 @@ export function SettingsModal({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return
     setTraitsText((settings.character?.traits ?? []).join(', '))
+    const refreshMusic = () => {
+      void window.kawaii
+        ?.musicStatus?.()
+        .then((s) => setMusicSnap(s as typeof musicSnap))
+        .catch(() => {})
+      void window.kawaii
+        ?.musicRuntimeStatus?.()
+        .then((s) => setMusicRuntime(s as typeof musicRuntime))
+        .catch(() => {})
+    }
+    refreshMusic()
+    const unsub = window.kawaii?.onMusicRuntime?.((s) =>
+      setMusicRuntime(s as typeof musicRuntime)
+    )
     window.kawaii
       ?.getCloudApiKey?.()
       .then((k) => {
@@ -55,6 +101,13 @@ export function SettingsModal({ open, onClose }: Props) {
         setKeyDrafts(keys)
       })
       .catch(() => {})
+    return () => {
+      try {
+        unsub?.()
+      } catch {
+        /* ignore */
+      }
+    }
   }, [open, settings.character?.traits])
 
   if (!open) return null
@@ -255,20 +308,26 @@ export function SettingsModal({ open, onClose }: Props) {
           apiKey: key,
           characterName: char.name
         })
+        const desc = (res.description || '').trim()
         update({
           character: {
             ...useSettingsStore.getState().settings.character,
             visualImageUrl: dataUrl,
-            visualDescription: res.description,
-            visualFromAvatar: true
+            visualDescription: desc,
+            visualFromAvatar: Boolean(desc)
           }
         })
-        activitySuccess(
-          res.source === 'vision' ? 'Avatar + descripción listos' : 'Avatar guardado',
-          res.source === 'vision'
-            ? 'Se generó la descripción física desde la imagen.'
-            : 'Puedes regenerar la descripción con OpenRouter.'
-        )
+        if (res.source === 'vision' || res.source === 'ollama') {
+          activitySuccess(
+            'Avatar + descripción listos',
+            'Se generó la descripción física desde la imagen.'
+          )
+        } else {
+          activityInfo(
+            'Avatar guardado sin descripción detallada',
+            'Configura OpenRouter o un modelo vision en Ollama (llava) y pulsa regenerar descripción.'
+          )
+        }
       } catch {
         activityInfo('Avatar guardado', 'Sin descripción automática; puedes regenerarla después.')
       }
@@ -278,7 +337,58 @@ export function SettingsModal({ open, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-      <div className="card-kawaii w-full max-w-3xl max-h-[92vh] overflow-y-auto p-6 relative shadow-xl">
+      <div className="card-kawaii w-full max-w-4xl max-h-[92vh] overflow-y-auto p-5 sm:p-6 relative shadow-xl border border-kawaii-pink-deep/10 bg-gradient-to-b from-white to-rose-50/40">
+        <div className="sticky top-0 z-10 -mx-2 mb-3 px-2 py-2 bg-white/95 backdrop-blur border-b border-kawaii-border flex flex-wrap gap-1.5">
+          {(
+            [
+              ['persona', 'Personalidad'],
+              ['layers', 'Capas'],
+              ['providers', 'Proveedores'],
+              ['advanced', 'Avanzado'],
+              ['actividades', 'Juegos'],
+              ['tester', '🧪 Tester']
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              className={
+                'text-[11px] px-2.5 py-1 rounded-full border transition-colors ' +
+                (settingsSection === id
+                  ? 'bg-kawaii-pink-soft border-kawaii-pink-deep/40 text-kawaii-text font-semibold'
+                  : 'bg-white border-kawaii-border text-kawaii-text-muted hover:border-kawaii-pink-deep/30')
+              }
+              onClick={() => {
+                setSettingsSection(id)
+                requestAnimationFrame(() => {
+                  const map: Record<string, string> = {
+                    persona: 'settings-persona',
+                    layers: 'settings-layers',
+                    providers: 'settings-providers',
+                    advanced: 'settings-advanced',
+                    actividades: 'settings-actividades',
+                    tester: 'settings-tester'
+                  }
+                  const el = document.getElementById(map[id] || '')
+                  el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  // Focus section for a11y / visible feedback
+                  el?.classList.add('ring-2', 'ring-kawaii-pink-deep/30')
+                  window.setTimeout(() => el?.classList.remove('ring-2', 'ring-kawaii-pink-deep/30'), 900)
+                })
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        <p className="w-full text-[10px] text-kawaii-text-muted mt-1 px-0.5">
+            {settingsSection === 'persona' && 'Personalidad, avatar, relación y asistente guiado.'}
+            {settingsSection === 'layers' && 'Imagen (Forge), música (ACE) y vídeo.'}
+            {settingsSection === 'providers' && 'API keys, Ollama y catálogo de modelos locales.'}
+            {settingsSection === 'advanced' && 'Autodiagnóstico, red, memoria de errores y recuperación.'}
+            {settingsSection === 'actividades' && 'Mini-juegos: aventura y ajedrez con el chat.'}
+            {settingsSection === 'tester' && 'Informes 0.9.4, historial, comparación y export Markdown/JSON.'}
+          </p>
+        </div>
         <button
           className="absolute top-4 right-4 p-1 rounded-full hover:bg-kawaii-pink-soft"
           onClick={onClose}
@@ -286,7 +396,12 @@ export function SettingsModal({ open, onClose }: Props) {
           <X className="w-5 h-5" />
         </button>
 
-        <h2 className="text-xl font-bold text-kawaii-text mb-4">Ajustes ⚙️</h2>
+        <div className="mb-4 pr-8">
+          <h2 className="text-xl font-bold text-kawaii-text tracking-tight">Ajustes</h2>
+          <p className="text-[11px] text-kawaii-text-muted mt-0.5">
+            Personalidad, capas, proveedores y herramientas avanzadas en un solo lugar.
+          </p>
+        </div>
         <div className="mb-4 space-y-2">
           <div className="flex flex-wrap gap-2 items-center">
             <span className="text-[11px] font-semibold text-kawaii-text">Modo de interfaz:</span>
@@ -328,20 +443,78 @@ export function SettingsModal({ open, onClose }: Props) {
               </>
             )}
           </p>
+          <div className="rounded-kawaii border border-kawaii-border bg-white/70 px-2.5 py-2 space-y-1.5">
+            <p className="text-[11px] font-medium text-kawaii-text">Datos locales (logs / harness)</p>
+            <p className="text-[10px] text-kawaii-text-muted">
+              Borra memorias de fallos del harness, historial de tests o feedback archivado. No borra
+              chats ni Ajustes de personalidad.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="text-[11px] px-2 py-1 rounded-lg border border-kawaii-border hover:bg-kawaii-pink-soft"
+                onClick={async () => {
+                  const { pruneAppDiagnostics, listAppDataKeys } = await import('@core/agent')
+                  const keys = listAppDataKeys()
+                  const r = pruneAppDiagnostics({
+                    clearFailures: true,
+                    clearSuccess: true,
+                    clearTestHistory: true
+                  })
+                  activityInfo(
+                    `Limpieza suave: ${r.detail}`,
+                    keys.slice(0, 8).join(', ') || 'sin claves'
+                  )
+                }}
+              >
+                Limpiar logs suaves
+              </button>
+              <button
+                type="button"
+                className="text-[11px] px-2 py-1 rounded-lg border border-amber-300 text-amber-900 hover:bg-amber-50"
+                onClick={async () => {
+                  if (!confirm('¿Borrar también likes/dislikes activos y archivos?')) return
+                  const { pruneAppDiagnostics } = await import('@core/agent')
+                  const r = pruneAppDiagnostics({
+                    clearFailures: true,
+                    clearSuccess: true,
+                    clearFeedbackActive: true,
+                    clearFeedbackArchives: true,
+                    clearTestHistory: true
+                  })
+                  activityInfo(`Limpieza fuerte: ${r.detail}`)
+                }}
+              >
+                Limpiar + feedback
+              </button>
+            </div>
+          </div>
         </div>
 
         <section className="space-y-4">
           {/* Character */}
-          <div className="border border-kawaii-border rounded-kawaii p-3 space-y-3 bg-kawaii-pink-soft/20">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="font-bold text-sm text-kawaii-text">Personalidad y avatar</h3>
+          <div id="settings-persona" className="scroll-mt-14 border border-kawaii-border rounded-kawaii p-3 space-y-3 bg-kawaii-pink-soft/20">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="font-bold text-sm text-kawaii-text flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-kawaii-pink-deep" />
+                  Personalidad y avatar
+                </h3>
+                <p className="text-[10px] text-kawaii-text-muted mt-0.5">
+                  Define quién es el chat: rol, tono, relación y aspecto visual.
+                </p>
+              </div>
               <Button
-                variant="ghost"
-                className="text-[11px]"
+                className="text-[11px] shrink-0 bg-kawaii-pink-soft border border-kawaii-pink-deep/30"
                 onClick={() => setCharAssistOpen(true)}
               >
-                Asistente de personalidad
+                <Sparkles className="w-3.5 h-3.5 mr-1 inline" />
+                Asistente guiado
               </Button>
+            </div>
+            <div className="rounded-lg border border-dashed border-kawaii-pink-deep/40 bg-white/60 px-3 py-2 text-[11px] text-kawaii-text-muted">
+              El <strong className="text-kawaii-text">asistente guiado</strong> te hace una encuesta
+              (género, rol, tono) y rellena la ficha. También puedes editar los campos abajo a mano.
             </div>
             <div className="flex items-center gap-3">
               <div className="w-14 h-14 rounded-full bg-white border border-kawaii-border flex items-center justify-center text-2xl overflow-hidden">
@@ -385,6 +558,11 @@ export function SettingsModal({ open, onClose }: Props) {
                 )}
               </div>
             </div>
+            <AvatarGalleryPanel
+              character={char}
+              onChange={(next) => update({ character: next })}
+            />
+
             <div>
               <label className="block text-xs font-semibold mb-1">Nombre</label>
               <input
@@ -436,29 +614,88 @@ export function SettingsModal({ open, onClose }: Props) {
                 placeholder="Ej: cabello pastel ondulado, ojos grandes y cálidos, detalle floral, estética kawaii suave…"
               />
               <p className="text-[10px] text-kawaii-text-muted mt-0.5">
-                Idealmente generada desde el avatar (se intenta al subir la imagen). El
-                chat la usa al describirse físicamente.
+                Idealmente generada desde el avatar. Requiere visión (OpenRouter o Ollama
+                llava/moondream). Si falla, escribe rasgos a mano: cabello, ojos, piel, ropa.
                 {char.visualFromAvatar ? ' · Ligada al avatar.' : ''}
+                {!(char.visualDescription || '').trim() && char.visualImageUrl
+                  ? ' · Vacía: pulsa «Regenerar» o rellena a mano.'
+                  : ''}
               </p>
               <button
                 type="button"
                 className="text-[11px] text-kawaii-pink-deep underline"
                 onClick={async () => {
                   if (!char.visualImageUrl) return
-                  const { describeAvatarFromDataUrl } = await import(
-                    '@core/character/avatar-describe'
-                  )
                   const keys = (await window.kawaii?.getAllProviderKeys?.()) ?? {}
-                  const act = activityProgress('Describiendo avatar', 'Analizando imagen…', 20)
+                  const act = activityProgress(
+                    'Describiendo personaje',
+                    'Analizando avatar + galería…',
+                    20
+                  )
                   try {
-                    const res = await describeAvatarFromDataUrl(char.visualImageUrl, {
+                    try {
+                      const { ensureVisionForApp } = await import('./ensureVision')
+                      await ensureVisionForApp({
+                        autoInstall: true,
+                        ollamaBaseUrl: settings.localBaseUrl
+                      })
+                    } catch {
+                      /* vision ensure optional */
+                    }
+                    const { describeCharacterFromGallery, describeAvatarFromDataUrl } =
+                      await import('@core/character/avatar-describe')
+                    const galleryImgs = [
+                      ...(char.visualImageUrl
+                        ? [{ dataUrl: char.visualImageUrl, label: 'Principal', isPrimary: true }]
+                        : []),
+                      ...((char.visualGallery || []) as Array<{ dataUrl?: string; label?: string; id?: string }>)
+                        .filter((g) => g.dataUrl && g.dataUrl !== char.visualImageUrl)
+                        .map((g) => ({
+                          dataUrl: g.dataUrl as string,
+                          label: g.label || g.id || 'ref',
+                          isPrimary: false
+                        }))
+                    ]
+                    const describeOpts = {
                       apiKey: keys.openrouter || keys.main || '',
-                      characterName: char.name
-                    })
+                      openaiKey: keys.openai || '',
+                      characterName: char.name,
+                      ollamaBaseUrl: settings.localBaseUrl || 'http://127.0.0.1:11434',
+                      chatModel: settings.localModel || ''
+                    }
+                    const res =
+                      galleryImgs.length > 1
+                        ? await describeCharacterFromGallery(galleryImgs, describeOpts)
+                        : await describeAvatarFromDataUrl(
+                            char.visualImageUrl,
+                            describeOpts
+                          )
+                    let desc = (res.description || '').trim()
+                    if (!desc || res.source === 'none') {
+                      activityError(
+                        'No se pudo describir el avatar',
+                        (res.error ||
+                          'Hace falta visión: API Key de OpenRouter (modelo vision) o Ollama con llava/moondream/qwen2-vl. Sin eso el campo queda vacío a propósito (no inventamos rasgos).') +
+                          ' Puedes escribir la descripción manualmente.'
+                      )
+                      return
+                    }
+                    try {
+                      const { polishVisualDescription } = await import('@core/character/avatar-describe')
+                      desc = await polishVisualDescription(desc, {
+                        characterName: char.name,
+                        ollamaBaseUrl: settings.localBaseUrl || 'http://127.0.0.1:11434',
+                        chatModel: settings.localModel || '',
+                        openRouterKey: keys.openrouter || keys.main || ''
+                      })
+                    } catch {
+                      /* keep raw vision text */
+                    }
+                    desc = desc.replace(/^[!?.#*\-\s]+/, '').trim()
                     update({
                       character: {
                         ...char,
-                        visualDescription: res.description,
+                        visualDescription: desc,
                         visualFromAvatar: true
                       }
                     })
@@ -466,10 +703,10 @@ export function SettingsModal({ open, onClose }: Props) {
                     useActivityStore.getState().update(act, {
                       kind: 'success',
                       title:
-                        res.source === 'vision'
-                          ? 'Descripción desde avatar'
-                          : 'Descripción base del avatar',
-                      detail: res.description.slice(0, 120) + (res.description.length > 120 ? '…' : ''),
+                        res.source === 'vision' || res.source === 'ollama'
+                          ? 'Descripción desde avatar (visión)'
+                          : 'Descripción del avatar',
+                      detail: desc.slice(0, 120) + (desc.length > 120 ? '…' : ''),
                       progress: 100,
                       ttlMs: 5000
                     })
@@ -482,7 +719,35 @@ export function SettingsModal({ open, onClose }: Props) {
                   }
                 }}
               >
-                Regenerar descripción desde avatar
+                Regenerar descripción (avatar + galería)
+              </button>
+
+              <button
+                type="button"
+                className="text-[11px] text-kawaii-pink-deep underline ml-3"
+                onClick={async () => {
+                  const act = activityProgress('Visión', 'Comprobando / instalando modelo vision…', 15)
+                  try {
+                    const { ensureVisionForApp } = await import('./ensureVision')
+                    const r = await ensureVisionForApp({
+                      autoInstall: true,
+                      ollamaBaseUrl: settings.localBaseUrl
+                    })
+                    const { useActivityStore } = await import('@shared/lib/stores/activityStore')
+                    useActivityStore.getState().update(act, {
+                      kind: r.ok ? 'success' : 'error',
+                      title: r.ok ? 'Visión' : 'Visión incompleta',
+                      detail: r.message + (r.pullStarted ? ` · Pull: ${r.pullStarted}` : ''),
+                      progress: r.pullStarted ? 40 : 100,
+                      ttlMs: 8000
+                    })
+                    window.setTimeout(() => useActivityStore.getState().dismiss(act), 8000)
+                  } catch (e) {
+                    activityError('Visión', e instanceof Error ? e.message : String(e))
+                  }
+                }}
+              >
+                Preparar visión (auto)
               </button>
             </div>
             <div>
@@ -538,7 +803,7 @@ export function SettingsModal({ open, onClose }: Props) {
               }
             >
               <option value="smart">Smart (recomendado)</option>
-              <option value="local">Solo local (Ollama)</option>
+              <option value="local">Solo local (Ollama / LM Studio)</option>
               <option value="cloud">Solo cloud</option>
             </select>
           </div>
@@ -554,12 +819,7 @@ export function SettingsModal({ open, onClose }: Props) {
 
           <div>
             <label className="block text-sm font-semibold mb-1">Modelo local</label>
-            <input
-              className="input-kawaii"
-              placeholder="ej: llama3.2:3b"
-              value={settings.localModel}
-              onChange={(e) => update({ localModel: e.target.value })}
-            />
+            <LocalModelPicker />
           </div>
 
           <div>
@@ -582,7 +842,8 @@ export function SettingsModal({ open, onClose }: Props) {
 
           <div className="border border-kawaii-border rounded-kawaii p-3 space-y-3 bg-white/50">
             <div className="flex items-center justify-between gap-2">
-              <h3 className="font-bold text-sm">Proveedores cloud (rotación)</h3>
+              <div id="settings-providers" className="scroll-mt-14" />
+            <h3 className="font-bold text-sm">Proveedores cloud (rotación)</h3>
               <label className="flex items-center gap-1 text-xs">
                 <input
                   type="checkbox"
@@ -595,7 +856,7 @@ export function SettingsModal({ open, onClose }: Props) {
             <p className="text-[11px] text-kawaii-text-muted leading-relaxed">
               1) Crea una key en el sitio del proveedor (botón de enlace). 2) Pégala en el campo de
               ese proveedor. 3) Si OpenRouter dice que el modelo free ya no existe, pon el modelo{' '}
-              <code>openrouter/free</code>. No uses la misma key de Groq en OpenRouter ni al revés.
+              <code>openrouter/free</code>. OpenAI: pega la key del proyecto (<code>sk-proj-…</code>) en el slot OpenAI. Modelo recomendado: <code>gpt-5.6-luna</code> (Responses API, igual que el onboarding de platform.openai.com). No uses la misma key de Groq en OpenRouter ni al revés.
               Si uno falla por cuota, se prueba el siguiente con key.
             </p>
             <p className="text-[11px] text-kawaii-text-muted mb-2">
@@ -784,10 +1045,15 @@ export function SettingsModal({ open, onClose }: Props) {
               Botón en el chat o comando <code>/image tu descripción</code>.
             </p>
             {settings.imageGenEnabled && (
-              <>
-                <ErrorBoundary name="SD-Workspace" fallback={<p className="text-xs text-red-600">Módulo SD no disponible.</p>}>
-            {(settings.uiComplexity || 'smart') === 'advanced' ? (
-                  <SdWorkspacePanel />
+              <ErrorBoundary
+                name="SD-Workspace"
+                fallback={<p className="text-xs text-red-600">Módulo SD no disponible.</p>}
+              >
+                {(settings.uiComplexity || 'smart') === 'advanced' ? (
+                  <div className="space-y-2">
+                    <LocalSdModelsPanel />
+                    <SdWorkspacePanel />
+                  </div>
                 ) : (
                   <p className="text-[11px] text-kawaii-text-muted">
                     Workspace Forge/SD (rutas, instalar, health): cambia a{' '}
@@ -795,46 +1061,98 @@ export function SettingsModal({ open, onClose }: Props) {
                     el botón Generar imagen del chat.
                   </p>
                 )}
-          </ErrorBoundary>
+              </ErrorBoundary>
+            )}
+          </div>
 
           <div className="border border-kawaii-border rounded-kawaii p-3 space-y-2">
-            <div className="rounded-kawaii border border-kawaii-border p-3 space-y-2 mb-3">
-              <h3 className="font-bold text-sm text-kawaii-text">Memoria del usuario</h3>
-              <p className="text-[11px] text-kawaii-text-muted leading-relaxed">
-                Hechos breves que se envían al modelo (los cloud no leen discos de la app).
-                Se extraen al hablar (p.ej. «me llamo…», «me gusta…»).
-              </p>
-              <ul className="text-xs list-disc pl-4 space-y-0.5 max-h-28 overflow-y-auto">
-                <label className="block text-xs font-semibold mb-1">
-                  Tu nombre (para que el chat te llame bien)
-                  <input
-                    className="mt-1 w-full rounded-kawaii border border-kawaii-border px-2 py-1.5 text-sm"
-                    value={settings.userMemory?.preferredName || ''}
-                    placeholder="Ej. Orion"
-                    onChange={(e) => {
-                      const preferredName = e.target.value.trim() || undefined
-                      const facts = (settings.userMemory?.facts || []).filter(
-                        (f) => !/^Nombre preferido:/i.test(f)
-                      )
-                      if (preferredName) facts.unshift(`Nombre preferido: ${preferredName}`)
-                      update({ userMemory: { ...settings.userMemory, preferredName, facts } })
-                    }}
-                  />
-                </label>
-                {(settings.userMemory?.facts || []).length === 0 && !settings.userMemory?.preferredName ? (
-                  <li className="text-kawaii-text-muted list-none -ml-4">
-                    Sin hechos aún.
-                  </li>
-                ) : (
-                  (settings.userMemory?.facts || []).map((f) => <li key={f}>{f}</li>)
+            <div className="rounded-2xl border border-kawaii-pink-deep/20 bg-gradient-to-br from-white to-kawaii-pink-soft/30 p-4 space-y-3 mb-3 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h3 className="font-bold text-sm text-kawaii-text">Memoria del usuario</h3>
+                  <p className="text-[11px] text-kawaii-text-muted leading-relaxed mt-0.5">
+                    La app aprende al hablar contigo: nombre, gustos, planes, lo que hiciste, lo que deseas.
+                    Se inyecta al modelo cada turno (sin enviar secretos de disco).
+                  </p>
+                </div>
+              </div>
+              <label className="block text-xs font-semibold">
+                Tu nombre
+                <input
+                  className="mt-1 w-full rounded-xl border border-kawaii-border bg-white/90 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-kawaii-pink-deep/30"
+                  value={settings.userMemory?.preferredName || ''}
+                  placeholder="Ej. Orion"
+                  onChange={(e) => {
+                    const preferredName = e.target.value.trim() || undefined
+                    const facts = (settings.userMemory?.facts || []).filter(
+                      (f) => !/^Nombre preferido:/i.test(f)
+                    )
+                    if (preferredName) facts.unshift(`Nombre preferido: ${preferredName}`)
+                    update({ userMemory: { ...settings.userMemory, preferredName, facts } })
+                  }}
+                />
+              </label>
+              {settings.userMemory?.currentFocus ? (
+                <p className="text-[11px] rounded-lg bg-white/70 border border-kawaii-border px-2 py-1.5">
+                  <span className="font-semibold text-kawaii-pink-deep">Enfoque actual:</span>{' '}
+                  {settings.userMemory.currentFocus}
+                </p>
+              ) : null}
+              {(settings.userMemory?.goals || []).length > 0 ? (
+                <div className="text-[11px]">
+                  <p className="font-semibold mb-1">Objetivos / planes</p>
+                  <ul className="list-disc pl-4 space-y-0.5 text-kawaii-text-muted">
+                    {(settings.userMemory?.goals || []).map((g) => (
+                      <li key={g}>{g}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {settings.userMemory?.appearanceNotes ? (
+                <p className="text-[11px] text-kawaii-text-muted line-clamp-3">
+                  <span className="font-semibold">Apariencia:</span> {settings.userMemory.appearanceNotes}
+                </p>
+              ) : null}
+              <div className="max-h-40 overflow-y-auto space-y-2 text-xs">
+                {Object.entries(groupMemoryFacts(settings.userMemory?.facts || [])).map(
+                  ([group, items]) =>
+                    items.length ? (
+                      <div key={group}>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-kawaii-pink-deep/80">
+                          {group}
+                        </p>
+                        <ul className="list-disc pl-4 space-y-0.5 text-kawaii-text">
+                          {items.map((f) => (
+                            <li key={f}>{f}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null
                 )}
-              </ul>
-              {(settings.userMemory?.facts || []).length > 0 && (
+                {(settings.userMemory?.facts || []).length === 0 &&
+                !settings.userMemory?.preferredName ? (
+                  <p className="text-kawaii-text-muted text-[11px]">
+                    Aún vacío. Di cosas como «me llamo…», «me gusta…», «voy a…», «quiero…».
+                  </p>
+                ) : null}
+              </div>
+              {((settings.userMemory?.facts || []).length > 0 ||
+                settings.userMemory?.preferredName ||
+                (settings.userMemory?.goals || []).length > 0) && (
                 <button
                   type="button"
                   className="text-[11px] text-kawaii-pink-deep hover:underline"
                   onClick={() =>
-                    update({ userMemory: { facts: [], preferredName: undefined } })
+                    update({
+                      userMemory: {
+                        facts: [],
+                        goals: [],
+                        preferredName: undefined,
+                        currentFocus: undefined,
+                        appearanceNotes: undefined,
+                        avatarScenes: []
+                      }
+                    })
                   }
                 >
                   Borrar memoria del usuario
@@ -842,205 +1160,568 @@ export function SettingsModal({ open, onClose }: Props) {
               )}
             </div>
 
-            <h3 className="font-bold text-sm text-kawaii-text">Capas generativas (multicapa)</h3>
-            <p className="text-[11px] text-kawaii-text-muted">
-              El chat de texto es el centro. Imagen, música y video solo se usan cuando el mensaje lo
-              pide y la capa está activa.
-            </p>
-            <label className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={settings.musicGenEnabled === true}
-                onChange={(e) =>
-                  update({
-                    musicGenEnabled: e.target.checked,
-                    musicProviderMode: e.target.checked ? 'local' : 'off'
-                  })
-                }
-              />
-              Música (experimental — motor más adelante)
-            </label>
-            <label className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={settings.videoGenEnabled === true}
-                onChange={(e) =>
-                  update({
-                    videoGenEnabled: e.target.checked,
-                    videoProviderMode: e.target.checked ? 'local' : 'off'
-                  })
-                }
-              />
-              Video (experimental — sin motor aún)
-            </label>
-          </div>
+            <div id="settings-layers" className="scroll-mt-14 space-y-3 rounded-kawaii border border-kawaii-border bg-white/60 p-3">
+              <div>
+                <h3 className="font-bold text-sm text-kawaii-text">Capas generativas (multicapa)</h3>
+                <p className="text-[11px] text-kawaii-text-muted mt-1">
+                  El chat de texto es el centro. Imagen, música o video solo se usan cuando el mensaje
+                  lo pide y la capa está activa.
+                </p>
+              </div>
 
-                <label className="block text-xs font-semibold">Modo</label>
-                <select
-                  className="input-kawaii text-sm"
-                  value={settings.imageProviderMode}
-                  onChange={(e) =>
-                    update({
-                      imageProviderMode: e.target.value as
-                        | 'off'
-                        | 'cloud'
-                        | 'local'
-                        | 'smart'
-                    })
-                  }
-                >
-                  <option value="cloud">Cloud (Pollinations)</option>
-                  <option value="smart">Smart (local → cloud)</option>
-                  <option value="local">Solo local (Forge/A1111)</option>
-                </select>
-                <label className="block text-xs font-semibold">URL Forge / A1111</label>
-                <input
-                  className="input-kawaii text-sm"
-                  value={settings.a1111BaseUrl}
-                  onChange={(e) => update({ a1111BaseUrl: e.target.value })}
-                  placeholder="http://127.0.0.1:7860"
-                />
+              <div className="rounded-lg border border-kawaii-border p-3 space-y-1.5 bg-kawaii-pink-soft/15">
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-kawaii-pink-deep shrink-0" />
+                  <span className="text-xs font-semibold flex-1">Imagen</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-800">
+                    Activa
+                  </span>
+                </div>
+                <p className="text-[10px] text-kawaii-text-muted pl-6">
+                  Forge/SD local, Cloudflare, Pollinations, OpenAI. Configura el modo más abajo.
+                </p>
+              </div>
+
+              <ForgeExtensionsPanel />
+
+              <div className="rounded-lg border border-sky-200/80 p-3 space-y-2 bg-sky-50/40">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm shrink-0" aria-hidden>🔊</span>
+                  <span className="text-xs font-semibold flex-1">Voz del chat (LATAM)</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-sky-200 bg-sky-50 text-sky-900">
+                    es-MX
+                  </span>
+                </div>
                 <p className="text-[10px] text-kawaii-text-muted">
-                  Arranca WebUI con <code>--api</code>. Checkpoints en la carpeta models del
-                  WebUI (SD 1.5 si VRAM menor a 8 GB; SDXL si 8 GB o mas).
+                  Voces neuronales Edge · por defecto <strong>Dalia (México)</strong>, acento
+                  latinoamericano neutro. No usa la voz robótica de Windows. Requiere Python +
+                  <code className="text-[9px]">edge-tts</code> (se intenta instalar solo).
                 </p>
                 <label className="flex items-center gap-2 text-xs">
                   <input
                     type="checkbox"
-                    checked={settings.imageUseCharacterStyle !== false}
+                    checked={settings.voiceTtsEnabled !== false}
+                    onChange={(e) => update({ voiceTtsEnabled: e.target.checked })}
+                  />
+                  Mostrar botón 🔊 en mensajes del asistente
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={settings.voiceTtsAutoPlay === true}
+                    onChange={(e) => update({ voiceTtsAutoPlay: e.target.checked })}
+                  />
+                  Leer automáticamente las respuestas (experimental)
+                </label>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={settings.voiceTtsActivitiesOnly === true}
+                    onChange={(e) => update({ voiceTtsActivitiesOnly: e.target.checked })}
+                  />
+                  Voz solo en mini-juegos (aventura / ajedrez)
+                </label>
+                <label className="block text-[10px] text-kawaii-text-muted">
+                  Voz
+                  <select
+                    className="mt-0.5 w-full text-xs rounded border border-kawaii-border px-2 py-1.5 bg-white"
+                    value={settings.voiceTtsVoiceId || 'es-MX-DaliaNeural'}
+                    onChange={(e) => update({ voiceTtsVoiceId: e.target.value })}
+                  >
+                    <option value="es-MX-DaliaNeural">Dalia · México (neutro LATAM)</option>
+                    <option value="es-MX-JorgeNeural">Jorge · México</option>
+                    <option value="es-CO-SalomeNeural">Salomé · Colombia</option>
+                    <option value="es-AR-ElenaNeural">Elena · Argentina</option>
+                    <option value="es-PE-CamilaNeural">Camila · Perú</option>
+                    <option value="es-US-PalomaNeural">Paloma · EE.UU. español</option>
+                    <option value="es-ES-ElviraNeural">Elvira · España (opcional)</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="text-[11px] px-2.5 py-1.5 rounded-lg bg-sky-600 text-white hover:bg-sky-700"
+                  onClick={() => {
+                    void (async () => {
+                      const { activityInfo, activityError } = await import(
+                        '@shared/lib/stores/activityStore'
+                      )
+                      activityInfo('Instalando motor de voz…')
+                      try {
+                        const r = await window.kawaii?.voiceEnsure?.()
+                        if (r?.ok) {
+                          activityInfo(
+                            r.installed
+                              ? 'Motor de voz instalado. Ya puedes usar 🔊'
+                              : 'Motor de voz listo'
+                          )
+                        } else {
+                          activityError(r?.error || 'No se pudo instalar el motor de voz')
+                        }
+                        const log = await window.kawaii?.voiceGetLog?.()
+                        if (log?.lines?.length) {
+                          const el = document.getElementById('kawaii-voice-console')
+                          if (el) el.textContent = log.lines.slice(-40).join('\n')
+                        }
+                      } catch (e) {
+                        activityError(e instanceof Error ? e.message : String(e))
+                      }
+                    })()
+                  }}
+                >
+                  Instalar / reparar motor de voz
+                </button>
+                <div className="w-full space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-medium text-kawaii-text-muted">
+                      Consola de voz
+                    </span>
+                    <button
+                      type="button"
+                      className="text-[10px] text-sky-700 hover:underline"
+                      onClick={() => {
+                        void (async () => {
+                          const log = await window.kawaii?.voiceGetLog?.()
+                          const el = document.getElementById('kawaii-voice-console')
+                          if (el) {
+                            el.textContent = (log?.lines || []).slice(-60).join('\n') || '(vacío)'
+                          }
+                        })()
+                      }}
+                    >
+                      Actualizar
+                    </button>
+                  </div>
+                  <pre
+                    id="kawaii-voice-console"
+                    className="text-[10px] leading-snug max-h-28 overflow-auto rounded border border-kawaii-border bg-zinc-950 text-zinc-200 p-2 whitespace-pre-wrap break-all"
+                  >
+                    Pulsa Actualizar o 🔊 para ver logs…
+                  </pre>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-violet-200/80 p-3 space-y-2 bg-violet-50/50">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Music2 className="w-4 h-4 text-violet-600 shrink-0" />
+                  <span className="text-xs font-semibold flex-1">Música · ACE-Step</span>
+                  <span
+                    className={
+                      'text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ' +
+                      (musicRuntime?.state === 'running'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                        : musicRuntime?.state === 'starting'
+                          ? 'border-amber-200 bg-amber-50 text-amber-900'
+                          : musicSnap?.ace?.stage === 'ready' || musicSnap?.ace?.stage === 'models'
+                            ? 'border-sky-200 bg-sky-50 text-sky-900'
+                            : musicSnap?.ace?.stage === 'cloned' || musicSnap?.ace?.stage === 'venv'
+                              ? 'border-amber-200 bg-amber-50 text-amber-900'
+                              : musicSnap?.eligibility?.ace?.eligible
+                                ? 'border-violet-200 bg-violet-50 text-violet-900'
+                                : 'border-kawaii-border bg-white text-kawaii-text-muted')
+                    }
+                  >
+                    {musicRuntime?.state === 'running'
+                      ? 'API activa'
+                      : musicRuntime?.state === 'starting'
+                        ? 'Arrancando…'
+                        : musicSnap?.ace?.stage === 'ready'
+                          ? 'Entorno listo'
+                          : musicSnap?.ace?.stage === 'cloned' || musicSnap?.ace?.stage === 'venv'
+                            ? 'Código instalado'
+                            : musicSnap?.ace?.stage === 'error'
+                              ? 'Error install'
+                              : musicSnap?.eligibility?.ace?.eligible
+                                ? 'Pendiente instalar'
+                                : 'No elegible'}
+                  </span>
+                </div>
+                <p className="text-[10px] text-kawaii-text-muted">
+                  Motor local tipo Suno (ACE-Step). YuE solo con GPU ≥16&nbsp;GB VRAM.
+                </p>
+                {musicSnap?.eligibility ? (
+                  <div className="flex flex-wrap gap-1 text-[10px]">
+                    <span className="rounded-full border border-kawaii-border bg-white px-2 py-0.5">
+                      VRAM {musicSnap.eligibility.vramGB ?? '?'} GB
+                    </span>
+                    <span className="rounded-full border border-kawaii-border bg-white px-2 py-0.5">
+                      RAM {musicSnap.eligibility.ramGB ?? '?'} GB
+                    </span>
+                    <span
+                      className={
+                        'rounded-full border px-2 py-0.5 ' +
+                        (musicSnap.eligibility.ace?.eligible
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-kawaii-border bg-white text-kawaii-text-muted')
+                      }
+                    >
+                      ACE {musicSnap.eligibility.ace?.eligible ? `sí · ${musicSnap.eligibility.ace?.tier || ''}` : 'no'}
+                    </span>
+                    <span
+                      className={
+                        'rounded-full border px-2 py-0.5 ' +
+                        (musicSnap.eligibility.yue?.eligible
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                          : 'border-kawaii-border bg-white text-kawaii-text-muted')
+                      }
+                    >
+                      YuE {musicSnap.eligibility.yue?.eligible ? 'sí' : 'no'}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-kawaii-text-muted">Pulsa «Analizar PC» para ver compatibilidad.</p>
+                )}
+                {musicRuntime?.state === 'running' || musicRuntime?.state === 'starting' ? (
+                  <p className="text-[10px] text-violet-900">
+                    {musicRuntime.message}
+                    {musicRuntime.baseUrl ? ` · ${musicRuntime.baseUrl}` : ''}
+                    {typeof musicRuntime.bootProgress === 'number' && musicRuntime.state === 'starting'
+                      ? ` · ${musicRuntime.bootProgress}%`
+                      : ''}
+                  </p>
+                ) : musicSnap?.ace?.stage === 'error' && musicSnap?.ace?.lastError ? (
+                  <p className="text-[10px] text-red-700 break-words">{musicSnap.ace.lastError}</p>
+                ) : null}
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={settings.musicGenEnabled === true}
                     onChange={(e) =>
-                      update({ imageUseCharacterStyle: e.target.checked })
+                      update({
+                        musicGenEnabled: e.target.checked,
+                        musicProviderMode: e.target.checked ? 'local' : 'off'
+                      })
                     }
                   />
-                  Aplicar estilo de la personalidad al prompt
+                  Usar música cuando el chat lo pida
                 </label>
+                <div className="flex flex-wrap gap-1.5">
+                  <Button
+                    variant="ghost"
+                    className="text-[11px]"
+                    disabled={musicBusy}
+                    onClick={async () => {
+                      setMusicBusy(true)
+                      try {
+                        await withActivity('Música', async (upd) => {
+                          upd('Analizando hardware…', 30)
+                          const a = await window.kawaii?.musicAnalyze?.()
+                          const st = (a as { state?: typeof musicSnap })?.state
+                          if (st) setMusicSnap(st)
+                          else if (a && (a as { eligibility?: unknown }).eligibility) {
+                            setMusicSnap(a as typeof musicSnap)
+                          }
+                          const s = await window.kawaii?.musicStatus?.()
+                          if (s) setMusicSnap(s as typeof musicSnap)
+                          upd('Análisis listo', 100)
+                          return a
+                        }, { successMessage: 'Hardware analizado' })
+                      } catch {
+                        /* withActivity already toasts error */
+                      } finally {
+                        setMusicBusy(false)
+                      }
+                    }}
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1 inline" />
+                    Analizar PC
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-[11px]"
+                    disabled={musicBusy}
+                    onClick={async () => {
+                      setMusicBusy(true)
+                      try {
+                        await withActivity(
+                          'Música',
+                          async (upd) => {
+                            upd('Descargando / instalando ACE-Step…', 15)
+                            const unsub = window.kawaii?.onMusicInstallProgress?.((p) => {
+                              upd(p.message || 'Instalando…', Math.min(95, p.pct || 20))
+                            })
+                            try {
+                              const r = await window.kawaii?.musicInstall?.({})
+                              if ((r as { ok?: boolean })?.ok === false) {
+                                throw new Error(
+                                  String((r as { error?: string })?.error || 'Instalación fallida')
+                                )
+                              }
+                              const s = await window.kawaii?.musicStatus?.()
+                              if (s) setMusicSnap(s as typeof musicSnap)
+                              upd('Instalación completa', 100)
+                              return r
+                            } finally {
+                              unsub?.()
+                            }
+                          },
+                          { successMessage: 'ACE-Step instalado' }
+                        )
+                      } catch {
+                        /* toasted */
+                      } finally {
+                        setMusicBusy(false)
+                      }
+                    }}
+                  >
+                    <Download className="w-3 h-3 mr-1 inline" />
+                    Instalar
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-[11px]"
+                    disabled={musicBusy}
+                    onClick={async () => {
+                      setMusicBusy(true)
+                      try {
+                        await withActivity(
+                          'Música',
+                          async (upd) => {
+                            upd('Arrancando ACE-Step API…', 15)
+                            const unsub = window.kawaii?.onMusicRuntime?.((s) => {
+                              setMusicRuntime(s as typeof musicRuntime)
+                              const msg = String(
+                                (s as { message?: string }).message ||
+                                  (s as { lastLogLine?: string }).lastLogLine ||
+                                  'Arrancando…'
+                              )
+                              const pct =
+                                typeof (s as { bootProgress?: number }).bootProgress === 'number'
+                                  ? Math.max(15, Math.min(95, (s as { bootProgress: number }).bootProgress))
+                                  : 30
+                              upd(msg.slice(0, 140), pct)
+                            })
+                            try {
+                              const r = await window.kawaii?.musicEnsureReady?.()
+                              setMusicRuntime(r as typeof musicRuntime)
+                              if ((r as { state?: string })?.state === 'error') {
+                                throw new Error(
+                                  String((r as { message?: string })?.message || 'No arrancó')
+                                )
+                              }
+                              if ((r as { state?: string })?.state !== 'running') {
+                                throw new Error(
+                                  String(
+                                    (r as { message?: string })?.message ||
+                                      'ACE no quedó en running'
+                                  )
+                                )
+                              }
+                              upd(String((r as { message?: string })?.message || 'API lista'), 100)
+                              return r
+                            } finally {
+                              unsub?.()
+                            }
+                          },
+                          { successMessage: 'Motor de música listo' }
+                        )
+                      } catch {
+                        /* toasted */
+                      } finally {
+                        setMusicBusy(false)
+                      }
+                    }}
+                  >
+                    <Play className="w-3 h-3 mr-1 inline" />
+                    Arrancar
+                  </Button>
+                </div>
+                <MusicConsole />
+              </div>
 
-                <div className="rounded-kawaii border border-kawaii-border p-2 space-y-2 mt-2">
-                  <p className="text-[11px] font-semibold">Cloudflare Workers AI (FLUX.1 Schnell)</p>
-                  <p className="text-[10px] text-kawaii-text-muted">
-                    Gratis con cuota diaria (~150–170 imgs). Dashboard → Workers AI → Use REST API.
-                    Crea un token con permiso Workers AI.
-                  </p>
-                  <label className="block text-xs">Account ID
-                    <input
-                      className="input-kawaii text-sm w-full mt-0.5"
-                      value={settings.cloudflareAccountId || ''}
-                      onChange={(e) => {
-                        const v = e.target.value.trim()
-                        update({ cloudflareAccountId: v })
-                        if (v.length >= 16) {
-                          void window.kawaii.setProviderKey?.('cloudflareAccountId', v)
+              <div className="rounded-lg border border-kawaii-border p-3 space-y-1.5 opacity-90">
+                <div className="flex items-center gap-2">
+                  <Video className="w-4 h-4 text-kawaii-text-muted shrink-0" />
+                  <span className="text-xs font-semibold flex-1">Video</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-kawaii-border bg-white text-kawaii-text-muted">
+                    Próximamente
+                  </span>
+                </div>
+                <p className="text-[10px] text-kawaii-text-muted pl-6">
+                  Aún no hay motor. El interruptor solo reserva la capa para más adelante.
+                </p>
+                <label className="flex items-center gap-2 text-xs pl-6">
+                  <input
+                    type="checkbox"
+                    checked={settings.videoGenEnabled === true}
+                    onChange={(e) =>
+                      update({
+                        videoGenEnabled: e.target.checked,
+                        videoProviderMode: e.target.checked ? 'local' : 'off'
+                      })
+                    }
+                  />
+                  Reservar capa de video
+                </label>
+              </div>
+
+              <div className="rounded-lg border border-kawaii-border p-3 space-y-2 bg-white/70">
+                <p className="text-xs font-semibold text-kawaii-text">Iniciativa de conversación</p>
+                <p className="text-[10px] text-kawaii-text-muted">
+                  Si la app sigue abierta y no escribes en un rato, el chat puede enviarte un mensaje
+                  corto (opt-in). No interrumpe mientras escribes.
+                </p>
+                <label className="flex items-center gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={settings.conversationInitiativeEnabled === true}
+                    onChange={(e) =>
+                      update({ conversationInitiativeEnabled: e.target.checked })
+                    }
+                  />
+                  Tomar iniciativa de conversación
+                </label>
+                {settings.conversationInitiativeEnabled ? (
+                  <div className="space-y-2 pl-1">
+                    <label className="flex flex-col gap-0.5 text-[11px] text-kawaii-text-muted">
+                      Frecuencia
+                      <select
+                        className="input-kawaii text-sm"
+                        value={settings.conversationInitiativeMode || 'personality'}
+                        onChange={(e) =>
+                          update({
+                            conversationInitiativeMode: e.target.value as
+                              | 'personality'
+                              | 'fixed'
+                          })
                         }
-                      }}
-                      placeholder="Account ID (Overview del dashboard)"
-                    />
-                  </label>
-                  <label className="block text-xs">API Token
+                      >
+                        <option value="personality">
+                          Según personalidad (desesperada ~1 min; profesional ~10 min)
+                        </option>
+                        <option value="fixed">Duración fija</option>
+                      </select>
+                    </label>
+                    {(settings.conversationInitiativeMode || 'personality') === 'fixed' ? (
+                      <label className="block text-[11px] text-kawaii-text-muted">
+                        Minutos de espera
+                        <input
+                          type="number"
+                          min={1}
+                          max={120}
+                          className="input-kawaii text-sm w-24 mt-0.5 ml-2"
+                          value={settings.conversationInitiativeMinutes ?? 4}
+                          onChange={(e) =>
+                            update({
+                              conversationInitiativeMinutes: Math.max(
+                                1,
+                                Math.min(120, Number(e.target.value) || 4)
+                              )
+                            })
+                          }
+                        />
+                      </label>
+                    ) : (
+                      <p className="text-[10px] text-kawaii-text-muted">
+                        El tono del personaje define la cadencia (p. ej. desesperada ~1 min, calmada ~7 min). En el chat puedes decir «dame 5 minutos» o «no me hables en 2
+                        minutos».
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+
+              {settings.imageGenEnabled ? (
+                <div className="rounded-lg border border-kawaii-border p-3 space-y-2 bg-white/70">
+                  <p className="text-xs font-semibold">Imagen · proveedor y Forge</p>
+                  <label className="block text-xs font-semibold">Modo</label>
+                  <select
+                    className="input-kawaii text-sm"
+                    value={settings.imageProviderMode}
+                    onChange={(e) =>
+                      update({
+                        imageProviderMode: e.target.value as
+                          | 'off'
+                          | 'cloud'
+                          | 'local'
+                          | 'smart'
+                      })
+                    }
+                  >
+                    <option value="cloud">Cloud (Pollinations)</option>
+                    <option value="smart">Smart (local → cloud)</option>
+                    <option value="local">Solo local (Forge/A1111)</option>
+                  </select>
+                  <label className="block text-xs font-semibold">URL Forge / A1111</label>
+                  <input
+                    className="input-kawaii text-sm"
+                    value={settings.a1111BaseUrl}
+                    onChange={(e) => update({ a1111BaseUrl: e.target.value })}
+                    placeholder="http://127.0.0.1:7860"
+                  />
+                  <p className="text-[10px] text-kawaii-text-muted">
+                    Arranca WebUI con <code>--api</code>. Checkpoints en la carpeta models del
+                    WebUI (SD 1.5 si VRAM menor a 8 GB; SDXL si 8 GB o mas).
+                  </p>
+                  <label className="flex items-center gap-2 text-xs">
                     <input
-                      type="password"
-                      className="input-kawaii text-sm w-full mt-0.5"
-                      id="cf-token-input"
-                      placeholder="Pega el token y pulsa Guardar"
-                      autoComplete="off"
+                      type="checkbox"
+                      checked={settings.imageUseCharacterStyle !== false}
+                      onChange={(e) =>
+                        update({ imageUseCharacterStyle: e.target.checked })
+                      }
                     />
+                    Usar estilo / ficha del personaje en prompts de imagen
                   </label>
                   <div className="flex flex-wrap gap-2">
                     <Button
                       variant="ghost"
                       className="text-xs"
                       onClick={async () => {
-                        const el = document.getElementById('cf-token-input') as HTMLInputElement | null
-                        const token = (el?.value || '').trim()
-                        const acc = (settings.cloudflareAccountId || '').trim()
-                        if (!acc) {
-                          alert('Falta el Account ID')
+                        const res = await window.kawaii.imageA1111Health?.(settings.a1111BaseUrl)
+                        alert(res?.ok ? `Forge OK (${res.latencyMs} ms)` : res?.error || 'Sin respuesta')
+                      }}
+                    >
+                      Probar Forge
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="text-xs"
+                      onClick={async () => {
+                        const res = await window.kawaii.imageA1111Models?.(settings.a1111BaseUrl)
+                        if (!res?.ok) {
+                          alert(res?.error || 'No se pudieron listar checkpoints')
                           return
                         }
-                        if (token) {
-                          await window.kawaii.setProviderKey?.('cloudflare', token)
-                        }
-                        // mirror account id in secure store for main process fallback
-                        await window.kawaii.setProviderKey?.(
-                          'cloudflareAccountId',
-                          acc
-                        )
-                        const h = await window.kawaii.imageCloudflareProbe?.(acc)
+                        const names = (res.models || []).map((m: { title?: string }) => m.title)
+                        const pick =
+                          res.current && names.includes(res.current)
+                            ? res.current
+                            : names[0] || ''
+                        if (pick) update({ a1111Checkpoint: pick })
                         alert(
-                          h?.ok
-                            ? `Guardado. Cloudflare OK (${h.latencyMs} ms)`
-                            : `Guardado. Prueba: ${h?.error || 'error'}\n\nRevisa Account ID + token Workers AI.`
+                          names.length
+                            ? `Checkpoints (${names.length}):\n${names.slice(0, 15).join('\n')}${
+                                names.length > 15 ? '\n…' : ''
+                              }\n\nSeleccionado: ${pick || '(ninguno)'}`
+                            : 'WebUI respondió sin modelos'
                         )
                       }}
                     >
-                      Guardar y probar Cloudflare
+                      Listar checkpoints
+                    </Button>
+                    {settings.a1111Checkpoint ? (
+                      <p className="text-[10px] text-kawaii-text-muted truncate w-full">
+                        Checkpoint activo: {settings.a1111Checkpoint}
+                      </p>
+                    ) : null}
+                    <Button
+                      variant="ghost"
+                      className="text-xs"
+                      onClick={async () => {
+                        const r = await window.kawaii.imageCleanup?.(30)
+                        alert(
+                          r?.ok
+                            ? `Limpieza: ${r.removed} archivos > 30 días`
+                            : r?.error || 'Error'
+                        )
+                      }}
+                    >
+                      Limpiar imágenes antiguas
                     </Button>
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  className="text-xs"
-                  onClick={async () => {
-                    const h = await window.kawaii.imageA1111Health?.(
-                      settings.a1111BaseUrl
-                    )
-                    alert(
-                      h?.ok
-                        ? `A1111 OK (${h.modelsCount ?? 0} modelos, ${h.latencyMs}ms)`
-                        : `A1111 no responde: ${h?.error || 'error'}`
-                    )
-                  }}
-                >
-                  Probar A1111
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="text-xs"
-                  onClick={async () => {
-                    const res = await window.kawaii.imageA1111Models?.(
-                      settings.a1111BaseUrl
-                    )
-                    if (!res?.ok) {
-                      alert(res?.error || 'No se pudieron listar checkpoints')
-                      return
-                    }
-                    const names = (res.models || []).map((m) => m.title)
-                    const pick =
-                      res.current && names.includes(res.current)
-                        ? res.current
-                        : names[0] || ''
-                    if (pick) update({ a1111Checkpoint: pick })
-                    alert(
-                      names.length
-                        ? `Checkpoints (${names.length}):\n${names.slice(0, 15).join('\n')}${
-                            names.length > 15 ? '\n…' : ''
-                          }\n\nSeleccionado: ${pick || '(ninguno)'}`
-                        : 'WebUI respondió sin modelos'
-                    )
-                  }}
-                >
-                  Listar checkpoints
-                </Button>
-                {settings.a1111Checkpoint ? (
-                  <p className="text-[10px] text-kawaii-text-muted truncate">
-                    Checkpoint activo: {settings.a1111Checkpoint}
-                  </p>
-                ) : null}
-                <Button
-                  variant="ghost"
-                  className="text-xs"
-                  onClick={async () => {
-                    const r = await window.kawaii.imageCleanup?.(30)
-                    alert(
-                      r?.ok
-                        ? `Limpieza: ${r.removed} archivos > 30 días`
-                        : r?.error || 'Error'
-                    )
-                  }}
-                >
-                  Limpiar imágenes antiguas
-                </Button>
-              </>
-            )}
+              ) : null}
+            </div>
           </div>
 
           {(settings.uiComplexity || 'smart') === 'advanced' ? (
@@ -1093,9 +1774,19 @@ export function SettingsModal({ open, onClose }: Props) {
             </div>
           ) : null}
 
-          {/* Diagnostics */}
+          {settingsSection === 'actividades' && (
+            <div id="settings-actividades" className="scroll-mt-14 space-y-4">
+              <ActivitiesPanel />
+            </div>
+          )}
 
-          <div className="border border-kawaii-border rounded-kawaii p-3 space-y-2">
+          {/* Diagnostics */}
+          <div id="settings-tester" className="scroll-mt-14">
+            <SystemTesterPanel />
+          </div>
+
+
+          <div id="settings-advanced" className="scroll-mt-14 border border-kawaii-border rounded-kawaii p-3 space-y-2">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-sm flex items-center gap-1">
                 <Stethoscope className="w-4 h-4" /> Autodiagnóstico

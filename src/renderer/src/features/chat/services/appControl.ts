@@ -23,7 +23,7 @@ function applyPatch(patch: Partial<Settings>): string[] {
   const changes: string[] = []
   const cur = useSettingsStore.getState().settings
   const next: Partial<Settings> = {}
-  for (const [k, v] of Object.entries(patch) as [keyof Settings, AppSettings[keyof Settings]][]) {
+  for (const [k, v] of Object.entries(patch) as [keyof Settings, Settings[keyof Settings]][]) {
     if (v !== undefined && cur[k] !== v) {
       ;(next as Record<string, unknown>)[k as string] = v
       changes.push(`${String(k)} → ${String(v)}`)

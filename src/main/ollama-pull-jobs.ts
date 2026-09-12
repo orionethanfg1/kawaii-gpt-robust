@@ -11,7 +11,7 @@ export type OllamaPullJob = {
   model: string
   status: 'running' | 'paused' | 'error' | 'done'
   error?: string
-  updatedAt: number
+  updatedAt?: number
   progress?: number
 }
 

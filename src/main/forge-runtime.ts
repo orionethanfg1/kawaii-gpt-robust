@@ -17,13 +17,9 @@ import {
 } from './machine-profile'
 import { syncCheckpointsToForge } from './sd-workspace'
 import {
-  ensurePortablePython,
   ensureForgeVenvWithTorch,
   ensureForgeWebStack,
-  isPortablePythonReady,
-  portablePythonExe,
-  forgeVenvPython,
-  isForgeVenvReady
+  ensureForgeNumpySkimage,
 } from './python-runtime'
 
 /** Preferred API ports — skip ones already in use */
@@ -56,6 +52,26 @@ export function forgeCliArgsString(port: number): string {
   return forgeCliArgs(port).join(' ')
 }
 
+
+/** Best-effort: free a TCP port on Windows so a zombie Gradio UI does not steal /sdapi checks. */
+async function freePortIfStale(port: number): Promise<void> {
+  if (platform() !== 'win32') return
+  try {
+    const r = spawnSync(
+      'cmd.exe',
+      [
+        '/c',
+        `for /f "tokens=5" %a in ('netstat -ano ^| findstr :${port} ^| findstr LISTENING') do taskkill /F /PID %a`
+      ],
+      { timeout: 8000, windowsHide: true }
+    )
+    void r
+  } catch {
+    /* ignore */
+  }
+}
+
+
 export type ForgeRuntimeStatus = {
   state: 'stopped' | 'starting' | 'running' | 'error'
   port: number | null
@@ -70,6 +86,7 @@ export type ForgeRuntimeStatus = {
   /** 0–100 estimated while starting (API not up yet) */
   bootProgress?: number
   elapsedMs?: number
+  apiOk?: boolean
 }
 
 let child: ChildProcess | null = null
@@ -550,16 +567,6 @@ async function resolveForgePythonAndLaunch(
 }
 
 /** Human message when no compatible Python is found. */
-function noCompatiblePythonMessage(forgeRoot: string): string {
-  return (
-    'Forge necesita Python 3.10–3.12 (con venv). ' +
-    'Se detectó o se usaría Python del sistema incompatible (p. ej. 3.14), ' +
-    'con el que no existe torch==2.3.1. ' +
-    'Solución: instala Python 3.11 desde python.org (marca «py launcher»), ' +
-    'o reinstala Forge portable que trae su propio Python en system\\python o venv. ' +
-    `Carpeta: ${forgeRoot}`
-  )
-}
 
 /**
  * Force webui-user.bat to keep --api (stock file often sets COMMANDLINE_ARGS= empty).
@@ -779,7 +786,7 @@ export async function startForgeRuntime(options?: {
 
   // Always prefer app-managed 3.11 venv under Forge (never system 3.14)
   let resolved = await resolveForgePythonAndLaunch(forgeRoot)
-  const dataRoot = profile.dataRoot || profile.forgeInstallPath
+  const dataRoot = profile.preferredDataRoot || profile.forgeInstallPath
 
   // Locate webui dir (launch.py)
   let webuiDir = forgeRoot
@@ -855,10 +862,35 @@ export async function startForgeRuntime(options?: {
     })
   }
 
+  const npSki = await ensureForgeNumpySkimage(webuiDir, (p) => {
+    setStatus({
+      state: 'starting',
+      message: p.message,
+      bootProgress: p.percent ?? 96
+    })
+  })
+  if (!npSki.ok) {
+    return setStatus({
+      state: 'error',
+      forgeRoot,
+      message: `numpy/skimage: ${npSki.error}. Reintenta Arrancar Forge API (repara el venv).`
+    })
+  }
+  if (npSki.repaired) {
+    setStatus({
+      state: 'starting',
+      message: 'numpy/scikit-image reparados — arrancando Forge…',
+      bootProgress: 98
+    })
+  }
+
   const workRoot = resolved.cwd
   await ensureKawaiiWebuiUser(workRoot, port)
   const launcher = await writePortLauncher(workRoot, port)
   const baseUrl = `http://127.0.0.1:${port}`
+  // Avoid zombie UI-only process answering on this port without /sdapi
+  await freePortIfStale(port)
+  await new Promise((r) => setTimeout(r, 400))
 
   forgeNearReady = false
   forgeExitedEarly = false
@@ -1044,40 +1076,64 @@ export async function startForgeRuntime(options?: {
       forgeNearReady = true
     }
     if (forgeNearReady && nearReadySince == null) nearReadySince = Date.now()
-    // After Startup time, if /sdapi never appears for 90s → stop (UI without --api or stuck)
-    if (nearReadySince != null && Date.now() - nearReadySince > 90_000) {
-      const uiCheck = await probeForgeHealth(baseUrl, 3000)
-      if (!uiCheck.ok) {
-        // scan once more
-        const scan = await scanForgeApiPorts()
-        if (scan.ok && scan.baseUrl) {
-          return setStatus({
-            state: 'running',
-            port: scan.port,
-            baseUrl: scan.baseUrl,
-            message: `Forge listo en ${scan.baseUrl}`,
-            lastHealthAt: new Date().toISOString(),
-            bootProgress: 100,
-            elapsedMs: Date.now() - start
-          })
-        }
-        // Stop our child so we don't leave UI-only Gradio blocking the port
-        try {
-          if (child && !child.killed) {
-            child.kill()
-          }
-        } catch {
-          /* ignore */
-        }
-        child = null
+    // After "Startup time" / Gradio line: API may still load models for several minutes.
+    // Do NOT kill at 90s — that was a regression when Forge was healthy but slow.
+    // Only fail early if we get a hard /sdapi 404 (true missing --api) for a sustained period
+    // AND the process already exited; otherwise keep polling until main timeout.
+    if (nearReadySince != null && Date.now() - nearReadySince > 45_000) {
+      const uiCheck = await probeForgeHealth(baseUrl, 4000)
+      if (uiCheck.ok) {
+        return setStatus({
+          state: 'running',
+          port,
+          baseUrl: uiCheck.baseUrl || baseUrl,
+          message: `Forge listo en ${uiCheck.baseUrl || baseUrl}`,
+          lastHealthAt: new Date().toISOString(),
+          bootProgress: 100,
+          elapsedMs: Date.now() - start,
+          apiOk: true
+        })
+      }
+      const scan = await scanForgeApiPorts()
+      if (scan.ok && scan.baseUrl) {
+        return setStatus({
+          state: 'running',
+          port: scan.port,
+          baseUrl: scan.baseUrl,
+          message: `Forge listo en ${scan.baseUrl}`,
+          lastHealthAt: new Date().toISOString(),
+          bootProgress: 100,
+          elapsedMs: Date.now() - start,
+          apiOk: true
+        })
+      }
+      // Sustained UI-only 404 after 6 min with process still up → likely wrong flags / zombie port
+      const waited = Date.now() - nearReadySince
+      const childAlive = Boolean(child && child.exitCode == null && !child.killed)
+      if (
+        uiCheck.uiOnly &&
+        /404|sin --api/i.test(uiCheck.error || '') &&
+        waited > 360_000 &&
+        !childAlive
+      ) {
         return setStatus({
           state: 'error',
           pid: null,
           message:
-            'Forge abrió la interfaz (Running on local URL) pero /sdapi no responde — suele faltar --api. ' +
-            'Cierra cualquier ventana negra de Python y pulsa otra vez «Arrancar Forge API». ' +
-            'La app ahora usa launch.py --api (no webui-user.bat).',
+            'Forge mostró interfaz pero /sdapi nunca respondió (proceso cerrado). ' +
+            'Cierra ventanas negras de Python, pulsa Detener Forge y Arrancar de nuevo.',
           bootProgress: 95,
+          elapsedMs: Date.now() - start
+        })
+      }
+      // Still starting: update message so UI is not silent
+      if (waited > 60_000 && Date.now() - lastMsgAt > 15_000) {
+        lastMsgAt = Date.now()
+        setStatus({
+          message: childAlive
+            ? `Forge arrancando API… (${Math.floor(waited / 1000)}s). Modelos pueden tardar; no cierres.`
+            : `Esperando /sdapi… (${Math.floor(waited / 1000)}s)`,
+          bootProgress: Math.min(98, 70 + Math.floor(waited / 10000)),
           elapsedMs: Date.now() - start
         })
       }
@@ -1251,6 +1307,8 @@ export function runtimeBaseUrlOrDefault(): string {
 export async function ensureLocalImagePipeline(options?: {
   preferredPort?: number
   readyTimeoutMs?: number
+  /** When false, do not stop ACE (default true = free VRAM for SD) */
+  releaseMusic?: boolean
 }): Promise<{
   ok: boolean
   baseUrl: string | null
@@ -1259,6 +1317,20 @@ export async function ensureLocalImagePipeline(options?: {
   synced: { copied: string[]; skipped: string[] }
   message: string
 }> {
+  if (options?.releaseMusic !== false) {
+    try {
+      const { prepareHeavyLayer } = await import('./layer-scheduler')
+      // prepareHeavyLayer('image') stops music then we start forge below —
+      // call release only path to avoid double start
+      const { getMusicRuntimeStatus, stopMusicRuntime } = await import('./music-runtime')
+      const ms = getMusicRuntimeStatus()
+      if (ms.state === 'running' || ms.state === 'starting') {
+        await stopMusicRuntime()
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   const sync = await syncCheckpointsToForge()
   const synced = { copied: sync.copied || [], skipped: sync.skipped || [] }
 
