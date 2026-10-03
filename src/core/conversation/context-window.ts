@@ -21,9 +21,9 @@ export interface PackedContext {
 
 /** Rough char budget by provider kind */
 export function defaultBudget(kind: 'local' | 'cloud'): ContextBudget {
-  // Conservative: leave room for response generation
+  // Keep local history intact when possible; shrink only when the model rejects it.
   if (kind === 'local') {
-    return { maxChars: 12_000, keepRecentMessages: 8 }
+    return { maxChars: 48_000, keepRecentMessages: 24 }
   }
   return { maxChars: 48_000, keepRecentMessages: 16 }
 }
@@ -68,13 +68,15 @@ export function packContext(
   const recent = history.slice(-budget.keepRecentMessages)
   const older = history.slice(0, Math.max(0, history.length - budget.keepRecentMessages))
 
-  let messages: ChatMessage[] = [...systemMessages, ...recent, userMessage]
+  // Preserve the complete transcript while it fits. A rolling summary is additive,
+  // not a reason to discard usable context.
+  let messages: ChatMessage[] = [...systemMessages, ...history, userMessage]
   let truncated = false
-  let droppedCount = older.length
+  let droppedCount = 0
   let summaryInjected = false
 
-  if (older.length > 0) {
-    const summary = (externalSummary && externalSummary.trim()) || buildHeuristicSummary(older)
+  if (externalSummary?.trim()) {
+    const summary = externalSummary.trim()
     if (summary) {
       messages = [
         ...systemMessages,
@@ -84,11 +86,32 @@ export function packContext(
             'Resumen de turnos anteriores de esta conversación (para continuidad; puede ser incompleto):\n' +
             summary
         },
-        ...recent,
+        ...history,
         userMessage
       ]
       summaryInjected = true
     }
+  }
+
+  // Only fall back to a lossy window after the complete transcript exceeds budget.
+  if (approxLen(messages) > budget.maxChars && older.length > 0) {
+    const summary = buildHeuristicSummary(older)
+    messages = [
+      ...systemMessages,
+      ...(summary
+        ? [{
+            role: 'system' as const,
+            content:
+              'Resumen de turnos anteriores de esta conversación (para continuidad; puede ser incompleto):\n' +
+              summary
+          }]
+        : []),
+      ...recent,
+      userMessage
+    ]
+    summaryInjected = Boolean(summary)
+    droppedCount = older.length
+    truncated = true
   }
 
   // If still too large, drop oldest recent messages (keep system + user)

@@ -11,7 +11,18 @@ const TOOLS = new Set<string>([
   'health_forge',
   'start_ollama',
   'run_diagnosis',
-  'open_settings_hint'
+  'open_settings_hint',
+  'list_models',
+  'list_installed_models',
+  'recommend_model',
+  'check_local_runtime',
+  'set_active_model',
+  'download_model',
+  'pause_download',
+  'resume_download',
+  'cancel_download',
+  'delete_model',
+  'list_download_jobs'
 ])
 
 /**

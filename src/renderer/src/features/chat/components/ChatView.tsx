@@ -1,5 +1,8 @@
-import { ErrorBoundary } from '@/app/ErrorBoundary'
+import { PluginsPanel } from './PluginsPanel'
+import { useConversationInitiative } from '../hooks/useConversationInitiative'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ImageLightbox } from '@shared/ui/ImageLightbox'
+import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { useChatStore } from '@shared/lib/stores/chatStore'
 import { useChat } from '../hooks/useChat'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
@@ -9,6 +12,7 @@ import { RouteLiveIndicator } from './RouteLiveIndicator'
 import { SetupChecklist } from './SetupChecklist'
 import { Image as ImageIcon, Sparkles } from 'lucide-react'
 import { ImageGenPanel } from '@features/image/components/ImageGenPanel'
+import { ActivitiesBar } from '@features/activities/ActivitiesBar'
 
 interface Props {
   onOpenSettings?: () => void
@@ -27,6 +31,9 @@ function formatSummaryAge(ts?: number, now = Date.now()): string | null {
 }
 
 export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
+  useConversationInitiative(true)
+
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const { activeId, conversations, create } = useChatStore()
   const {
     isLoading,
@@ -42,6 +49,7 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
   const showRoute = useSettingsStore((s) => s.settings.showRouteInfo)
   const dismissChecklist = useSettingsStore((s) => s.settings.dismissSetupChecklist)
   const imageGenEnabled = useSettingsStore((s) => s.settings.imageGenEnabled !== false)
+  const [pluginsOpen, setPluginsOpen] = useState(false)
   const [imageOpen, setImageOpen] = useState(false)
   const [imagePrefill, setImagePrefill] = useState('')
   const [imageBridge, setImageBridge] = useState<{
@@ -118,7 +126,9 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
               <img
                 src={character.visualImageUrl}
                 alt=""
-                className="w-full h-full object-cover"
+                title="Ver avatar ampliado"
+                className="w-full h-full object-cover cursor-zoom-in"
+                onClick={() => character?.visualImageUrl && setLightboxSrc(character.visualImageUrl)}
               />
             ) : (
               <span>{character?.visualEmoji ?? '🌸'}</span>
@@ -156,42 +166,58 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
   }
 
   return (
+    <>
     <div className="flex-1 flex flex-col min-h-0">
-      <header className="px-5 py-3 border-b border-kawaii-border bg-white/60 backdrop-blur">
-        <div className="flex items-start justify-between gap-3 min-w-0">
-          <div className="min-w-0 flex items-center gap-2">
-            <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-kawaii-border bg-white flex items-center justify-center text-lg shrink-0 shadow-sm">
-              {character?.visualImageUrl ? (
-                <img
-                  src={character.visualImageUrl}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span>{character?.visualEmoji ?? '🌸'}</span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-semibold text-kawaii-text truncate">{active.title}</h2>
-              <p className="text-[10px] text-kawaii-text-muted truncate">
-                {character?.name ?? 'Kawaii'}
-                {character?.relationshipRole ? ` · ${character.relationshipRole}` : ''}
-              </p>
-            </div>
-          </div>
-          {summaryLabel && (
-            <span
-              className="shrink-0 text-[10px] sm:text-[11px] text-kawaii-text-muted bg-kawaii-pink-soft/50 border border-kawaii-border rounded-full px-2 py-0.5 max-w-[55%] truncate"
-              title={
-                active.rollingSummary
-                  ? active.rollingSummary.slice(0, 400)
-                  : summaryLabel
-              }
+      <header className="px-3 py-1.5 border-b border-kawaii-border bg-white/70 backdrop-blur shrink-0">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <h2 className="text-sm font-semibold text-kawaii-text truncate max-w-[40%] min-w-0" title={active.title}>
+            {active.title}
+          </h2>
+          <span className="text-[10px] text-kawaii-text-muted truncate hidden sm:inline">
+            {character?.name ?? 'Kawaii'}
+          </span>
+          <div className="flex-1" />
+          <div className="flex items-center gap-1 flex-wrap justify-end">
+            <ActivitiesBar />
+            <button
+              type="button"
+              className="text-[10px] px-2 py-0.5 rounded-full border border-kawaii-border hover:bg-kawaii-pink-soft/40"
+              onClick={() => setPluginsOpen((v) => !v)}
+              title="Plugins y skills del host"
             >
-              {summaryLabel}
-            </span>
-          )}
+              Plugins
+            </button>
+            {summaryLabel && (
+              <span
+                className="text-[10px] text-kawaii-text-muted bg-kawaii-pink-soft/50 border border-kawaii-border rounded-full px-2 py-0.5 max-w-[140px] truncate"
+                title={active.rollingSummary ? active.rollingSummary.slice(0, 400) : summaryLabel}
+              >
+                {summaryLabel}
+              </span>
+            )}
+          </div>
         </div>
+        {pluginsOpen && (
+          <div className="relative mt-1">
+            <PluginsPanel
+              onClose={() => setPluginsOpen(false)}
+              onInsertPhrase={(phrase) => {
+                window.dispatchEvent(
+                  new CustomEvent('kawaii:prefill-chat', { detail: { text: phrase } })
+                )
+                setPluginsOpen(false)
+              }}
+              onRunTools={(tools, phrase) => {
+                window.dispatchEvent(
+                  new CustomEvent('kawaii:run-host-tools', {
+                    detail: { tools, phrase }
+                  })
+                )
+                setPluginsOpen(false)
+              }}
+            />
+          </div>
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -276,5 +302,9 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
         onStop={stopStreaming}
       />
     </div>
+    {lightboxSrc ? (
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+    ) : null}
+    </>
   )
 }

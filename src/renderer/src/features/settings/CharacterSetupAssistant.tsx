@@ -30,6 +30,16 @@ interface Props {
 }
 
 const STEPS = ['Tú', 'Asistente', 'Rol', 'Tono', 'Estilo', 'Nombre', 'Avatar', 'Resumen'] as const
+const STEP_HINTS = [
+  'Tu género ajusta las opciones de rol para que no se vean raras.',
+  'Género del asistente: define voz y arquetipos sugeridos.',
+  'El rol es la relación base (amiga, novia, coach…). Se puede evolucionar en el chat.',
+  'El tono marca si insiste más (cálida) o es más formal.',
+  'Estilo de mensajes: longitud y uso de emojis.',
+  'Nombre con el que te hablará siempre.',
+  'Avatar + descripción visual: la app la usa en fotos “tuyas”.',
+  'Revisa y guarda. Luego el chat irá aprendiendo de ti en la memoria.'
+] as const
 
 export function CharacterSetupAssistant({
   value,
@@ -107,7 +117,7 @@ export function CharacterSetupAssistant({
     setMsg('Analizando avatar…')
     try {
       const key = (await getOpenRouterKey?.()) || ''
-      const res = await describeAvatarFromDataUrl(avatarUrl, {
+      let res = await describeAvatarFromDataUrl(avatarUrl, {
         apiKey: key,
         characterName: name || preview.name
       })
@@ -171,6 +181,12 @@ export function CharacterSetupAssistant({
         </div>
 
         <div className="flex flex-wrap gap-1">
+          <p className="text-[11px] text-kawaii-text-muted leading-relaxed mb-1">
+            {STEP_HINTS[step]}
+          </p>
+          <p className="text-[10px] font-semibold text-kawaii-pink-deep mb-1">
+            Paso {step + 1} de {STEPS.length}
+          </p>
           {STEPS.map((s, i) => (
             <span
               key={s}
@@ -336,6 +352,7 @@ export function CharacterSetupAssistant({
         )}
 
         {step === 6 && (
+          // Primary avatar here; full gallery lives in Ajustes → Personalidad
           <div className="space-y-3">
             <p className="text-sm text-kawaii-text-muted">Avatar opcional</p>
             <input

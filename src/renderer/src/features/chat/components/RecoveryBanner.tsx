@@ -16,19 +16,15 @@ export function RecoveryBanner() {
 
   const offer = useMemo(() => shouldOfferRecovery(), [checkpoint.updatedAt, checkpoint.dirty])
 
-  if (!offer) {
-    // Still allow a tiny "learned patterns" hint if any
-    const summary = brainSummary()
-    if (summary.patternCount === 0) return null
-    return null
-  }
+  if (!offer) return null
+  // Don't nag with mini-brain "Preferir cloud" — chat handles errors when they happen
 
   const when = checkpoint.updatedAt
     ? new Date(checkpoint.updatedAt).toLocaleString()
     : ''
 
   return (
-    <div className="mx-3 mt-2 rounded-kawaii border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-kawaii-text space-y-1.5">
+    <div className="mx-3 mt-2 rounded-kawaii border border-amber-200/80 bg-amber-50/90 px-3 py-1.5 text-xs text-kawaii-text">
       <p className="font-semibold text-amber-900">Modo recuperación</p>
       <p className="text-kawaii-text-muted">
         La sesión anterior parece haberse interrumpido
@@ -47,9 +43,10 @@ export function RecoveryBanner() {
             : ''}
         </p>
       )}
-      {checkpoint.lastRemedy && (
+      {checkpoint.lastRemedy &&
+        !/prefer_cloud|Preferir cloud/i.test(String(checkpoint.lastRemedy)) && (
         <p className="text-[11px] text-amber-800">
-          Última sugerencia de la mini-IA: {checkpoint.lastRemedy}
+          Última incidencia con error: {checkpoint.lastRemedy}
         </p>
       )}
       <div className="flex flex-wrap gap-2 pt-1">

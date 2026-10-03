@@ -12,7 +12,9 @@ import {
   Download,
   Play,
   Cpu,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Music2,
+  User
 } from 'lucide-react'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import type { ProviderMode } from '@shared/types/settings'
@@ -23,11 +25,7 @@ import {
   type HardwareProfile,
   type ModelRecommendation
 } from '@core/models/recommendations'
-import {
-  FREE_CLOUD_CATALOG,
-  modelsForProvider,
-  probeCloudProvider
-} from '@core/models/free-cloud-catalog'
+import { modelsForProvider, probeCloudProvider } from '@core/models/free-cloud-catalog'
 import { discoverOpenRouterFreeModels } from '@core/models/discover-openrouter'
 import { recommendGenerativeStack } from '@core/models/generative-catalog'
 import { useDownloadStore } from '@features/models/downloadStore'
@@ -97,7 +95,7 @@ interface Props {
   onComplete: () => void
 }
 
-type StepId = 'welcome' | 'mode' | 'local' | 'cloud' | 'images' | 'done'
+type StepId = 'welcome' | 'mode' | 'local' | 'cloud' | 'images' | 'music' | 'character' | 'done'
 
 /** Detected from existing settings / keys / health */
 interface SetupStatus {
@@ -109,6 +107,10 @@ interface SetupStatus {
   hasLocalModel: boolean
   imageCloudOn: boolean
   imageLocalReady: boolean
+  musicEligible: boolean
+  musicInstalled: boolean
+  musicApiRunning: boolean
+  musicSummary: string
   modeConfigured: boolean
   characterCustomized: boolean
 }
@@ -123,6 +125,8 @@ function isValidHttpUrl(value: string): boolean {
 }
 
 export function SetupWizard({ onComplete }: Props) {
+  // richer assistant: detect done steps, explain why each layer matters
+
   const { settings, update } = useSettingsStore()
   const [step, setStep] = useState<StepId>('welcome')
   const [mode, setMode] = useState<ProviderMode>(settings.providerMode || 'smart')
@@ -133,6 +137,17 @@ export function SetupWizard({ onComplete }: Props) {
   const [ollamaChecking, setOllamaChecking] = useState(false)
   const [ollamaError, setOllamaError] = useState<string | null>(null)
   const [startingOllama, setStartingOllama] = useState(false)
+  const [lmStudioOk, setLmStudioOk] = useState<boolean | null>(null)
+  const [lmStudioNote, setLmStudioNote] = useState<string | null>(null)
+  /** Wizard 1.5: auto | ollama-only | lmstudio-only */
+  const [runtimePath, setRuntimePath] = useState<'auto' | 'ollama' | 'lmstudio'>(() => {
+    const p = useSettingsStore.getState().settings.localRuntimePreference
+    if (p === 'ollama') return 'ollama'
+    if (p === 'openai-compatible') return 'lmstudio'
+    return 'auto'
+  })
+  const [diskModelCount, setDiskModelCount] = useState(0)
+  const [modelSources, setModelSources] = useState<Record<string, string>>({})
   const [hw, setHw] = useState<HardwareProfile | null>(null)
   const [recs, setRecs] = useState<ReturnType<typeof recommendLocalModels> | null>(null)
   /** model -> { progress?, status } for background downloads */
@@ -150,7 +165,10 @@ export function SetupWizard({ onComplete }: Props) {
   const [keyTestDetail, setKeyTestDetail] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   /** Image setup (wizard step) */
-  const [imageWanted, setImageWanted] = useState(false)
+  const [imageWanted, setImageWanted] = useState(settings.imageGenEnabled !== false)
+  const [musicWanted, setMusicWanted] = useState(false)
+  const [musicBusy, setMusicBusy] = useState(false)
+  const [musicMsg, setMusicMsg] = useState('')
   const [imageMode, setImageMode] = useState<'cloud' | 'smart' | 'local'>('cloud')
   const [a1111Url, setA1111Url] = useState(settings.a1111BaseUrl || 'http://127.0.0.1:7860')
   const [a1111Probe, setA1111Probe] = useState<'idle' | 'loading' | 'ok' | 'fail'>('idle')
@@ -169,10 +187,13 @@ export function SetupWizard({ onComplete }: Props) {
     hasLocalModel: false,
     imageCloudOn: false,
     imageLocalReady: false,
+    musicEligible: false,
+    musicInstalled: false,
+    musicApiRunning: false,
+    musicSummary: '',
     modeConfigured: false,
     characterCustomized: false
   })
-  const [existingKeyHint, setExistingKeyHint] = useState('')
   /** Skip steps already satisfied when continuing the wizard */
   const [skipDoneSteps, setSkipDoneSteps] = useState(true)
 
@@ -196,6 +217,10 @@ export function SetupWizard({ onComplete }: Props) {
           (settings.imageProviderMode === 'cloud' ||
             settings.imageProviderMode === 'smart'),
         imageLocalReady: false,
+        musicEligible: false,
+        musicInstalled: false,
+        musicApiRunning: false,
+        musicSummary: '',
         modeConfigured: settings.hasCompletedSetup === true,
         characterCustomized: Boolean(
           (settings.character?.name && settings.character.name !== 'Kawaii') ||
@@ -203,6 +228,28 @@ export function SetupWizard({ onComplete }: Props) {
               settings.character.relationshipRole !==
                 'asistente amigable y de confianza')
         )
+      }
+      try {
+        const ms = await window.kawaii?.musicStatus?.()
+        if (ms && typeof ms === 'object') {
+          const m = ms as {
+            eligibility?: { ace?: { eligible?: boolean }; summary?: string }
+            ace?: { present?: boolean; stage?: string }
+          }
+          status.musicEligible = m.eligibility?.ace?.eligible === true
+          status.musicInstalled =
+            m.ace?.present === true ||
+            m.ace?.stage === 'cloned' ||
+            m.ace?.stage === 'ready'
+          status.musicSummary = m.eligibility?.summary || ''
+          if (settings.musicGenEnabled) setMusicWanted(true)
+        }
+        const mr = await window.kawaii?.musicRuntimeStatus?.()
+        if (mr && (mr as { state?: string }).state === 'running') {
+          status.musicApiRunning = true
+        }
+      } catch {
+        /* music optional */
       }
       try {
         const keys = (await window.kawaii?.getAllProviderKeys?.()) ?? {}
@@ -218,7 +265,6 @@ export function SetupWizard({ onComplete }: Props) {
           }
         }
         if (status.hasOpenRouterKey || (keys.openrouter || '').length >= 8) {
-          setExistingKeyHint('Key de OpenRouter ya guardada en este equipo')
           setSelectedCloudId('openrouter')
           // Don't put real key in the input; mark as present
           setApiKey('')
@@ -274,24 +320,25 @@ export function SetupWizard({ onComplete }: Props) {
     const s: StepId[] = ['welcome', 'mode']
     const localDone =
       skipDoneSteps &&
-      setupStatus.loaded &&
-      needsLocal &&
       setupStatus.ollamaReachable &&
       setupStatus.hasLocalModel
     const cloudDone =
       skipDoneSteps &&
-      setupStatus.loaded &&
-      needsCloud &&
       setupStatus.hasAnyCloudKey
     const imagesDone =
       skipDoneSteps &&
-      setupStatus.loaded &&
       (setupStatus.imageCloudOn || setupStatus.imageLocalReady || settings.imageGenEnabled === false)
+    const musicDone =
+      skipDoneSteps &&
+      (setupStatus.musicApiRunning ||
+        (settings.musicGenEnabled === true && setupStatus.musicInstalled))
+    const charDone = skipDoneSteps && setupStatus.characterCustomized
 
     if (needsLocal && !localDone) s.push('local')
     if (needsCloud && !cloudDone) s.push('cloud')
-    // Images always optional: skip if already configured or user finished setup once
     if (!imagesDone || !setupStatus.modeConfigured) s.push('images')
+    if (!musicDone) s.push('music')
+    if (!charDone) s.push('character')
     s.push('done')
     return s
   }, [
@@ -299,7 +346,8 @@ export function SetupWizard({ onComplete }: Props) {
     needsCloud,
     skipDoneSteps,
     setupStatus,
-    settings.imageGenEnabled
+    settings.imageGenEnabled,
+    settings.musicGenEnabled
   ])
 
   const stepIndex = stepOrder.indexOf(step)
@@ -364,59 +412,113 @@ export function SetupWizard({ onComplete }: Props) {
     if (!isValidHttpUrl(url)) {
       setOllamaOk(false)
       setOllamaError('URL inválida. Usa http://localhost:11434')
-      setDiscoveredModels([])
-      return
     }
     setOllamaChecking(true)
     setOllamaError(null)
-    setOllamaOk(null)
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 5000)
+    const discovered: string[] = []
+    const sources: Record<string, string> = {}
+    const add = (name: string, source: string) => {
+      const id = name.trim()
+      if (!id) return
+      if (!discovered.includes(id)) discovered.push(id)
+      sources[id] = source
+    }
+
+    // 1) Ollama API
     try {
-      const res = await fetch(`${url.replace(/\/$/, '')}/api/tags`, {
-        signal: controller.signal
-      })
-      if (!res.ok) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 4000)
+      const res = await fetch(`${url.replace(/\/$/, '')}/api/tags`, { signal: controller.signal })
+      clearTimeout(timer)
+      if (res.ok) {
+        setOllamaOk(true)
+        const data = (await res.json()) as { models?: { name?: string }[] }
+        for (const m of data.models || []) {
+          if (m.name) add(m.name, 'ollama')
+        }
+      } else {
         setOllamaOk(false)
         setOllamaError(`Ollama respondió HTTP ${res.status}`)
-        setDiscoveredModels([])
-        return
       }
-      const data = (await res.json()) as { models?: Array<{ name?: string }> }
-      const names = (data.models ?? [])
-        .map((m) => m.name)
-        .filter((n): n is string => Boolean(n))
-      setDiscoveredModels(names)
-      setOllamaOk(true)
-
-      const profile = hw ?? (await window.kawaii?.getHardwareProfile?.())
-      if (profile) {
-        const r = recommendLocalModels(profile, names)
-        setRecs(r)
-        setLocalModel((prev) => {
-          if (prev && names.includes(prev)) return prev
-          return pickInstalledOrRecommended(names, profile) || prev
-        })
-      } else if (names[0]) {
-        setLocalModel((prev) => prev || names[0])
-      }
-
-      if (names.length === 0) {
-        setOllamaError(null) // soft: we show download UI instead
-      }
-    } catch (err) {
+    } catch (e) {
       setOllamaOk(false)
-      setDiscoveredModels([])
       setOllamaError(
-        err instanceof Error && err.name === 'AbortError'
+        e instanceof Error && e.name === 'AbortError'
           ? 'Timeout. ¿Ollama está en marcha?'
           : 'No hay conexión con Ollama en ese puerto.'
       )
-    } finally {
-      clearTimeout(timer)
-      setOllamaChecking(false)
     }
-  }, [localUrl, hw])
+
+    // 2) LM Studio — dynamic port discovery (Hito 1.5)
+    let lmOk = false
+    try {
+      const { discoverLmStudioServer } = await import('@core/providers/lmstudio-ports')
+      const preferred = (useSettingsStore.getState().settings.localOpenAIBaseUrl || '').trim()
+      const probe = await discoverLmStudioServer({
+        preferredBaseUrl: preferred || undefined,
+        timeoutMs: 1_200
+      })
+      setLmStudioNote(probe.message)
+      if (probe.ok && probe.baseUrl) {
+        lmOk = true
+        useSettingsStore.getState().update({ localOpenAIBaseUrl: probe.baseUrl })
+        for (const id of probe.modelsSample || []) {
+          if (id) add(id, 'lmstudio')
+        }
+        // Full model list via IPC-friendly localHttp path inside discover already sampled;
+        // try listing more from base
+        try {
+          const { localHttp } = await import('@core/providers/local-http')
+          const res = await localHttp(`${probe.baseUrl}/models`, { timeoutMs: 3_000 })
+          if (res.ok) {
+            const json = (await res.json()) as { data?: Array<{ id?: string }> }
+            for (const m of json.data || []) {
+              if (m.id) add(m.id, 'lmstudio')
+            }
+          }
+        } catch {
+          /* sample is enough */
+        }
+      }
+    } catch {
+      setLmStudioNote('No se pudo sondear LM Studio')
+    }
+    setLmStudioOk(lmOk)
+
+    // 3) Disk scan via main (works offline)
+    try {
+      const disk = await window.kawaii?.scanLocalModels?.()
+      if (disk?.ok && disk.models?.length) {
+        setDiskModelCount(disk.models.length)
+        for (const m of disk.models) {
+          add(m.id || m.name, m.source === 'ollama-disk' ? 'ollama-disco' : 'lmstudio-disco')
+        }
+      } else {
+        setDiskModelCount(0)
+      }
+    } catch {
+      setDiskModelCount(0)
+    }
+
+    setDiscoveredModels(discovered)
+    setModelSources(sources)
+    if (!localModel && discovered[0]) setLocalModel(discovered[0])
+    try {
+      if (hw) {
+        const profile = {
+          totalMemoryGB: hw.totalMemoryGB,
+          cpuCores: hw.cpuCores,
+          platform: hw.platform
+        } as Parameters<typeof recommendLocalModels>[0]
+        const r = recommendLocalModels(profile, discovered)
+        setRecs(r)
+      }
+    } catch {
+      /* ignore */
+    }
+    setOllamaChecking(false)
+  }, [localUrl, hw, localModel])
+
 
   useEffect(() => {
     if (step === 'local') void checkOllama()
@@ -544,10 +646,13 @@ export function SetupWizard({ onComplete }: Props) {
     setKeyTesting(false)
   }
 
-  const canProceedLocal =
-    !needsLocal ||
-    ollamaOk === true ||
-    localModel.trim().length > 0
+  const canProceedLocal = (() => {
+    if (!needsLocal) return true
+    if (localModel.trim().length > 0 || discoveredModels.length > 0) return true
+    if (runtimePath === 'ollama') return ollamaOk === true
+    if (runtimePath === 'lmstudio') return lmStudioOk === true
+    return ollamaOk === true || lmStudioOk === true
+  })()
 
   const canProceedCloud =
     !needsCloud ||
@@ -604,6 +709,15 @@ export function SetupWizard({ onComplete }: Props) {
       update({
         providerMode: mode,
         localBaseUrl: localUrl.trim() || 'http://localhost:11434',
+        localOpenAIBaseUrl: lmStudioOk
+          ? (settings.localOpenAIBaseUrl || 'http://127.0.0.1:1234/v1')
+          : settings.localOpenAIBaseUrl,
+        localRuntimePreference:
+          runtimePath === 'ollama'
+            ? 'ollama'
+            : runtimePath === 'lmstudio'
+              ? 'openai-compatible'
+              : 'auto',
         localModel: localModel.trim(),
         cloudBaseUrl: selectedCloud.baseUrl,
         cloudModel: selectedCloudModel || selectedCloud.freeModel,
@@ -612,6 +726,8 @@ export function SetupWizard({ onComplete }: Props) {
         imageGenEnabled: imageWanted,
         imageProviderMode: imageWanted ? imageMode : 'off',
         a1111BaseUrl: a1111Url.trim() || 'http://127.0.0.1:7860',
+        musicGenEnabled: musicWanted,
+        musicProviderMode: musicWanted ? 'local' : 'off',
         hasCompletedSetup: true
       })
       onComplete()
@@ -745,15 +861,23 @@ export function SetupWizard({ onComplete }: Props) {
               <h1 className="text-3xl font-extrabold text-kawaii-text mb-2">
                 KawaiiGPT <span className="text-kawaii-pink-deep">Robust</span>
               </h1>
-              <p className="text-kawaii-text-muted text-sm leading-relaxed max-w-sm mx-auto">
-                Detectamos tu hardware, te sugerimos modelos locales y te ayudamos a conectar
-                proveedores cloud gratuitos.
+              <p className="text-kawaii-text-muted text-sm leading-relaxed max-w-md mx-auto">
+                Chat multicapa: texto, imágenes y música local. Detectamos tu PC, conectamos
+                cloud (OpenRouter, Groq, OpenAI…) y preparamos Forge y ACE-Step si el hardware
+                lo permite. Después, el chat <strong className="font-semibold text-kawaii-text">aprende de ti</strong>
+                (gustos, planes, nombre) y la personalidad se afina con el asistente guiado.
               </p>
+              <ul className="text-[11px] text-left text-kawaii-text-muted max-w-md mx-auto space-y-1 bg-white/70 border border-kawaii-border rounded-xl p-3">
+                <li>• No repetimos pasos ya hechos (keys, Ollama, ACE…).</li>
+                <li>• Cada capa se puede activar o dejar para después.</li>
+                <li>• Las keys solo viven en tu PC; el tester de Ajustes genera informes si algo falla.</li>
+              </ul>
             </div>
-            <div className="grid grid-cols-3 gap-3 text-left">
-              <FeatureCard emoji="🏠" title="Local" desc="Ollama + modelos a medida" />
-              <FeatureCard emoji="☁️" title="Cloud free" desc="OpenRouter, Groq, Gemini…" />
-              <FeatureCard emoji="✨" title="Smart" desc="Router inteligente" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-left">
+              <FeatureCard emoji="💬" title="Chat" desc="Local + cloud smart" />
+              <FeatureCard emoji="🖼" title="Imagen" desc="Forge / FLUX / OpenAI" />
+              <FeatureCard emoji="🎵" title="Música" desc="ACE-Step local" />
+              <FeatureCard emoji="🌸" title="Persona" desc="Asistente guiado" />
             </div>
 
             {setupStatus.loaded && (
@@ -761,7 +885,7 @@ export function SetupWizard({ onComplete }: Props) {
                 <p className="font-semibold text-kawaii-text">Estado en este equipo</p>
                 <ul className="space-y-1 text-kawaii-text-muted">
                   <li>
-                    {setupStatus.hasAnyCloudKey ? '✓' : '○'} Cloud / API key
+                    {setupStatus.hasAnyCloudKey ? '✓' : '○'} Cloud / API key (solo se guarda en tu PC, cifrada si el almacén está activo)
                     {setupStatus.cloudProvidersReady.length
                       ? ` (${setupStatus.cloudProvidersReady.join(', ')})`
                       : ''}
@@ -780,6 +904,15 @@ export function SetupWizard({ onComplete }: Props) {
                       : setupStatus.imageCloudOn
                         ? '✓ Imagen cloud activa'
                         : '○ Imágenes (opcional)'}
+                  </li>
+                  <li>
+                    {setupStatus.musicApiRunning
+                      ? '✓ Música API activa'
+                      : setupStatus.musicInstalled
+                        ? '✓ ACE-Step instalado'
+                        : setupStatus.musicEligible
+                          ? '○ Música (elegible, sin instalar)'
+                          : '○ Música (GPU limitada / opcional)'}
                   </li>
                   <li>
                     {setupStatus.characterCustomized ? '✓' : '○'} Personalidad personalizada
@@ -854,7 +987,10 @@ export function SetupWizard({ onComplete }: Props) {
         {step === 'local' && needsLocal && (
           <div className="max-w-xl mx-auto space-y-4 py-4">
             <div className="text-center">
-              <h2 className="text-2xl font-extrabold text-kawaii-text">Ollama (local)</h2>
+              <h2 className="text-2xl font-extrabold text-kawaii-text">Modelos locales</h2>
+              <p className="text-xs text-kawaii-text-muted mt-1">
+                Elige cómo quieres trabajar en local. Puedes cambiarlo después en Ajustes.
+              </p>
               {hw && (
                 <p className="text-xs text-kawaii-text-muted mt-1 flex items-center justify-center gap-1">
                   <Cpu className="w-3.5 h-3.5" />
@@ -862,13 +998,69 @@ export function SetupWizard({ onComplete }: Props) {
                 </p>
               )}
             </div>
-            {setupStatus.ollamaReachable && setupStatus.hasLocalModel && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {(
+                [
+                  {
+                    id: 'auto' as const,
+                    title: 'Automático',
+                    body: 'Usa Ollama y/o LM Studio según lo que esté en marcha.'
+                  },
+                  {
+                    id: 'ollama' as const,
+                    title: 'Solo Ollama',
+                    body: 'Pull de modelos y chat por Ollama. Ideal si ya lo usas.'
+                  },
+                  {
+                    id: 'lmstudio' as const,
+                    title: 'Solo LM Studio',
+                    body: 'Servidor local de LM Studio (puerto detectado solo). Sin depender de Ollama.'
+                  }
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setRuntimePath(opt.id)}
+                  className={
+                    'text-left rounded-kawaii border px-3 py-2 transition-colors ' +
+                    (runtimePath === opt.id
+                      ? 'border-kawaii-pink-deep bg-kawaii-pink-soft/50 ring-1 ring-kawaii-pink-deep/30'
+                      : 'border-kawaii-border bg-white hover:border-kawaii-pink-deep/40')
+                  }
+                >
+                  <p className="text-xs font-bold text-kawaii-text">{opt.title}</p>
+                  <p className="text-[10px] text-kawaii-text-muted mt-0.5 leading-snug">{opt.body}</p>
+                </button>
+              ))}
+            </div>
+            {runtimePath === 'ollama' && (
+              <p className="text-[11px] text-kawaii-text-muted bg-kawaii-blue-soft/40 border border-kawaii-border rounded-kawaii px-3 py-2">
+                <strong>Solo Ollama:</strong> inicia el servicio, descarga un modelo sugerido y
+                continúa. LM Studio puede seguir instalado; la app no lo usará salvo que cambies el modo.
+              </p>
+            )}
+            {runtimePath === 'lmstudio' && (
+              <p className="text-[11px] text-kawaii-text-muted bg-kawaii-blue-soft/40 border border-kawaii-border rounded-kawaii px-3 py-2">
+                <strong>Solo LM Studio:</strong> abre la app → Developer → <em>Start Server</em>.
+                Detectamos el puerto solos (no tiene que ser 1234). Carga un modelo en el servidor
+                para que aparezca en la lista.
+              </p>
+            )}
+            {runtimePath === 'auto' && (
+              <p className="text-[11px] text-kawaii-text-muted bg-kawaii-blue-soft/40 border border-kawaii-border rounded-kawaii px-3 py-2">
+                <strong>Automático:</strong> si hay Ollama y LM Studio, priorizamos según el modelo
+                elegido. Ambos son backends válidos; la app no depende de una sola marca.
+              </p>
+            )}
+
+            {setupStatus.ollamaReachable && setupStatus.hasLocalModel && runtimePath !== 'lmstudio' && (
               <div className="rounded-kawaii border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
                 ✓ Ollama responde y hay modelos instalados. Puedes continuar o cambiar el modelo.
               </div>
             )}
 
-            <div className="space-y-2">
+            <div className={'space-y-2 ' + (runtimePath === 'lmstudio' ? 'opacity-60' : '')}>
               <label className="block text-sm font-semibold">URL de Ollama</label>
               <input
                 className="input-kawaii"
@@ -915,19 +1107,57 @@ export function SetupWizard({ onComplete }: Props) {
               </div>
             </div>
 
-            {ollamaOk === true && (
-              <p className="text-sm text-green-700 flex items-center gap-1.5">
-                <Check className="w-4 h-4" />
-                Conectado
-                {discoveredModels.length > 0
-                  ? ` · ${discoveredModels.length} modelo(s)`
-                  : ' · sin modelos aún'}
+            <div className="flex flex-wrap gap-2 text-[11px]">
+              <span
+                className={`px-2 py-1 rounded-lg border ${
+                  ollamaOk
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                    : 'border-kawaii-border bg-white text-kawaii-text-muted'
+                }`}
+              >
+                Ollama: {ollamaOk === true ? 'OK' : ollamaOk === false ? 'no conectado' : '…'}
+              </span>
+              <span
+                className={`px-2 py-1 rounded-lg border ${
+                  lmStudioOk
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                    : 'border-kawaii-border bg-white text-kawaii-text-muted'
+                }`}
+              >
+                LM Studio: {lmStudioOk === true ? 'OK' : lmStudioOk === false ? 'no detectado' : '…'}
+              </span>
+              {diskModelCount > 0 && (
+                <span className="px-2 py-1 rounded-lg border border-kawaii-border bg-white text-kawaii-text-muted">
+                  Disco: {diskModelCount} archivo(s)
+                </span>
+              )}
+              {discoveredModels.length > 0 && (
+                <span className="px-2 py-1 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800">
+                  {discoveredModels.length} modelo(s) listos
+                </span>
+              )}
+            </div>
+            {lmStudioNote && (
+              <p
+                className={
+                  'text-[11px] px-3 py-2 rounded-kawaii border ' +
+                  (lmStudioOk
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                    : 'border-amber-200 bg-amber-50 text-amber-900')
+                }
+              >
+                {lmStudioNote}
               </p>
             )}
-            {ollamaError && (
+            {ollamaError && ollamaOk !== true && runtimePath !== 'lmstudio' && (
               <p className="text-sm text-amber-800 flex items-start gap-1.5 bg-amber-50 border border-amber-200 rounded-kawaii px-3 py-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{ollamaError}</span>
+                <span>
+                  {ollamaError}
+                  {lmStudioOk || discoveredModels.length
+                    ? ' Puedes usar LM Studio u otros modelos ya detectados.'
+                    : ''}
+                </span>
               </p>
             )}
 
@@ -935,10 +1165,32 @@ export function SetupWizard({ onComplete }: Props) {
             {recs && (
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-kawaii-text">
-                  Modelos sugeridos para tu PC
+                  Sugeridos para tu PC
+                  <span className="font-normal text-kawaii-text-muted">
+                    {' '}
+                    (solo si aún no los tienes)
+                  </span>
                 </p>
-                {renderRecCard(recs.primary, true)}
-                {recs.alternatives.slice(0, 2).map((m) => renderRecCard(m))}
+                {(() => {
+                  const installed = new Set(
+                    discoveredModels.map((n) => n.toLowerCase().split(':')[0])
+                  )
+                  const all = [recs.primary, ...recs.alternatives]
+                  const pending = all.filter((m) => {
+                    const key = (m.pullName || m.id || '').toLowerCase().split(':')[0]
+                    return key && ![...installed].some((i) => i.includes(key) || key.includes(i))
+                  })
+                  if (!pending.length) {
+                    return (
+                      <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                        Ya tienes modelos instalados acordes a tu hardware. Elige uno abajo como activo.
+                      </p>
+                    )
+                  }
+                  return pending.slice(0, 3).map((m, i) => (
+                    <div key={m.pullName || m.id || i}>{renderRecCard(m, i === 0)}</div>
+                  ))
+                })()}
               </div>
             )}
 
@@ -984,6 +1236,11 @@ export function SetupWizard({ onComplete }: Props) {
                         onClick={() => setLocalModel(name)}
                       >
                         {name}
+                        {modelSources[name] ? (
+                          <span className="ml-1 text-[9px] text-kawaii-text-muted">
+                            ({modelSources[name]})
+                          </span>
+                        ) : null}
                       </button>
                       <button
                         type="button"
@@ -1359,6 +1616,197 @@ export function SetupWizard({ onComplete }: Props) {
           </div>
         )}
 
+
+        {step === 'music' && (
+          <div className="card-kawaii p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <Music2 className="w-5 h-5 text-violet-600" />
+              <div>
+                <h2 className="text-xl font-extrabold text-kawaii-text">Música local (ACE-Step)</h2>
+                <p className="text-xs text-kawaii-text-muted">
+                  Genera canciones en el chat. YuE solo si hay ≥16&nbsp;GB VRAM; si no, se omite solo.
+                </p>
+              </div>
+            </div>
+            {setupStatus.musicSummary ? (
+              <p className="text-[11px] rounded-kawaii border border-kawaii-border bg-white p-2">
+                {setupStatus.musicSummary}
+              </p>
+            ) : (
+              <p className="text-[11px] text-kawaii-text-muted">
+                Analiza el PC o instala desde aquí. La primera vez descarga varios GB.
+              </p>
+            )}
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={musicWanted}
+                onChange={(e) => setMusicWanted(e.target.checked)}
+              />
+              Quiero generar música desde el chat
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="ghost"
+                className="text-xs"
+                disabled={musicBusy}
+                onClick={async () => {
+                  setMusicBusy(true)
+                  setMusicMsg('Analizando…')
+                  try {
+                    const a = await window.kawaii?.musicAnalyze?.()
+                    const st = (a as { state?: { eligibility?: { summary?: string }; ace?: { present?: boolean } } })?.state
+                    const summary =
+                      st?.eligibility?.summary ||
+                      (a as { eligibility?: { summary?: string } })?.eligibility?.summary ||
+                      'Análisis listo'
+                    setMusicMsg(summary)
+                    setSetupStatus((prev) => ({
+                      ...prev,
+                      musicSummary: summary,
+                      musicEligible: true,
+                      musicInstalled: Boolean(st?.ace?.present)
+                    }))
+                  } catch (e) {
+                    setMusicMsg(e instanceof Error ? e.message : String(e))
+                  } finally {
+                    setMusicBusy(false)
+                  }
+                }}
+              >
+                Analizar PC
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-xs"
+                disabled={musicBusy || !musicWanted}
+                onClick={async () => {
+                  setMusicBusy(true)
+                  setMusicMsg('Instalando ACE-Step (puede tardar mucho)…')
+                  try {
+                    await window.kawaii?.musicInstall?.({})
+                    const s = await window.kawaii?.musicStatus?.()
+                    setSetupStatus((prev) => ({
+                      ...prev,
+                      musicInstalled: true,
+                      musicSummary:
+                        (s as { eligibility?: { summary?: string } })?.eligibility?.summary ||
+                        prev.musicSummary
+                    }))
+                    setMusicMsg('Instalación terminada (o reanudada)')
+                  } catch (e) {
+                    setMusicMsg(e instanceof Error ? e.message : String(e))
+                  } finally {
+                    setMusicBusy(false)
+                  }
+                }}
+              >
+                Instalar ACE-Step
+              </Button>
+              <Button
+                variant="ghost"
+                className="text-xs"
+                disabled={musicBusy || !musicWanted}
+                onClick={async () => {
+                  setMusicBusy(true)
+                  setMusicMsg('Arrancando API…')
+                  try {
+                    const r = await window.kawaii?.musicEnsureReady?.()
+                    const running = (r as { state?: string })?.state === 'running'
+                    setSetupStatus((prev) => ({ ...prev, musicApiRunning: running }))
+                    setMusicMsg(String((r as { message?: string })?.message || 'Listo'))
+                  } catch (e) {
+                    setMusicMsg(e instanceof Error ? e.message : String(e))
+                  } finally {
+                    setMusicBusy(false)
+                  }
+                }}
+              >
+                Arrancar motor
+              </Button>
+            </div>
+            {musicMsg ? (
+              <p className="text-[11px] text-violet-900 bg-violet-50 border border-violet-100 rounded p-2">
+                {musicBusy ? '⏳ ' : ''}
+                {musicMsg}
+              </p>
+            ) : null}
+            <p className="text-[10px] text-kawaii-text-muted">
+              También puedes hacerlo después en Ajustes → Capas → Música.
+            </p>
+            <NavRow onBack={goBack} onNext={goNext} nextLabel="Continuar" />
+          </div>
+        )}
+
+        {step === 'character' && (
+          <div className="card-kawaii p-6 space-y-4">
+            <div className="flex items-center gap-2">
+              <User className="w-5 h-5 text-kawaii-pink-deep" />
+              <div>
+                <h2 className="text-xl font-extrabold text-kawaii-text">Personalidad</h2>
+                <p className="text-xs text-kawaii-text-muted">
+                  Quién es el chat contigo: rol, tono y avatar. Puedes afinarlo luego en Ajustes.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold">
+                Nombre
+                <input
+                  className="input-kawaii text-sm w-full mt-0.5"
+                  value={settings.character?.name || ''}
+                  onChange={(e) =>
+                    update({
+                      character: {
+                        ...(settings.character || {}),
+                        name: e.target.value
+                      } as typeof settings.character
+                    })
+                  }
+                  placeholder="Ej. Niamh"
+                />
+              </label>
+              <label className="block text-xs font-semibold">
+                Relación con el usuario
+                <input
+                  className="input-kawaii text-sm w-full mt-0.5"
+                  value={settings.character?.relationshipRole || ''}
+                  onChange={(e) =>
+                    update({
+                      character: {
+                        ...(settings.character || {}),
+                        relationshipRole: e.target.value
+                      } as typeof settings.character
+                    })
+                  }
+                  placeholder="Ej. novia, amiga, asistente…"
+                />
+              </label>
+              <label className="block text-xs font-semibold">
+                Personalidad (breve)
+                <textarea
+                  className="input-kawaii text-sm w-full mt-0.5 min-h-[72px]"
+                  value={settings.character?.personality || ''}
+                  onChange={(e) =>
+                    update({
+                      character: {
+                        ...(settings.character || {}),
+                        personality: e.target.value
+                      } as typeof settings.character
+                    })
+                  }
+                  placeholder="Cálida, directa, con humor…"
+                />
+              </label>
+            </div>
+            <p className="text-[11px] text-kawaii-text-muted rounded border border-dashed border-kawaii-border p-2">
+              En <strong>Ajustes → Asistente guiado</strong> hay una encuesta completa (género, arquetipo,
+              tono) y descripción visual desde el avatar.
+            </p>
+            <NavRow onBack={goBack} onNext={goNext} nextLabel="Continuar" />
+          </div>
+        )}
+
         {step === 'done' && (
           <div className="max-w-md mx-auto text-center space-y-6 py-6">
             <div className="text-6xl">✨</div>
@@ -1392,7 +1840,10 @@ export function SetupWizard({ onComplete }: Props) {
               <p>«Explícame closures en JavaScript»</p>
               <p>«Busca noticias de IA de hoy y resúmelas»</p>
               {imageWanted ? (
-                <p className="mt-1">«/image gato kawaii rosa» o el botón Generar imagen</p>
+                <p className="mt-1">«Haz una foto tuya» o «genera una imagen de un gato»</p>
+              ) : null}
+              {musicWanted ? (
+                <p className="mt-1">«Genera una canción pop sobre un viaje»</p>
               ) : null}
             </div>
             <div className="text-left text-xs text-kawaii-text-muted rounded-kawaii border border-kawaii-border bg-white/80 p-2 space-y-1">
@@ -1402,6 +1853,9 @@ export function SetupWizard({ onComplete }: Props) {
               {setupStatus.ollamaReachable && <p>✓ Ollama reachable</p>}
               {needsLocal && !setupStatus.ollamaReachable && <p>○ Local pendiente (puedes configurarlo luego en Ajustes)</p>}
               {!needsCloud && <p>Cloud no requerido en este modo</p>}
+              {imageWanted && <p>✓ Capa de imagen activada</p>}
+              {musicWanted && <p>✓ Capa de música activada</p>}
+              {setupStatus.characterCustomized && <p>✓ Personalidad tocada</p>}
             </div>
             <Button className="w-full py-3 text-base" onClick={handleFinish} disabled={saving}>
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}

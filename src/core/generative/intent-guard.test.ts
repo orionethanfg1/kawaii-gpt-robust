@@ -19,4 +19,16 @@ describe('image intent must not fire on emotional chat', () => {
   it('accepts explicit revision', () => {
     expect(looksLikeImageRevision('Cambia la imagen: pon el fondo azul')).toBe(true)
   })
+
+  it('does not regenerate on analyze/describe', () => {
+    expect(looksLikeImageRevision('puedes analizar la foto que generaste?')).toBe(false)
+    expect(detectGenerativeIntent('puedes analizar la foto que generaste?').modality).toBe(
+      'text'
+    )
+    expect(detectGenerativeIntent('Puedes describirte físicamente?').modality).toBe('text')
+  })
+
+  it('accepts send me your photo', () => {
+    expect(detectGenerativeIntent('Puedes enviarme una foto tuya?').modality).toBe('image')
+  })
 })

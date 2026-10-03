@@ -49,7 +49,7 @@ export const DEFAULT_MODELS: Record<string, string> = {
   openrouter: SAFE_DEFAULT_MODEL.openrouter || 'openrouter/free',
   groq: SAFE_DEFAULT_MODEL.groq || 'llama-3.1-8b-instant',
   gemini: SAFE_DEFAULT_MODEL.gemini || 'gemini-2.0-flash',
-  openai: SAFE_DEFAULT_MODEL.openai || 'gpt-4o-mini'
+  openai: SAFE_DEFAULT_MODEL.openai || 'gpt-5.6-luna'
 }
 
 /** Build default slots for settings */

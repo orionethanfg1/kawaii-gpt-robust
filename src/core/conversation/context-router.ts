@@ -80,11 +80,12 @@ export function budgetForModel(
 ): ContextBudget {
   const windowTok = contextTokensForModel(modelId, kind)
   const usableTok = Math.max(1024, windowTok - completionReserveTokens)
-  // Cap local aggressively; cloud can be larger but not insane for free APIs
-  const maxCharsCap = kind === 'local' ? 14_000 : 96_000
+  // Local runtimes commonly expose larger windows than the conservative legacy cap.
+  // Actual overflow is handled by the retry path, so do not compact early.
+  const maxCharsCap = kind === 'local' ? 48_000 : 96_000
   const maxChars = Math.min(maxCharsCap, usableTok * 4)
   const keepRecent =
-    kind === 'local' ? (maxChars < 8000 ? 6 : 8) : maxChars > 40_000 ? 20 : 14
+    kind === 'local' ? (maxChars < 16_000 ? 6 : 8) : maxChars > 40_000 ? 20 : 14
   return { maxChars, keepRecentMessages: keepRecent }
 }
 

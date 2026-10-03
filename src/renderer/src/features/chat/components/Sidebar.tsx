@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { APP_LABEL, APP_VERSION } from '@shared/version'
+import { APP_VERSION, APP_REVISION } from '@shared/version'
 import { Plus, Trash2, MessageSquare, Download, Upload, FileJson, FileText } from 'lucide-react'
 import { useChatStore } from '@shared/lib/stores/chatStore'
 import { Button } from '@shared/ui/Button'
@@ -8,7 +8,7 @@ import {
   conversationsToMarkdownBundle,
   conversationToMarkdown,
   downloadTextFile,
-  parseImportJson,
+  parseImportAny,
   stampFilename
 } from '../lib/exportImport'
 
@@ -83,7 +83,7 @@ export function Sidebar() {
     if (!file) return
     try {
       const text = await file.text()
-      const result = parseImportJson(text)
+      const result = parseImportAny(text, file.name)
       if (!result.ok) {
         setImportMsg(result.error || 'Importación fallida')
         return
@@ -130,7 +130,7 @@ export function Sidebar() {
           <button
             type="button"
             className="text-[10px] px-2 py-1 rounded-lg border border-kawaii-border hover:bg-white flex items-center gap-1"
-            title="Importar JSON"
+            title="Importar JSON o Markdown (ChatGPT / export)"
             onClick={() => fileRef.current?.click()}
           >
             <Upload className="w-3 h-3" /> Importar
@@ -138,7 +138,7 @@ export function Sidebar() {
           <input
             ref={fileRef}
             type="file"
-            accept="application/json,.json"
+            accept="application/json,.json,.md,.markdown,text/markdown,text/plain"
             className="hidden"
             onChange={(e) => {
               void onImportFile(e.target.files?.[0] ?? null)
@@ -184,7 +184,7 @@ export function Sidebar() {
       </nav>
 
       <div className="p-3 text-[11px] text-kawaii-text-muted border-t border-kawaii-border">
-        {`KawaiiGPT Robust · v${ver}`}
+        {APP_REVISION ? ("KawaiiGPT Robust · v" + ver + " rev." + APP_REVISION) : ("KawaiiGPT Robust · v" + ver)}
       </div>
     </aside>
   )

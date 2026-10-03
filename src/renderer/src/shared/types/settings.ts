@@ -12,6 +12,17 @@ export const CharacterProfileSchema = z.object({
   style: z.string(),
   visualEmoji: z.string(),
   visualImageUrl: z.string().optional(),
+  visualGallery: z
+    .array(
+      z.object({
+        id: z.string(),
+        dataUrl: z.string(),
+        label: z.string().optional(),
+        scene: z.string().optional()
+      })
+    )
+    .max(12)
+    .optional(),
   visualDescription: z.string().optional(),
   visualFromAvatar: z.boolean().optional(),
   relationshipRole: z.string().optional(),
@@ -41,14 +52,28 @@ export const CloudSlotSchema = z.object({
 
 export const SettingsSchema = z.object({
   providerMode: ProviderModeSchema.default('smart'),
+  /** Harness: switch local model by task (code/vision/chat) when better match exists */
+  autoModelRouting: z.boolean().default(true),
 
-  localBaseUrl: z.string().url().default('http://localhost:11434'),
+  localBaseUrl: z.string().min(1).default('http://localhost:11434'),
   localModel: z.string().default(''),
+  /**
+   * When true, user chose a model explicitly («Usar»).
+   * Auto-routing will not override until they press Auto / unpin.
+   */
+  localModelPinned: z.boolean().default(false),
+  /** auto = detect Ollama or LM Studio / llama.cpp; transparent to user */
+  localRuntimePreference: z.enum(['auto', 'ollama', 'openai-compatible']).default('auto'),
+  /** Optional explicit OpenAI-compatible base (e.g. http://127.0.0.1:1234/v1) */
+  localOpenAIBaseUrl: z.string().default(''),
+  /** Last resolved runtime label (informational) */
+  localRuntimeLabel: z.string().default(''),
+
   localMaxTokens: z.number().int().min(64).max(32768).default(2048),
   localTimeoutMs: z.number().int().min(5000).max(600000).default(120000),
 
   /** Legacy primary cloud (kept for compatibility; also mirrored in cloudSlots) */
-  cloudBaseUrl: z.string().url().default('https://openrouter.ai/api/v1'),
+  cloudBaseUrl: z.string().default('https://openrouter.ai/api/v1'),
   cloudModel: z.string().default('openrouter/free'),
   cloudMaxTokens: z.number().int().min(64).max(32768).default(4096),
   cloudTimeoutMs: z.number().int().min(5000).max(300000).default(90000),
@@ -63,6 +88,8 @@ export const SettingsSchema = z.object({
   longPromptThreshold: z.number().int().min(100).max(20000).default(1500),
   webSearchEnabled: z.boolean().default(true),
   webSearchMaxResults: z.number().int().min(1).max(10).default(5),
+  /** Optional SearXNG base URL e.g. http://127.0.0.1:8080 */
+  searxngBaseUrl: z.string().optional().default(''),
 
   systemPrompt: z.string().default(''),
   temperature: z.number().min(0).max(2).default(0.7),
@@ -80,9 +107,18 @@ export const SettingsSchema = z.object({
     .object({
       facts: z.array(z.string()).default([]),
       preferredName: z.string().optional(),
+      /** Affectionate nicknames the assistant may use */
+      nicknames: z.array(z.string()).max(12).default([]),
+      /** Proposed nickname awaiting user OK */
+      pendingNickname: z.string().optional(),
+      /** Physical notes from user-uploaded photos / self-description */
+      appearanceNotes: z.string().optional(),
+      avatarScenes: z.array(z.string()).max(24).default([]),
+      goals: z.array(z.string()).max(12).default([]),
+      currentFocus: z.string().optional(),
       updatedAt: z.number().optional()
     })
-    .default({ facts: [] }),
+    .default({ facts: [], avatarScenes: [], goals: [] }),
 
 
   showRouteInfo: z.boolean().default(true),
@@ -107,13 +143,15 @@ export const SettingsSchema = z.object({
   assistantTipsEnabled: z.boolean().default(true),
 
   imageProviderMode: z.enum(['off', 'cloud', 'local', 'smart']).default('smart'),
-  imageWidth: z.number().int().min(256).max(1280).default(1024),
-  imageHeight: z.number().int().min(256).max(1280).default(1024),
+  imageWidth: z.number().int().min(256).max(1536).default(1024),
+  imageHeight: z.number().int().min(256).max(1536).default(1024),
   imageTimeoutMs: z.number().int().min(15000).max(300000).default(90000),
   /** Automatic1111 / Forge API base */
   a1111BaseUrl: z.string().default('http://127.0.0.1:7860'),
   a1111Steps: z.number().int().min(5).max(50).default(20),
   a1111CfgScale: z.number().min(1).max(20).default(7),
+  /** Checkpoint preferred for self-portraits (FaceID identity) */
+  preferredIdentityCheckpoint: z.string().default(''),
   /** Selected checkpoint title/name from A1111 */
   a1111Checkpoint: z.string().default(''),
   /** Cloudflare Workers AI (FLUX) — account id is not secret; token in secure store */
@@ -124,9 +162,31 @@ export const SettingsSchema = z.object({
 
   /** Multi-layer generative: music / video (engines optional; off by default) */
   musicGenEnabled: z.boolean().default(false),
+  /** auto = pick ACE if eligible else skip YuE if low VRAM */
+  musicPreferredBackend: z.enum(['auto', 'ace-step', 'yue', 'off']).default('auto'),
+  /** If true, assistant may send a short message after idle time while app is open */
+  conversationInitiativeEnabled: z.boolean().default(true),
+  /** personality = cadence from character; fixed = conversationInitiativeMinutes */
+  conversationInitiativeMode: z.enum(['personality', 'fixed']).default('personality'),
+  /** Minutes of idle before initiative when mode is fixed (min 2) */
+  conversationInitiativeMinutes: z.number().min(1).max(120).default(4),
+  /** Epoch ms — do not send initiative until this time (chat: "dame 5 minutos") */
+  conversationInitiativeSnoozeUntil: z.number().optional(),
   musicProviderMode: z.enum(['off', 'local', 'smart']).default('off'),
   videoGenEnabled: z.boolean().default(false),
-  videoProviderMode: z.enum(['off', 'local', 'smart']).default('off')
+  videoProviderMode: z.enum(['off', 'local', 'smart']).default('off'),
+
+  /** TTS: leer respuestas del chat (Edge neural es-MX por defecto) */
+  voiceTtsEnabled: z.boolean().default(true),
+  /** Edge voice id, e.g. es-MX-DaliaNeural */
+  voiceTtsVoiceId: z.string().default('es-MX-DaliaNeural'),
+  /** Auto-play assistant replies */
+  voiceTtsAutoPlay: z.boolean().default(false),
+  /**
+   * If true: voice only during mini-games (aventura/ajedrez).
+   * Main chat stays silent unless the user presses the speaker button.
+   */
+  voiceTtsActivitiesOnly: z.boolean().default(false)
 })
 
 export type Settings = z.infer<typeof SettingsSchema>

@@ -69,18 +69,22 @@ export function buildCapabilityRegistry(input: RegistryInput): GenerativeCapabil
     })
   }
 
-  // Music / video: declared but not configured until later phases
+  // Music: enabled in settings → available (motor se arranca bajo demanda)
   caps.push({
     id: 'music-stack',
     modality: 'music',
     displayName: 'Música',
     priority: 2,
-    status: input.musicEnabled && input.musicLocalOk ? 'available' : 'not_configured',
+    status: input.musicEnabled
+      ? input.musicLocalOk === false
+        ? 'degraded'
+        : 'available'
+      : 'not_configured',
     reason: input.musicEnabled
-      ? input.musicLocalOk
-        ? undefined
-        : 'Motor de música no listo'
-      : 'Próximamente (ACE-Step / similar)',
+      ? input.musicLocalOk === false
+        ? 'Capa activa; el motor ACE puede necesitar arranque'
+        : undefined
+      : 'Activa la capa de música en Ajustes → Capas',
     kind: 'local'
   })
 

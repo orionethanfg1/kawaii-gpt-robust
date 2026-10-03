@@ -1,13 +1,16 @@
 import {
   OllamaProvider,
   OpenAICompatibleProvider,
+  resolveLocalRuntime,
   ChatMessage,
   ChatProvider
 } from '@core/providers'
+import { OpenAIResponsesProvider, isOfficialOpenAI } from '@core/providers/openai-responses'
 import { decideRoute, RoutingContext } from '@core/routing'
+import { wantsWebSearch, focusSearchQuery } from '@core/tools/web-search-intent'
 import { globalCircuitBreaker, withRetry } from '@core/resilience'
 import { AppError, classifyProviderError } from '@core/errors'
-import { resolveModelId, resolveModelIdForProvider } from '@core/models/free-cloud-catalog'
+import { resolveModelIdForProvider } from '@core/models/free-cloud-catalog'
 import {
   applyModelMemory,
   recordModelFailure,
@@ -19,8 +22,6 @@ import {
 } from '@core/models/model-memory'
 import {
   packContext,
-  defaultBudget,
-  shrinkBudget,
   summarizeConversation,
   shouldSummarize,
   planContext,
@@ -30,12 +31,10 @@ import {
   type ContextPlan
 } from '@core/conversation'
 // app agent injected in useChat for freshness
-import { buildCharacterSystemPrompt } from '@core/character/profile'
+import { buildCharacterSystemPrompt, appearanceReminder, looksLikeAppearanceQuestion, looksLikeAvatarGalleryQuestion, effectiveVisualDescription } from '@core/character/profile'
+import { formatCapabilitiesForPrompt } from '@core/capabilities'
 import {
-  buildUserMemoryPrompt,
-  extractUserFactsFromMessage,
-  mergeUserMemory
-} from '@core/conversation/user-memory'
+  buildUserMemoryPrompt, buildRelationshipContinuityBlock } from '@core/conversation/user-memory'
 import {
   orderCloudEndpoints,
   shouldRotateCloud,
@@ -55,6 +54,9 @@ export interface RouteInfo {
   failover?: boolean
   contextPacked?: boolean
   summarySource?: 'model' | 'heuristic'
+  useWebSearch?: boolean
+  webHitCount?: number
+  webSources?: { title: string; snippet: string; url?: string }[]
   at: number
 }
 
@@ -75,7 +77,7 @@ export interface OrchestratorCallbacks {
     source: 'model' | 'heuristic'
   }) => void
   /** High-level phase for live UI */
-  onPhase?: (phase: 'preparing' | 'summarizing' | 'generating' | 'failover') => void
+  onPhase?: (phase: 'preparing' | 'searching' | 'summarizing' | 'generating' | 'failover') => void
 }
 
 /** Optional DI for tests / advanced hosts */
@@ -87,14 +89,83 @@ export interface OrchestratorDeps {
   availability?: { localAvailable: boolean; cloudAvailable: boolean }
 }
 
-function buildProviders(
+async function buildProviders(
   settings: Settings,
   apiKey?: string
-): { local: ChatProvider | null; cloud: ChatProvider | null } {
-  const local = new OllamaProvider({
-    baseUrl: settings.localBaseUrl,
-    timeoutMs: settings.localTimeoutMs
-  })
+): Promise<{
+  local: ChatProvider | null
+  cloud: ChatProvider | null
+  localLabel?: string
+  localDefaultModel?: string
+}> {
+  // LocalInferenceBackend: Ollama and/or LM Studio via one interface
+  let local: ChatProvider | null = null
+  let localLabel: string | undefined
+  let localDefaultModel: string | undefined
+  try {
+    const pref =
+      (settings as { localRuntimePreference?: 'auto' | 'ollama' | 'openai-compatible' })
+        .localRuntimePreference || 'auto'
+    let openAIUrl =
+      ((settings as { localOpenAIBaseUrl?: string }).localOpenAIBaseUrl || '').trim() || undefined
+    // Guard: never use Ollama port as LM Studio base
+    if (openAIUrl && /:11434\b/.test(openAIUrl)) {
+      openAIUrl = undefined
+      try {
+        const { useSettingsStore } = await import('@shared/lib/stores/settingsStore')
+        useSettingsStore.getState().update({ localOpenAIBaseUrl: '' })
+      } catch {
+        /* */
+      }
+    }
+    const modelName = (settings.localModel || '').trim()
+    const modelPinned = Boolean(
+      (settings as { localModelPinned?: boolean }).localModelPinned
+    )
+    const { createLocalBackend } = await import('@core/providers/local-backend')
+    let created: Awaited<ReturnType<typeof createLocalBackend>> | null = null
+    created = await createLocalBackend({
+      preference: pref,
+      ollamaBaseUrl: settings.localBaseUrl,
+      openAIBaseUrl: openAIUrl,
+      preferredModel: modelName,
+      preferredPinned: modelPinned
+    })
+    const backend = created?.backend ?? null
+    const status = created?.status ?? null
+    const resolved = created?.resolved ?? null
+    if (backend && status?.healthy) {
+      local = backend.asChatProvider()
+      localDefaultModel =
+        created?.resolvedModelId || status.defaultModel || resolved?.defaultModel
+      // Catalog id wins over stale settings (qwen3.5:9b → real LM Studio / Ollama id)
+      const mid = created?.resolvedModelId || localDefaultModel || modelName
+      localLabel = mid ? `${backend.label} · ${mid}` : backend.label
+      if (created?.placementNote) {
+        localLabel += ' · auto-match'
+      }
+      if (status.alsoAvailable?.length === 2) {
+        localLabel += ' · ambos runtimes OK'
+      }
+      if (backend.kind === 'openai-compatible' && backend.baseUrl && !openAIUrl) {
+        try {
+          const { useSettingsStore } = await import('@shared/lib/stores/settingsStore')
+          useSettingsStore.getState().update({
+            localOpenAIBaseUrl: backend.baseUrl,
+            localRuntimePreference: 'auto'
+          })
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } catch {
+    local = null
+    localLabel = undefined
+    localDefaultModel = undefined
+  }
+
+  // No silent Ollama-only fallback: null → cloud or clear error
 
   const cloud = settings.cloudBaseUrl
     ? new OpenAICompatibleProvider({
@@ -106,7 +177,7 @@ function buildProviders(
       })
     : null
 
-  return { local, cloud }
+  return { local, cloud, localLabel, localDefaultModel }
 }
 
 async function checkAvailability(
@@ -169,7 +240,7 @@ export async function sendChatMessage(options: {
     settings,
     apiKey,
     providerKeys = {},
-    userContent,
+    userContent: initialUserContent,
     history,
     previousSummary,
     previousSummarySource,
@@ -179,8 +250,9 @@ export async function sendChatMessage(options: {
     deps,
     extraSystem
   } = options
+  let userContent = initialUserContent
   const start = Date.now()
-  const built = buildProviders(settings, apiKey)
+  const built = await buildProviders(settings, apiKey)
   const local = deps?.local !== undefined ? deps.local : built.local
   const cloud = built.cloud
 
@@ -233,6 +305,7 @@ export async function sendChatMessage(options: {
   // Ensure every provider with a stored key is in the queue (not only UI slots)
   const known = [
     { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1' },
+    { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
     { id: 'groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1' },
     { id: 'gemini', name: 'Google AI Studio', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai' }
   ]
@@ -241,21 +314,28 @@ export async function sendChatMessage(options: {
     if (!hasKey) continue
     const existing = slots.find((s) => s.id === k.id)
     if (!existing) {
-      // Only auto-add OpenRouter; other providers must be enabled in Ajustes
-      if (k.id !== 'openrouter') continue
+      // Auto-add OpenRouter + OpenAI when key is stored (user paid/quality path)
+      if (k.id !== 'openrouter' && k.id !== 'openai') continue
       slots.push({
         id: k.id,
         name: k.name,
         baseUrl: k.baseUrl,
         model: resolveModelIdForProvider(k.id, ''),
         enabled: true,
-        priority: 0
+        // OpenAI quality first when present
+        priority: k.id === 'openai' ? -2 : 0
       })
     } else {
       // Respect user toggle: never force-enable a disabled provider
       existing.model = resolveModelIdForProvider(k.id, existing.model || '')
       if (k.id === 'openrouter' && existing.enabled) {
         existing.priority = Math.min(existing.priority, 0)
+      }
+      if (k.id === 'openai' && existing.enabled) {
+        existing.priority = Math.min(existing.priority, -2)
+        if (!(existing.model || '').trim()) {
+          existing.model = resolveModelIdForProvider('openai', 'gpt-4o-mini')
+        }
       }
     }
   }
@@ -332,30 +412,65 @@ export async function sendChatMessage(options: {
     const health = await checkAvailability(
       local,
       cloudQueue[0]
-        ? new OpenAICompatibleProvider({
-            id: cloudQueue[0].id,
-            displayName: cloudQueue[0].name,
-            baseUrl: cloudQueue[0].baseUrl,
-            apiKey: cloudQueue[0].apiKey,
-            timeoutMs: settings.cloudTimeoutMs
-          })
+        ? (isOfficialOpenAI(cloudQueue[0].baseUrl, cloudQueue[0].id)
+            ? new OpenAIResponsesProvider({
+                id: cloudQueue[0].id,
+                displayName: cloudQueue[0].name,
+                baseUrl: cloudQueue[0].baseUrl,
+                apiKey: cloudQueue[0].apiKey,
+                timeoutMs: settings.cloudTimeoutMs
+              })
+            : new OpenAICompatibleProvider({
+                id: cloudQueue[0].id,
+                displayName: cloudQueue[0].name,
+                baseUrl: cloudQueue[0].baseUrl,
+                apiKey: cloudQueue[0].apiKey,
+                timeoutMs: settings.cloudTimeoutMs
+              }))
         : cloud
     )
     localAvailable = health.localAvailable
     cloudAvailable = health.cloudAvailable || cloudQueue.length > 0
   }
 
+  // Optimistic local: if user configured a local model + runtime, try it even when
+  // a quick health probe failed (Ollama waking up, LM Studio JIT load, etc.)
+  // Local is usable if runtime exists; smart pick supplies model id (settings = failover only)
+  const localModelConfigured = Boolean(local)
+  if (
+    !localAvailable &&
+    localModelConfigured &&
+    settings.providerMode !== 'cloud'
+  ) {
+    localAvailable = true
+  }
+
+
+  // Offline / network policy for smart hybrid routing
+  let networkOnline = true
+  try {
+    const { isOnlineSync, probeNetwork } = await import('@core/resources')
+    networkOnline = isOnlineSync()
+    if (networkOnline) {
+      // refresh cache opportunistically (non-blocking semantics — probe is sync-fast with navigator)
+      void probeNetwork()
+    }
+  } catch {
+    networkOnline = true
+  }
 
   const routingCtx: RoutingContext = {
     prompt: userContent,
     promptLength: userContent.length,
     hasAttachments: false,
     localAvailable,
-    cloudAvailable,
+    cloudAvailable: cloudAvailable && networkOnline,
     webSearchEnabled: settings.webSearchEnabled,
     longPromptThreshold: settings.longPromptThreshold,
     localMaxTokens: settings.localMaxTokens,
-    cloudMaxTokens: settings.cloudMaxTokens
+    cloudMaxTokens: settings.cloudMaxTokens,
+    networkOnline,
+    preferLocal: true
   }
 
   let decision =
@@ -366,31 +481,111 @@ export async function sendChatMessage(options: {
           useWebSearch: false,
           temperature: settings.temperature,
           maxTokens: settings.localMaxTokens,
-          confidence: 1
+          confidence: 1,
+          preferThinkingOff: true
         }
       : settings.providerMode === 'cloud'
-        ? {
-            target: 'cloud' as const,
-            reason: 'Modo forzado: solo cloud',
-            useWebSearch: false,
-            temperature: settings.temperature,
-            maxTokens: settings.cloudMaxTokens,
-            confidence: 1
-          }
+        ? networkOnline
+          ? {
+              target: 'cloud' as const,
+              reason: 'Modo forzado: solo cloud',
+              useWebSearch: false,
+              temperature: settings.temperature,
+              maxTokens: settings.cloudMaxTokens,
+              confidence: 1
+            }
+          : {
+              target: 'local' as const,
+              reason: 'Modo cloud pedido pero sin red — degradación a local',
+              useWebSearch: false,
+              temperature: settings.temperature,
+              maxTokens: settings.localMaxTokens,
+              confidence: 0.7,
+              preferThinkingOff: true
+            }
         : decideRoute(routingCtx)
 
-  // If Ollama is down, never waste a turn on local (unless mode is forced local)
+  // A1/B3: explicit web ask → tool always on (even providerMode local)
+  if (wantsWebSearch(userContent)) {
+    decision = {
+      ...decision,
+      useWebSearch: true,
+      reason: ((decision.reason || '') + ' · búsqueda web pedida').trim(),
+      target: localAvailable
+        ? 'web-augmented-local'
+        : networkOnline
+          ? 'web-augmented-cloud'
+          : 'web-augmented-local'
+    }
+  }
+
+  // If local health failed but user has a local model configured, still TRY local first
+  // (health checks are flaky; cloud was broken by localFetch proxy for remote URLs).
   if (
     decision.target === 'local' &&
     !localAvailable &&
     settings.providerMode !== 'local' &&
-    cloudQueue.length > 0
+    cloudQueue.length > 0 &&
+    networkOnline
+  ) {
+    const hasLocalModel = Boolean((settings.localModel || '').trim())
+    if (hasLocalModel && local) {
+      decision = {
+        ...decision,
+        target: 'local',
+        reason: 'Local configurado — intentando Ollama/LM Studio aunque health falló',
+        confidence: 0.75
+      }
+    } else {
+      decision = {
+        ...decision,
+        target: 'cloud',
+        reason: 'Runtime local no disponible — usando cloud',
+        confidence: 0.9
+      }
+    }
+  }
+
+  // Product policy: casual chat stays local when runtime exists (ignore telemetry-lean-cloud)
+  if (
+    decision.target !== 'local' &&
+    localAvailable &&
+    local &&
+    settings.providerMode !== 'cloud' &&
+    !decision.useWebSearch
   ) {
     decision = {
       ...decision,
-      target: 'cloud',
-      reason: 'Ollama no disponible — usando cloud',
-      confidence: 0.9
+      target: 'local',
+      reason: (decision.reason || '') + ' · forzado local-first',
+      confidence: Math.max(decision.confidence || 0.5, 0.85),
+      preferThinkingOff: true
+    }
+  }
+
+  // Offline + no local → clear reason (caller still attempts local last)
+  if (!networkOnline && decision.target !== 'local' && decision.target !== 'web-augmented-local') {
+    decision = {
+      ...decision,
+      target: 'local',
+      reason: 'Sin red — solo local',
+      // keep useWebSearch if user asked; fetch will fail soft
+      confidence: 0.95
+    }
+  }
+
+
+  // B3: re-assert after local-first so useWebSearch never drops
+  if (wantsWebSearch(userContent)) {
+    decision = {
+      ...decision,
+      useWebSearch: true,
+      target:
+        decision.target === 'web-augmented-cloud'
+          ? 'web-augmented-cloud'
+          : 'web-augmented-local',
+      reason: ((decision.reason || '') +
+        (decision.reason?.includes('búsqueda web') ? '' : ' · búsqueda web')).trim()
     }
   }
 
@@ -413,22 +608,151 @@ export async function sendChatMessage(options: {
   )
 
   const userMemPrompt = buildUserMemoryPrompt(settings.userMemory)
+  const continuityPrompt = buildRelationshipContinuityBlock(
+    settings.userMemory,
+    settings.character?.relationshipRole
+  )
 
   const systemMessages: ChatMessage[] = [{ role: 'system', content: characterPrompt }]
   if (userMemPrompt) {
     systemMessages.push({ role: 'system', content: userMemPrompt })
   }
+  if (continuityPrompt) {
+    systemMessages.push({ role: 'system', content: continuityPrompt })
+  }
   if (extraSystem && extraSystem.trim()) {
     systemMessages.push({ role: 'system', content: extraSystem.trim() })
   }
+  // Live awareness from capability registry (registerCapability for new layers)
+  try {
+    const now = new Date()
+    const timeLine =
+      `Hora local del usuario (aprox.): ${now.toLocaleString()}. ` +
+      `Sé consciente del tiempo real: si el usuario tarda mucho en responder, retoma el hilo con naturalidad.`
+    const caps = formatCapabilitiesForPrompt({
+      imageGenEnabled: settings.imageGenEnabled,
+      imageProviderMode: settings.imageProviderMode,
+      musicGenEnabled: settings.musicGenEnabled === true,
+      videoGenEnabled: settings.videoGenEnabled === true,
+      voiceTtsEnabled: (settings as { voiceTtsEnabled?: boolean }).voiceTtsEnabled !== false,
+      gamesEnabled: true,
+      visionEnabled: true
+    })
+    systemMessages.push({
+      role: 'system',
+      content:
+        `[EMOJI] Si el usuario usa emojis, interpreta su tono emocional (risa, cariño, tristeza, enfado, etc.) y responde acorde a tu personalidad; no los ignores.\n` +
+        caps +
+        `\nMÚSICA: distingue (1) letras/ayuda en TEXTO vs (2) GENERAR AUDIO solo si piden pista/audio. ` +
+        `Si preguntan «¿puedes…?», resume las capas marcadas SÍ con honestidad. ` +
+        `${timeLine}`
+    })
+  } catch {
+    /* ignore */
+  }
 
-  if (decision.useWebSearch && typeof window !== 'undefined' && window.kawaii) {
+  // Local models often ignore long system prose — reinforce appearance facts on demand
+  try {
+    const charForLook = {
+      name: settings.character?.name || 'Kawaii',
+      tagline: settings.character?.tagline || '',
+      personality: settings.character?.personality || '',
+      style: settings.character?.style || '',
+      visualEmoji: settings.character?.visualEmoji || '🌸',
+      visualImageUrl: settings.character?.visualImageUrl,
+      visualDescription: settings.character?.visualDescription,
+      visualFromAvatar: settings.character?.visualFromAvatar,
+      visualGallery: Array.isArray(settings.character?.visualGallery) ? settings.character.visualGallery : [],
+      relationshipRole: settings.character?.relationshipRole,
+      traits: Array.isArray(settings.character?.traits) ? settings.character.traits : []
+    }
+    const galleryCount = (charForLook.visualGallery || []).filter((g: { dataUrl?: string }) => g.dataUrl).length
+    if (looksLikeAvatarGalleryQuestion(userContent) || looksLikeAppearanceQuestion(userContent)) {
+      if (galleryCount > 0 || charForLook.visualImageUrl) {
+        systemMessages.push({
+          role: 'system',
+          content:
+            `[Avatar y galería] Eres ${charForLook.name}. ` +
+            (charForLook.visualImageUrl ? 'Tienes avatar principal configurado. ' : '') +
+            (galleryCount > 0
+              ? `Hay ${galleryCount} foto(s) extra en tu galería de Ajustes: SON TUYAS (referencias de escenas/ropa). Reconócelas; no digas que no las has visto. `
+              : '') +
+            `Describe tu aspecto solo con la ficha canónica. Si piden verlas, indica Ajustes → Personalidad → galería, o ofrece generar una nueva coherente.`
+        })
+      }
+    }
+    if (looksLikeAppearanceQuestion(userContent)) {
+      const tip = appearanceReminder(charForLook)
+      if (tip) systemMessages.push({ role: 'system', content: tip })
+      const facts = effectiveVisualDescription(charForLook)
+      if (facts) {
+        // Local models (Qwen etc.) often ignore system — put facts in the user turn
+        userContent =
+          `[Ficha física de ${charForLook.name} — USA SOLO ESTO al describirte]\n` +
+          facts +
+          `\n\nPregunta del usuario: ${userContent}`
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  let usedWebSearch = false
+  let webHitCount = 0
+  let webSearchAttempted = false
+  let lastWebResults: { title: string; snippet: string; url?: string }[] = []
+  // A1: mark attempted whenever decision says so (even if IPC missing → pie shows web:0)
+  if (decision.useWebSearch) {
+    webSearchAttempted = true
     try {
-      const results = await window.kawaii.webSearch(
-        userContent,
-        settings.webSearchMaxResults
+      onPhase?.('searching')
+      // Search the ORIGINAL user text, not appearance/system wrappers
+      const rawQ = (initialUserContent || userContent || '').trim()
+      const topic = focusSearchQuery(
+        rawQ
+          .replace(/\b(busca|buscar|búsqueda|busqueda)\s+(en\s+)?(la\s+)?(web|internet|google)\b/gi, ' ')
+          .replace(/\b(por favor|please)\b/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
       )
+      const searchQuery = topic || focusSearchQuery(rawQ) || rawQ
+      let results: { title: string; snippet: string; url?: string }[] = []
+      if (typeof window !== 'undefined' && window.kawaii?.webSearch) {
+        const webOpts = {
+          searxngBaseUrl: (settings as { searxngBaseUrl?: string }).searxngBaseUrl || ''
+        }
+        results = await window.kawaii.webSearch(
+          searchQuery,
+          settings.webSearchMaxResults,
+          webOpts
+        )
+        if (!results.length && searchQuery !== rawQ) {
+          results = await window.kawaii.webSearch(
+            rawQ.slice(0, 240),
+            settings.webSearchMaxResults,
+            webOpts
+          )
+        }
+        // P0.3: keyword-only retry once more if still empty
+        if (!results.length) {
+          const kw = searchQuery
+            .split(/\s+/)
+            .filter((w) => w.length > 3)
+            .slice(0, 6)
+            .join(' ')
+          if (kw && kw !== searchQuery) {
+            results = await window.kawaii.webSearch(
+              kw,
+              settings.webSearchMaxResults,
+              webOpts
+            )
+          }
+        }
+      }
       if (results.length > 0) {
+        usedWebSearch = true
+        webHitCount = results.length
+        lastWebResults = results
         const block = results
           .map(
             (r, i) =>
@@ -437,15 +761,44 @@ export async function sendChatMessage(options: {
           .join('\n\n')
         systemMessages.push({
           role: 'system',
-          content: `Contexto web reciente (úsalo solo si es relevante):\n\n${block}`
+          content:
+            `[BÚSQUEDA WEB REALIZADA — ${webHitCount} resultado(s)]\n` +
+            `Usa estos datos. NO digas que no puedes navegar: la app ya buscó.\n\n` +
+            block
         })
+        // Local models (Qwen) often ignore system — put results on the user turn
+        userContent =
+          `[RESULTADOS DE BÚSQUEDA WEB — la app YA buscó; tienes acceso vía la app. Prohibido decir que no puedes navegar o buscar en internet.]\n` +
+          block +
+          `\n\n---\nPregunta del usuario: ` +
+          userContent
       }
     } catch {
       // best-effort
     }
+    if (decision.useWebSearch && !usedWebSearch) {
+      const miss =
+        '[Búsqueda web: 0 hits. La app SÍ busca en internet; solo no hubo resultados. PROHIBIDO decir que no puedes navegar.]'
+      systemMessages.push({
+        role: 'system',
+        content:
+          miss +
+          ' Sé honesta; ofrece tips generales con cautela; no inventes URLs. ' +
+          'NO digas que nunca puedes buscar: el sistema sí busca, solo falló este intento.'
+      })
+      userContent =
+        miss +
+        '\nNo inventes fuentes. Puedes dar consejos generales si aplica.\n\n' +
+        'Pregunta del usuario: ' +
+        userContent
+    }
   }
 
-  const localModel = settings.localModel
+  // Prefer catalog-resolved default over settings tag that may not exist on the runtime
+  const localModel =
+    ((built as { localDefaultModel?: string }).localDefaultModel || '').trim() ||
+    (settings.localModel || '').trim() ||
+    ''
   const cloudModel = resolveModelIdForProvider(
     slots[0]?.id || 'openrouter',
     settings.cloudModel || ''
@@ -457,7 +810,7 @@ export async function sendChatMessage(options: {
     ? previousSummarySource ?? 'heuristic'
     : undefined
   const kindHint: 'local' | 'cloud' =
-    decision.target === 'local' ? 'local' : 'cloud'
+    decision.target === 'local' || decision.target === 'web-augmented-local' ? 'local' : 'cloud'
   const modelHint =
     kindHint === 'local'
       ? localModel || 'local'
@@ -477,9 +830,13 @@ export async function sendChatMessage(options: {
   const olderCount = Math.max(0, history.length - budgetHint.keepRecentMessages)
   // Local models: never spend a full LLM turn on summary (slow + steals context).
   // Use rolling heuristic/pack only. Cloud keeps model summary when the window is tight.
-  const routeIsLocal = decision.target === 'local' || settings.providerMode === 'local'
+  const localHistoryChars = history.reduce((total, message) => total + message.content.length, 0)
+  const localVeryLongHistory =
+    (decision.target === 'local' || decision.target === 'web-augmented-local' || settings.providerMode === 'local') &&
+    (olderCount > 24 || localHistoryChars > 1_800)
   const needsFreshSummary =
-    !routeIsLocal &&
+    !contextPlan.isTight &&
+    !localVeryLongHistory &&
     (contextPlan.forceSummary ||
       shouldSummarize(history.length, budgetHint.keepRecentMessages, 10)) &&
     olderCount > summaryCoveredCount &&
@@ -531,7 +888,7 @@ export async function sendChatMessage(options: {
       openrouter: 'openrouter/free',
       gemini: 'gemini-2.0-flash',
       groq: 'llama-3.1-8b-instant',
-      openai: 'gpt-4o-mini'
+      openai: 'gpt-5.6-luna'
     }
     cloudQueue = cloudQueue.map((ep) => {
       const preferred = wideMap[ep.id]
@@ -553,7 +910,8 @@ export async function sendChatMessage(options: {
     temperature: number,
     maxTokens: number,
     budget: ContextBudget,
-    failover = false
+    failover = false,
+    sampling?: { topP?: number; topK?: number; preferThinkingOff?: boolean }
   ) => {
     if (!globalCircuitBreaker.canRequest(provider.id)) {
       throw new AppError({
@@ -577,10 +935,16 @@ export async function sendChatMessage(options: {
       )
 
       const routeInfo: RouteInfo = {
+        useWebSearch: webSearchAttempted || decision.useWebSearch || usedWebSearch,
+        webHitCount:
+          webSearchAttempted || decision.useWebSearch ? webHitCount : undefined,
+
         target: targetLabel,
         reason:
           attempt > 0
             ? `${reason} · reintento con contexto reducido (${attempt + 1}/3)`
+            : contextPlan.isTight
+              ? `${reason} · contexto reducido para dejar margen de respuesta`
             : activeSummary
               ? `${reason} · contexto con resumen ${activeSummarySource ?? 'previo'}`
               : reason,
@@ -592,6 +956,16 @@ export async function sendChatMessage(options: {
           : undefined,
         at: Date.now()
       }
+      if (webSearchAttempted || decision.useWebSearch) {
+        routeInfo.reason =
+          (routeInfo.reason || '') +
+          (usedWebSearch
+            ? ` · web ${webHitCount} hits`
+            : ' · web 0 hits')
+        routeInfo.useWebSearch = true // intent: search was requested/attempted
+        routeInfo.webHitCount = webHitCount
+        routeInfo.webSources = lastWebResults.slice(0, 5)
+      }
       callbacks.onRoute?.(routeInfo)
 
       try {
@@ -600,6 +974,9 @@ export async function sendChatMessage(options: {
           messages: packed.messages,
           temperature,
           maxTokens,
+          topP: sampling?.topP,
+          topK: sampling?.topK,
+          preferThinkingOff: sampling?.preferThinkingOff,
           stream: settings.streaming,
           signal
         }
@@ -614,10 +991,62 @@ export async function sendChatMessage(options: {
         }
 
         globalCircuitBreaker.recordSuccess(provider.id)
+        const latencyMs = Date.now() - start
+        try {
+          const { recordRouteOutcome } = await import('@core/telemetry/route-telemetry')
+          const { classifyChatTask } = await import('@core/routing/task-route')
+          const task = classifyChatTask(
+            typeof userContent === 'string' ? userContent : ''
+          )
+          recordRouteOutcome({
+            task,
+            target: routeInfo.target,
+            model,
+            latencyMs,
+            ok: true,
+            runtime:
+              provider.id === 'ollama'
+                ? 'ollama'
+                : provider.id === 'local-openai'
+                  ? 'openai-compatible'
+                  : 'cloud'
+          })
+        } catch {
+          /* telemetry optional */
+        }
+        // Remember last effective local model in settings (smart pick wins; user can override later)
+        try {
+          if (
+            (provider.id === 'ollama' || provider.id === 'local-openai') &&
+            model &&
+            String(model).trim()
+          ) {
+            const { useSettingsStore } = await import('@shared/lib/stores/settingsStore')
+            const st = useSettingsStore.getState().settings
+            const pinned = Boolean((st as { localModelPinned?: boolean }).localModelPinned)
+            const cur = (st.localModel || '').trim()
+            const next = String(model).trim()
+            if (pinned) {
+              // Keep user pin; only sync if empty
+              if (!cur) {
+                useSettingsStore.getState().update({ localModel: next })
+              }
+            } else if (cur !== next) {
+              // Auto mode: remember last effective model without pinning
+              useSettingsStore.getState().update({
+                localModel: next,
+                localModelPinned: false,
+                localRuntimePreference: 'auto' as const
+              })
+            }
+          }
+        } catch {
+          /* settings optional */
+        }
         callbacks.onDone?.({
           model,
           provider: provider.id,
-          latencyMs: Date.now() - start,
+          latencyMs,
           route: routeInfo
         })
         return
@@ -627,12 +1056,38 @@ export async function sendChatMessage(options: {
         lastErr = appErr
 
         if (appErr.code === 'CONTEXT_OVERFLOW' && attempt < 2) {
+          callbacks.onRoute?.({
+            ...routeInfo,
+            reason: `${routeInfo.reason} · reintento con contexto reducido (${attempt + 2}/3)`,
+            contextPacked: true,
+            at: Date.now()
+          })
           currentBudget = aggressiveShrink(currentBudget, attempt + 1)
           // Also drop maxTokens a bit to leave room
           maxTokens = Math.max(256, Math.floor(maxTokens * 0.7))
           continue
         }
         if (appErr.code === 'STREAM_ABORTED') throw appErr
+        try {
+          const { recordRouteOutcome } = await import('@core/telemetry/route-telemetry')
+          const { classifyChatTask } = await import('@core/routing/task-route')
+          recordRouteOutcome({
+            task: classifyChatTask(typeof userContent === 'string' ? userContent : ''),
+            target: routeInfo.target,
+            model,
+            latencyMs: Date.now() - start,
+            ok: false,
+            runtime:
+              provider.id === 'ollama'
+                ? 'ollama'
+                : provider.id === 'local-openai'
+                  ? 'openai-compatible'
+                  : 'cloud',
+            errorClass: appErr.code || 'error'
+          })
+        } catch {
+          /* optional */
+        }
         throw appErr
       }
     }
@@ -648,27 +1103,45 @@ export async function sendChatMessage(options: {
   }
 
   const tryLocal = (reason: string, failover = false) => {
-    if (!local || !localModel) {
+    let modelId = (localModel || '').trim()
+    if (!local) {
       throw new AppError({
         code: 'PROVIDER_UNAVAILABLE',
-        message: 'Modelo local no configurado',
+        message: 'Runtime local no disponible (Ollama/LM Studio)',
+        retryable: true
+      })
+    }
+    if (!modelId) {
+      throw new AppError({
+        code: 'PROVIDER_MODEL_NOT_FOUND',
+        message:
+          'No hay modelo local seleccionado. En Ajustes → Modelo local elige uno de Ollama o LM Studio (cargado en el servidor).',
         retryable: false
       })
     }
-    const localBudget = budgetForModel(localModel, 'local')
+    const localBudget = budgetForModel(modelId, 'local')
     const reasonWithCtx =
       contextPlan.isTight || contextPlan.forceSummary
         ? `${reason} · ${contextPlan.note}`
         : reason
+    const localTarget =
+      decision.useWebSearch || decision.target === 'web-augmented-local'
+        ? 'web-local'
+        : 'local'
     return runOn(
       local,
-      localModel,
-      'local',
+      modelId,
+      localTarget,
       reasonWithCtx,
       decision.temperature ?? settings.temperature,
       Math.min(decision.maxTokens ?? settings.localMaxTokens, 2048),
       localBudget,
-      failover
+      failover,
+      {
+        topP: decision.topP,
+        topK: decision.topK,
+        preferThinkingOff: decision.preferThinkingOff
+      }
     )
   }
 
@@ -676,20 +1149,31 @@ export async function sendChatMessage(options: {
     (injectedCloud ?? []).map((item) => [item.endpoint.id, item.provider] as const)
   )
 
-  const tryCloudEndpoint = (
-    endpoint: CloudEndpointWithKey,
-    reason: string,
-    failover = false
-  ) => {
-    const provider =
-      injectedById.get(endpoint.id) ??
-      new OpenAICompatibleProvider({
+  const makeCloudProvider = (endpoint: CloudEndpointWithKey) => {
+    if (isOfficialOpenAI(endpoint.baseUrl, endpoint.id)) {
+      return new OpenAIResponsesProvider({
         id: endpoint.id,
         displayName: endpoint.name,
         baseUrl: endpoint.baseUrl,
         apiKey: endpoint.apiKey,
         timeoutMs: settings.cloudTimeoutMs
       })
+    }
+    return new OpenAICompatibleProvider({
+      id: endpoint.id,
+      displayName: endpoint.name,
+      baseUrl: endpoint.baseUrl,
+      apiKey: endpoint.apiKey,
+      timeoutMs: settings.cloudTimeoutMs
+    })
+  }
+
+  const tryCloudEndpoint = (
+    endpoint: CloudEndpointWithKey,
+    reason: string,
+    failover = false
+  ) => {
+    const provider = injectedById.get(endpoint.id) ?? makeCloudProvider(endpoint)
     const cloudBudget = budgetForModel(endpoint.model, 'cloud')
     const reasonWithCtx =
       contextPlan.isTight || contextPlan.forceSummary
@@ -698,12 +1182,21 @@ export async function sendChatMessage(options: {
     return runOn(
       provider,
       endpoint.model,
-      decision.target === 'web-augmented-cloud' ? 'web-cloud' : 'cloud',
+      decision.target === 'web-augmented-local'
+        ? 'web-local'
+        : decision.target === 'web-augmented-cloud'
+          ? 'web-cloud'
+          : 'cloud',
       reasonWithCtx,
       decision.temperature ?? settings.temperature,
       decision.maxTokens ?? settings.cloudMaxTokens,
       cloudBudget,
-      failover
+      failover,
+      {
+        topP: decision.topP,
+        topK: decision.topK,
+        preferThinkingOff: decision.preferThinkingOff
+      }
     )
   }
 
@@ -866,14 +1359,39 @@ export async function sendChatMessage(options: {
         : lastErr?.code ?? 'PROVIDER_UNAVAILABLE'
     throw new AppError({
       code: primaryCode,
-      message: `Cloud no disponible (activos: ${enabledList}). ${lastErr?.message ?? ''}${summary}.${hint}`,
+      message: (() => {
+        try {
+          const mode = (typeof localStorage !== 'undefined' && localStorage.getItem('kawaii-settings')) || ''
+          /* soft: if user was offline or local-first, don't dump localhost proxy noise */
+        } catch { /* */ }
+        const localHint =
+          /Solo se permiten URLs localhost/i.test(String(lastErr?.message || '')) ||
+          /localhost/i.test(String(lastErr?.message || ''))
+            ? ' La app intentó cloud pero el proxy solo permite localhost — usa Ollama/LM Studio en local (Ajustes → proveedor local) o configura API keys de cloud.'
+            : ''
+        // Keep technical detail short; character layer can soften in UI
+        if (/Solo se permiten URLs localhost/i.test(String(lastErr?.message || ''))) {
+          return (
+            'No pude usar los proveedores de internet desde aquí. ' +
+            'Voy a priorizar tu modelo local (Ollama / LM Studio). ' +
+            'Si sigue fallando: Ajustes → proveedor local y comprueba que el servidor está en marcha.'
+          )
+        }
+        return (
+          'No pude completar la respuesta con los proveedores en la nube. ' +
+          (local && (settings.localModel || '').trim()
+            ? 'Prueba de nuevo: debería usarse tu modelo local. '
+            : 'Configura Ollama/LM Studio o una API key de cloud en Ajustes. ') +
+          `(detalle: ${String(lastErr?.code || '')})`
+        )
+      })(),
       provider: lastErr?.provider,
       retryable: true
     })
   }
 
   try {
-    if (decision.target === 'local') {
+    if (decision.target === 'local' || decision.target === 'web-augmented-local') {
       try {
         await withRetry(() => tryLocal(decision.reason), {
           maxAttempts: 2,
@@ -886,14 +1404,50 @@ export async function sendChatMessage(options: {
         return
       } catch (err) {
         const appErr = AppError.fromUnknown(err)
-        if (cloudQueue.length > 0) {
+        // Forced local mode: never silent OpenRouter
+        if (settings.providerMode === 'local') {
+          throw new AppError({
+            code: appErr.code,
+            message:
+              `Modelo local falló (${appErr.code}): ${appErr.message}. ` +
+              `Revisa Ollama/LM Studio (servidor activo + modelo cargado: ${settings.localModel || 'sin modelo'}). ` +
+              (appErr.code === 'PROVIDER_TIMEOUT'
+                ? 'El modelo puede estar cargando (LM Studio JIT); espera e inténtalo de nuevo.'
+                : ''),
+            provider: appErr.provider || local?.id,
+            retryable: true
+          })
+        }
+        // Local-first: only escalate to cloud on hard "local is dead" cases when online.
+        // Do NOT failover on generic UNAVAILABLE after a single try — retry local once more.
+        const hardLocalDead =
+          appErr.code === 'NETWORK_ERROR' ||
+          (appErr.code === 'PROVIDER_UNAVAILABLE' &&
+            /econnrefused|connect|not running|offline|fetch failed/i.test(appErr.message))
+        const allowCloud =
+          cloudQueue.length > 0 &&
+          networkOnline &&
+          appErr.code !== 'STREAM_ABORTED' &&
+          settings.providerMode !== 'local'
+
+        if (allowCloud && hardLocalDead) {
           globalCircuitBreaker.recordFailure(local?.id ?? 'ollama', appErr.message)
           await tryCloudQueue(
-            `Failover automático → cloud (${appErr.code}: ${decision.reason})`,
+            `Local caído (${appErr.code}) — cloud de respaldo`,
             true
           )
           return
         }
+        // Timeout: one more local attempt is handled by withRetry; only then soft cloud
+        if (allowCloud && appErr.code === 'PROVIDER_TIMEOUT') {
+          globalCircuitBreaker.recordFailure(local?.id ?? 'local-openai', appErr.message)
+          await tryCloudQueue(
+            `Local timeout (${settings.localModel || 'modelo'}) — cloud temporal`,
+            true
+          )
+          return
+        }
+        // Model missing / generic fail: surface local error, do not burn cloud keys
         throw appErr
       }
     }
