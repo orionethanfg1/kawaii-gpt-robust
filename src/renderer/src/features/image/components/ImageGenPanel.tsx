@@ -1,3 +1,9 @@
+import { FaceIdStatusBanner } from '../FaceIdStatusBanner'
+import { pickBestCheckpoint } from '@core/generative/smart-checkpoint'
+import { recommendSdParams } from '@core/generative/prompt-compose'
+import { runImageBatch } from '../lib/run-image-batch'
+import { enhanceImagePrompt } from '@core/generative/enhance-prompt'
+import { parseImageIntent } from '@core/generative/prompt-compose'
 import { useEffect, useId, useRef, useState } from 'react'
 import { FolderOpen, Image as ImageIcon, Loader2, Square, X } from 'lucide-react'
 import {
@@ -12,6 +18,7 @@ import { useChatStore } from '@shared/lib/stores/chatStore'
 import { recommendImageStack, resolveImageRoute } from '@core/image'
 import { useDownloadStore } from '@features/models/downloadStore'
 import { ModelsStatusPanel } from '@features/models/ModelsStatusPanel'
+import { HfModelSearch } from './HfModelSearch'
 
 interface Props {
   open: boolean
@@ -38,38 +45,6 @@ const ASPECT_PRESETS: { id: string; label: string; w: number; h: number }[] = [
   { id: '3:2', label: '3:2', w: 1152, h: 768 },
   { id: '2:3', label: '2:3', w: 768, h: 1152 }
 ]
-
-function enhancePrompt(raw: string, styleHint?: string): string {
-  let p = raw.trim().replace(/\s+/g, ' ')
-  if (!p) return p
-  // Keep user intent first; append quality/style for precision (English tags work best on SD/Pollinations)
-  const lower = p.toLowerCase()
-  const isPhoto =
-    /\b(foto|photo|realista|realistic|photoreal)\b/i.test(lower) ||
-    /\bfoto de\b/i.test(lower)
-  const isAnime =
-    /\b(anime|manga|kawaii|chibi|ilustración|illustration)\b/i.test(lower) ||
-    !isPhoto
-
-  const quality = isPhoto
-    ? 'photorealistic, natural lighting, detailed skin, high detail, sharp focus'
-    : 'masterpiece, best quality, highly detailed, clean lineart, soft lighting'
-
-  // Light Spanish→English subject helpers (does not replace full prompt)
-  const hints: string[] = []
-  if (/\bpelirroja\b/i.test(p)) hints.push('red hair')
-  if (/\bchica\b|\bmujer\b|\bgirl\b/i.test(p)) hints.push('young woman')
-  if (/\bhombre\b|\bchico\b/i.test(p)) hints.push('young man')
-  if (/\bgato\b/i.test(p)) hints.push('cat')
-  if (/\bperro\b/i.test(p)) hints.push('dog')
-  if (/\batardecer\b|\bsunset\b/i.test(p)) hints.push('sunset')
-
-  const parts = [p]
-  if (hints.length) parts.push(hints.join(', '))
-  parts.push(quality)
-  if (styleHint) parts.push(styleHint)
-  return parts.join(', ')
-}
 
 export function ImageGenPanel({
   open,
@@ -147,6 +122,12 @@ export function ImageGenPanel({
   const [seed, setSeed] = useState<string>(
     bridgedSeed != null ? String(bridgedSeed) : ''
   )
+  /** 1 = single; 2–4 = batch of seeds to pick best */
+  const [batchCount, setBatchCount] = useState(1)
+  const [batchResults, setBatchResults] = useState<
+    Array<{ dataUrl: string; seed?: number; meta: string; filePath?: string }>
+  >([])
+  const [batchProgress, setBatchProgress] = useState<string | null>(null)
   const [mode, setMode] = useState<'cloud' | 'local' | 'smart'>(
     settings.imageProviderMode === 'local' ||
       settings.imageProviderMode === 'smart' ||
@@ -284,28 +265,69 @@ export function ImageGenPanel({
     }
     setModelsLoading(true)
     setModelsError(null)
+    const fromDisk = async () => {
+      try {
+        const disk = await window.kawaii?.sdListWeights?.()
+        const weights =
+          (disk as { weights?: Array<{ filename: string; kind?: string }> })?.weights ||
+          (disk as { checkpoints?: Array<{ filename: string }> })?.checkpoints ||
+          []
+        return (weights as Array<{ filename: string; kind?: string }>)
+          .filter((w) => w.kind !== 'lora' && !/lora/i.test(w.filename || ''))
+          .map((w) => ({ title: w.filename, modelName: w.filename }))
+      } catch {
+        return [] as { title: string; modelName: string }[]
+      }
+    }
     try {
       const live =
         (await window.kawaii?.forgeStatus?.())?.baseUrl || settings.a1111BaseUrl
       const ok = await probeLocal()
-      if (!ok) {
-        setCheckpoints([])
-        setModelsError('Forge/A1111 no responde. Arranca Forge en Ajustes → Runtime.')
-        return
+      let models: { title: string; modelName: string }[] = []
+      let current = ''
+      if (ok) {
+        const res = await window.kawaii.imageA1111Models?.(live)
+        if (res?.ok && res.models?.length) {
+          models = res.models
+          current = res.current || ''
+        } else if (res && !res.ok) {
+          setModelsError(res.error || 'API modelos con error — usando disco')
+        }
+      } else {
+        setModelsError('Forge no responde — listando checkpoints en disco')
       }
-      const res = await window.kawaii.imageA1111Models?.(live)
-      if (!res?.ok) {
-        setCheckpoints([])
-        setModelsError(res?.error || 'No se pudo listar checkpoints')
-        return
+      if (!models.length) {
+        models = await fromDisk()
       }
-      setCheckpoints(res.models || [])
+      // Merge disk names missing from API list
+      const disk = await fromDisk()
+      const seen = new Set(models.map((m) => (m.modelName || m.title || '').toLowerCase()))
+      for (const d of disk) {
+        const k = (d.modelName || d.title).toLowerCase()
+        if (!seen.has(k)) {
+          models.push(d)
+          seen.add(k)
+        }
+      }
+      setCheckpoints(models)
+      if (!models.length) {
+        setModelsError((e) => e || 'Sin checkpoints visibles. Descarga uno abajo o espera a Forge.')
+      } else if (ok) {
+        setModelsError(null)
+      }
       const preferred =
-        settings.a1111Checkpoint || res.current || res.models?.[0]?.title || ''
+        settings.a1111Checkpoint || current || models[0]?.title || models[0]?.modelName || ''
       if (preferred) setCheckpoint(preferred)
     } catch (err) {
-      setModelsError(err instanceof Error ? err.message : String(err))
-      setCheckpoints([])
+      const disk = await fromDisk()
+      setCheckpoints(disk)
+      setModelsError(
+        disk.length
+          ? `API falló; ${disk.length} desde disco`
+          : err instanceof Error
+            ? err.message
+            : String(err)
+      )
     } finally {
       setModelsLoading(false)
     }
@@ -366,21 +388,26 @@ export function ImageGenPanel({
         .filter(Boolean)
         .join(', ')
     }
-    return enhancePrompt(raw, styleHint || undefined)
+    return enhanceImagePrompt(raw, styleHint || undefined)
   }
 
   const generate = async () => {
     const raw = prompt.trim()
     if (!raw || busy) return
     setBusy(true)
-    const actId = activityProgress('Generando imagen', 'Preparando…', 5)
+    const actId = activityProgress(
+      batchCount > 1 ? `Batch ×${batchCount}` : 'Generando imagen',
+      'Preparando…',
+      5
+    )
     setError(null)
     setResult(null)
+    setBatchResults([])
+    setBatchProgress(null)
     const id = crypto.randomUUID()
     jobIdRef.current = id
 
     try {
-      // Persist size choices for next time
       updateSettings({
         imageWidth: width,
         imageHeight: height,
@@ -419,7 +446,6 @@ export function ImageGenPanel({
       }
 
       const route = resolveImageRoute(mode, localOk === true, hw)
-
       if (route === 'none') {
         const msg =
           mode === 'local'
@@ -432,105 +458,138 @@ export function ImageGenPanel({
 
       const provider =
         route === 'a1111' ? (mode === 'smart' ? 'smart' : 'a1111') : 'pollinations'
-
       const finalPrompt = buildPrompt(raw)
       const seedNum =
         seed.trim() === '' ? undefined : Number.parseInt(seed.trim(), 10)
+      const baseSeed = Number.isFinite(seedNum as number)
+        ? (seedNum as number)
+        : bridgedSeed
 
-      {
-        const { useActivityStore } = await import('@shared/lib/stores/activityStore')
-        useActivityStore.getState().update(actId, {
-          detail:
-            provider === 'pollinations'
-              ? 'Cloud (Pollinations)…'
-              : 'Local (Forge/SD)…',
-          progress: 20
-        })
+      let intentIsSelf = false
+      let intentOther = false
+      try {
+        const it = parseImageIntent(raw)
+        intentIsSelf = Boolean(it.isSelf)
+        intentOther = Boolean(it.explicitOther)
+      } catch {
+        intentIsSelf = /\b(tuya|tuyo|de ti|autorretrato|selfie)\b/i.test(raw)
       }
 
-      const res = await window.kawaii.imageGenerate({
+      const { useActivityStore } = await import('@shared/lib/stores/activityStore')
+      const batch = await runImageBatch({
         prompt: finalPrompt,
         negativePrompt: negative.trim() || DEFAULT_NEGATIVE,
         width,
         height,
-        seed: Number.isFinite(seedNum) ? seedNum : bridgedSeed,
-        timeoutMs: settings.imageTimeoutMs ?? 120_000,
-        jobId: id,
+        steps: Math.min(steps, rec.maxSteps ?? 30),
+        cfg,
+        seed: baseSeed,
+        batchCount,
         provider,
         a1111BaseUrl: liveBase,
-        steps: Math.min(steps, rec.maxSteps ?? 30),
-        cfgScale: cfg,
-        checkpoint:
-          provider === 'pollinations'
-            ? undefined
-            : checkpoint || settings.a1111Checkpoint || undefined
+        checkpoint: checkpoint || settings.a1111Checkpoint || undefined,
+        timeoutMs: settings.imageTimeoutMs ?? 120_000,
+        jobId: id,
+        isSelf: intentIsSelf,
+        explicitOther: intentOther,
+        useCharacterStyle: settings.imageUseCharacterStyle !== false,
+        character: settings.character,
+        framing: (() => {
+          try {
+            return parseImageIntent(raw).framing
+          } catch {
+            return undefined
+          }
+        })(),
+        imageGenerate: (payload) =>
+          window.kawaii.imageGenerate(payload as Parameters<typeof window.kawaii.imageGenerate>[0]),
+        onProgress: (detail, pct) => {
+          setBatchProgress(detail)
+          useActivityStore.getState().update(actId, { detail, progress: pct })
+        },
+        isCancelled: () => jobIdRef.current !== id
       })
 
-      if (!res.ok) {
-        const msg =
-          res.code === 'IMAGE_CANCELLED'
-            ? 'Generación cancelada'
-            : res.error || 'Error al generar'
-        setError(msg)
-        if (res.code === 'IMAGE_CANCELLED') activityInfo('Imagen cancelada')
-        else activityError('Error al generar imagen', msg)
+      if (!batch.items.length) {
+        setError('No se generó ninguna imagen')
+        activityError('Sin imagen', 'Batch vacío o cancelado')
         return
       }
 
-      const meta = `${res.providerId} · ${res.width}×${res.height} · ${res.latencyMs} ms`
+      setBatchResults(batch.items)
+      const primary = batch.items[0]
       setResult({
-        dataUrl: res.dataUrl,
-        meta,
-        filePath: res.filePath
+        dataUrl: primary.dataUrl,
+        meta:
+          primary.meta +
+          (batch.items.length > 1 ? ` · batch ${batch.items.length}` : '') +
+          (batch.locked ? ' · FaceID/identidad' : ''),
+        filePath: primary.filePath
       })
-      activitySuccess('Imagen lista', meta)
+      if (primary.seed != null) setSeed(String(primary.seed))
+      activitySuccess(
+        batch.items.length > 1 ? `Batch listo (${batch.items.length})` : 'Imagen lista',
+        primary.meta
+      )
 
       let convId = activeId
       if (!convId) convId = create('Imagen')
-      addMessage(convId, { role: 'user', content: `🎨 ${raw}` })
+      addMessage(convId, {
+        role: 'user',
+        content:
+          batch.items.length > 1 ? `🎨 Batch ×${batch.items.length}: ${raw}` : `🎨 ${raw}`
+      })
       addMessage(convId, {
         role: 'assistant',
-        content: `Imagen generada (${res.providerId}).\n\n*${meta}*${
-          res.filePath ? `\n\nGuardada en disco.` : ''
-        }`,
-        attachments: [
-          {
-            id: `att_${id.slice(0, 8)}`,
-            name: 'generated.png',
-            mimeType: 'image/png',
-            sizeBytes: Math.floor((res.dataUrl.length * 3) / 4),
-            dataUrl: res.dataUrl
-          }
-        ],
+        content:
+          (batch.items.length > 1
+            ? `Batch de ${batch.items.length} variantes. Elige la mejor abajo.\n\n`
+            : `Imagen generada.\n\n`) +
+          `*${primary.meta}*` +
+          (primary.filePath ? `\n\nGuardada en disco.` : '') +
+          (batch.identityNote ? `\n\n_${batch.identityNote}_` : ''),
+        attachments: batch.items.map((c, i) => ({
+          id: `att_${id.slice(0, 6)}_${i}`,
+          name: `generated_${i + 1}.png`,
+          mimeType: 'image/png' as const,
+          sizeBytes: Math.floor((c.dataUrl.length * 3) / 4),
+          dataUrl: c.dataUrl
+        })),
         meta: {
-          provider: res.providerId,
-          model: res.model,
-          latencyMs: res.latencyMs,
-          imageProvider: res.providerId,
-          imageModel: res.model,
-          imageWidth: res.width,
-          imageHeight: res.height,
-          imageSeed: res.seed,
-          imageFilePath: res.filePath
+          provider: primary.meta.split(' · ')[0],
+          imageSeed: primary.seed,
+          imageWidth: width,
+          imageHeight: height,
+          imageFilePath: primary.filePath
         }
       })
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err)
-      setError(m)
-      activityError('Error al generar imagen', m)
+      if ((err as { code?: string })?.code === 'IMAGE_CANCELLED' || /cancelad/i.test(m)) {
+        setError('Generación cancelada')
+        activityInfo('Imagen cancelada')
+      } else {
+        setError(m)
+        activityError('Error al generar imagen', m)
+      }
     } finally {
       setBusy(false)
       jobIdRef.current = null
+      setBatchProgress(null)
     }
   }
 
   const cancel = async () => {
     await window.kawaii.imageCancel(jobIdRef.current ?? undefined)
+    jobIdRef.current = null
     setBusy(false)
+    setBatchProgress(null)
   }
 
   return (
     <div className="border-t border-kawaii-border bg-white/95 backdrop-blur px-4 py-3 max-h-[62vh] overflow-y-auto">
+      <FaceIdStatusBanner />
+
       <div className="max-w-4xl mx-auto space-y-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <p className="text-sm font-semibold text-kawaii-text flex items-center gap-1.5">
@@ -563,7 +622,7 @@ export function ImageGenPanel({
           <p className="font-semibold">Chat primero (como ChatGPT / Grok)</p>
           <p className="text-kawaii-text-muted">
             Escribe en el chat: «hazme una imagen de…», «el doble de grande», «cambia el fondo a playa».
-            Este panel es solo para tamaño, motor y checkpoints avanzados.
+            Prefiere pedir la imagen en el chat. Aquí solo motor, tamaño y (en Avanzada) modelo SD.
           </p>
         </div>
         {/* Provider */}
@@ -573,7 +632,7 @@ export function ImageGenPanel({
             [
               ['cloud', 'Cloud (CF FLUX / Pollinations)'],
               ['local', 'Local (Forge/SD)'],
-              ['smart', 'Smart (local→CF→Pollinations)']
+              ['smart', 'Smart (OpenAI→local→CF→Pollinations)']
             ] as const
           ).map(([id, label]) => (
             <button
@@ -601,19 +660,27 @@ export function ImageGenPanel({
               title={healthDetail || ''}
             >
               {localOk === true
-                ? `✓ Forge API OK${healthDetail ? ` · ${healthDetail}` : ''}`
+                ? (settings.uiComplexity === 'advanced'
+                    ? `✓ Forge listo${healthDetail ? ` · ${healthDetail}` : ''}`
+                    : '✓ Imagen local lista')
                 : localOk === false
-                  ? `○ ${healthDetail || 'Forge no responde'}`
-                  : 'Comprobando Forge…'}
+                  ? (settings.uiComplexity === 'advanced'
+                      ? `○ ${healthDetail || 'Forge no responde'}`
+                      : '○ Motor local no disponible')
+                  : 'Comprobando…'}
             </span>
           )}
           {(mode === 'local' || mode === 'smart') && (
             <button
               type="button"
               className="text-[10px] text-kawaii-pink-deep hover:underline"
-              onClick={() => void probeLocal().then((ok) => ok && loadCheckpoints())}
+              onClick={() => {
+                void probeLocal().then((ok) => {
+                  if (ok) void loadCheckpoints()
+                })
+              }}
             >
-              Detectar Forge
+              {settings.uiComplexity === 'advanced' ? 'Detectar Forge' : 'Reintentar local'}
             </button>
           )}
         </div>
@@ -621,13 +688,30 @@ export function ImageGenPanel({
         <textarea
           id={inputId}
           className="input-kawaii w-full min-h-[72px] text-sm resize-y"
-          placeholder="Describe la imagen con detalle (sujeto, ropa, fondo, estilo…)"
+          placeholder="Ej: foto tuya en la playa, luz suave… (o describe otra persona)"
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           disabled={busy}
         />
+        {settings.character?.visualImageUrl ||
+        (settings.character?.visualGallery || []).some((g) => g.dataUrl) ? (
+          <p className="text-[10px] text-emerald-800/90 px-0.5">
+            Si pides «foto tuya» en el chat, usamos tu avatar automáticamente.
+            En autorretratos se generan varias opciones y se elige la mejor.
+          </p>
+        ) : (
+          <p className="text-[10px] text-amber-800/90 px-0.5">
+            Sin foto del personaje en Ajustes → Personalidad, el parecido será solo por descripción.
+          </p>
+        )}
 
-        {/* Aspect / size */}
+        {/* Aspect / size — full controls only in advanced */}
+        {settings.uiComplexity === 'smart' && !showAdvanced && (
+          <p className="text-[10px] text-kawaii-text-muted px-0.5">
+            En Smart el modelo y la calidad se eligen solos. Usa «Más opciones…» solo para tamaño o seed.
+          </p>
+        )}
+        {(settings.uiComplexity === 'advanced' || showAdvanced) && (
         <div className="space-y-1.5">
           <p className="text-[11px] font-semibold text-kawaii-text">Tamaño / aspecto</p>
           <div className="flex flex-wrap gap-1.5">
@@ -724,10 +808,11 @@ export function ImageGenPanel({
             </span>
           </div>
         </div>
+        )}
 
-
-        {/* Local checkpoint */}
-        {(mode === 'local' || mode === 'smart') && (
+        {/* Local checkpoint — advanced only; chat auto-picks in smart mode */}
+        {(mode === 'local' || mode === 'smart') &&
+          (settings.uiComplexity === 'advanced' || showAdvanced) && (
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <p className="text-[11px] font-semibold">Checkpoint local (SD)</p>
@@ -760,7 +845,15 @@ export function ImageGenPanel({
               </p>
             )}
             {(mode === 'local' || mode === 'smart') && (
-              <ModelsStatusPanel />
+              <>
+                <HfModelSearch
+                  onRefreshInstalled={() => {
+                    void window.kawaii?.sdListWeights?.()
+                    void loadCheckpoints()
+                  }}
+                />
+                <ModelsStatusPanel />
+              </>
             )}
             {catalog.length > 0 && (
               <div className="rounded-kawaii border border-kawaii-border p-2 space-y-2 bg-white/80">
@@ -1095,6 +1188,20 @@ export function ImageGenPanel({
                   placeholder="auto"
                 />
               </label>
+              <label>
+                Batch
+                <select
+                  className="input-kawaii ml-1 w-16 text-xs"
+                  value={batchCount}
+                  onChange={(e) => setBatchCount(Number(e.target.value) || 1)}
+                  title="1 = auto 3 en autorretrato con avatar; o fuerza 2–4"
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                </select>
+              </label>
             </div>
             <p className="text-[10px] text-kawaii-text-muted">
               La app enriquece el prompt (detalle, iluminación) sin borrar tu descripción.
@@ -1111,7 +1218,7 @@ export function ImageGenPanel({
               disabled={!prompt.trim()}
             >
               <ImageIcon className="w-4 h-4" />
-              Generar
+              {batchCount > 1 ? `Generar ×${batchCount}` : 'Generar'}
             </Button>
           ) : (
             <Button className="px-4" variant="ghost" onClick={() => void cancel()}>
@@ -1123,6 +1230,47 @@ export function ImageGenPanel({
           {error && <p className="text-xs text-red-600 flex-1">{error}</p>}
         </div>
 
+        {batchProgress && (
+          <p className="text-[11px] text-kawaii-text-muted">{batchProgress}</p>
+        )}
+        {batchResults.length > 1 && (
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-semibold text-kawaii-text">
+              Elige la mejor variante
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {batchResults.map((b, i) => (
+                <button
+                  key={`batch-${i}-${b.seed ?? i}`}
+                  type="button"
+                  className={
+                    'rounded-xl border overflow-hidden text-left transition-shadow ' +
+                    (result?.dataUrl === b.dataUrl
+                      ? 'border-kawaii-pink-deep ring-2 ring-kawaii-pink-deep/40'
+                      : 'border-kawaii-border hover:border-kawaii-pink-deep/50')
+                  }
+                  onClick={() => {
+                    setResult({
+                      dataUrl: b.dataUrl,
+                      meta: b.meta + ' · elegida',
+                      filePath: b.filePath
+                    })
+                    if (b.seed != null) setSeed(String(b.seed))
+                  }}
+                >
+                  <img
+                    src={b.dataUrl}
+                    alt={`variante ${i + 1}`}
+                    className="w-full h-28 object-cover bg-black/5"
+                  />
+                  <span className="block px-1.5 py-1 text-[9px] text-kawaii-text-muted truncate">
+                    seed {b.seed ?? '—'}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {result && (
           <div className="space-y-1.5">
             <img

@@ -4,6 +4,7 @@ import type { RouteInfo } from '../services/chatOrchestrator'
 export type LivePhase =
   | 'idle'
   | 'preparing'
+  | 'searching'
   | 'summarizing'
   | 'generating'
   | 'failover'
@@ -20,6 +21,7 @@ export interface LiveStatus {
 
 const PHASE_ICON = {
   preparing: Loader2,
+  searching: Search,
   summarizing: Sparkles,
   generating: Loader2,
   failover: RefreshCw,
@@ -53,7 +55,7 @@ export function RouteLiveIndicator({ status, visible }: Props) {
 
   const Icon = PHASE_ICON[status.phase] ?? Loader2
   const TargetIcon = targetIcon(status.route?.target)
-  const spinning = status.phase !== 'done'
+  const spinning = true
 
   return (
     <div
@@ -99,6 +101,8 @@ export function RouteLiveIndicator({ status, visible }: Props) {
 /** Build a short Spanish label from phase + route */
 export function labelForPhase(phase: LivePhase, route: RouteInfo | null): string {
   switch (phase) {
+    case 'searching':
+      return 'Buscando en la web…'
     case 'preparing':
       return 'Preparando…'
     case 'summarizing':
@@ -110,6 +114,12 @@ export function labelForPhase(phase: LivePhase, route: RouteInfo | null): string
     case 'generating':
       if (route?.failover) {
         return `Generando con ${route.model || 'otro proveedor'}…`
+      }
+      if (route?.useWebSearch) {
+        const hits = route.webHitCount ? ` (${route.webHitCount} resultados)` : ''
+        return route?.model
+          ? `Usando ${route.model} + web${hits}…`
+          : `Generando con contexto web${hits}…`
       }
       return route?.model ? `Usando ${route.model}…` : 'Generando respuesta…'
     case 'done':

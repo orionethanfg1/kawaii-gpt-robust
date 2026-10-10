@@ -31,6 +31,8 @@ export interface OllamaPullProgress {
 export interface ImageGeneratePayload {
   prompt: string
   negativePrompt?: string
+  userText?: string
+  batchSize?: number
   width?: number
   height?: number
   seed?: number
@@ -42,6 +44,12 @@ export interface ImageGeneratePayload {
   steps?: number
   cfgScale?: number
   checkpoint?: string
+  referenceImage?: string
+  referenceImages?: string[]
+  referenceDenoisingStrength?: number
+  ipAdapterWeight?: number
+  controlNetKind?: string
+  title?: string
 }
 
 export interface A1111ModelInfo {
@@ -74,17 +82,115 @@ export interface ImageGenerateFailure {
 export type ImageGenerateResult = ImageGenerateSuccess | ImageGenerateFailure
 
 export interface KawaiiAPI {
-  webSearch: (query: string, maxResults?: number) => Promise<WebSearchResult[]>
+  pluginsCatalog: () => Promise<{
+    ok: boolean
+    plugins?: unknown[]
+    tools?: unknown[]
+    error?: string
+  }>
+  pluginsList: () => Promise<{ ok: boolean; plugins?: unknown[]; error?: string }>
+  webSearch: (query: string, maxResults?: number, opts?: { searxngBaseUrl?: string }) => Promise<WebSearchResult[]>
   getCloudApiKey: () => Promise<string>
   setCloudApiKey: (key: string) => Promise<boolean>
   getProviderKey: (providerId: string) => Promise<string>
   setProviderKey: (providerId: string, key: string) => Promise<boolean>
   getAllProviderKeys: () => Promise<Record<string, string>>
   getVersion: () => Promise<string>
+  agendaSetSnapshot: (payload: {
+    items?: unknown[]
+    prefs?: unknown
+  }) => Promise<{ ok: boolean; count?: number }>
+  agendaGetSnapshot: () => Promise<{ ok: boolean; items?: unknown[] }>
+  onAgendaSync: (cb: (payload: unknown) => void) => () => void
+  onAgendaDue: (cb: (payload: unknown) => void) => () => void
+  notify: (payload: {
+    title: string
+    body?: string
+    silent?: boolean
+  }) => Promise<{ ok: boolean; error?: string }>
   getRuntimeMode: () => Promise<'packaged' | 'dev'>
   getHardwareProfile: () => Promise<HardwareProfile>
   openExternal: (url: string) => Promise<void>
+  filesToDataUrl: (filePath: string) => Promise<{ ok: boolean; dataUrl?: string; error?: string; path?: string; mime?: string }>
+  filesShowInFolder: (filePath: string) => Promise<{ ok: boolean; path?: string; error?: string }>
+  diagnosticsClearExports: () => Promise<{ ok: boolean; removed?: number; dir?: string }>
+  diagnosticsListPaths: () => Promise<{
+    ok: boolean
+    paths: Array<{ id: string; label: string; path: string }>
+  }>
+  diagnosticsWriteTextFile: (payload: {
+    fileName?: string
+    content?: string
+    subdir?: string
+  }) => Promise<{ ok: boolean; filePath?: string; dir?: string }>
+  filesOpenPath: (filePath: string) => Promise<{ ok: boolean; path?: string; error?: string }>
+  settingsBackupList: () => Promise<{ ok: boolean; files?: Array<{ name: string; path: string; mtimeMs: number; size: number }>; dir?: string; error?: string }>
+  settingsBackupRead: (fileName?: string) => Promise<{ ok: boolean; content?: string; path?: string; error?: string }>
+  settingsBackupWrite: (payload: { fileName?: string; content?: string }) => Promise<{ ok: boolean; path?: string; dir?: string; error?: string }>
+  pythonRunToolScript: (payload: {
+    script?: string
+    args?: string[]
+    timeoutMs?: number
+  }) => Promise<{
+    ok: boolean
+    code?: number | null
+    stdout?: string
+    stderr?: string
+    json?: unknown
+    error?: string
+  }>
+  settingsBackupListImages: () => Promise<{ ok: boolean; files?: Array<{ path: string; name: string; mtimeMs: number }>; error?: string }>
+  filesListKnownDirs: () => Promise<{ ok: boolean; dirs?: Array<{ id: string; label: string; path: string }>; error?: string }>
   ollamaStatus: (baseUrl?: string) => Promise<OllamaStatus>
+  /** Scan ~/.ollama + LM Studio folders even if servers are down */
+  localFetch: (
+    url: string,
+    init?: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number }
+  ) => Promise<{
+    ok: boolean
+    status: number
+    statusText: string
+    headers: Record<string, string>
+    bodyText: string
+    error?: string
+  }>
+  discoverLocalModelsLive: (opts?: {
+    ollamaBaseUrl?: string
+    openAIBaseUrl?: string
+    ramGB?: number
+  }) => Promise<{
+    models: Array<{
+      id: string
+      name: string
+      source: string
+      sizeHint?: string
+      recommended?: boolean
+      baseUrl?: string
+      paramsB?: number
+    }>
+    ollama: boolean
+    openAI: null | { baseUrl: string; label: string }
+    recommended?: { id: string; name: string; source: string }
+    diskCount?: number
+    lmStudio?: {
+      ok: boolean
+      port?: number
+      baseUrl?: string
+      message: string
+    }
+  }>
+  scanLocalModels: () => Promise<{
+    ok: boolean
+    error?: string
+    models?: Array<{
+      id: string
+      name: string
+      source: 'ollama-disk' | 'lmstudio-disk'
+      path?: string
+      sizeBytes?: number
+    }>
+    scannedRoots?: string[]
+  }>
   ollamaStart: (baseUrl?: string) => Promise<{ ok: boolean; alreadyRunning?: boolean; message: string; pid?: number }>
   ollamaPull: (
     model: string,
@@ -93,6 +199,33 @@ export interface KawaiiAPI {
   sdEnsureWorkspace: () => Promise<{ root: string; modelsDir: string; created: boolean }>
   sdOpenWorkspace: () => Promise<boolean>
   sdListCheckpoints: () => Promise<string[]>
+  sdSearchHuggingFace: (query: string, limit?: number) => Promise<{
+    ok: boolean
+    error?: string
+    results: Array<{
+      id: string
+      label: string
+      repo: string
+      downloads: number
+      likes: number
+      tags: string[]
+      pageUrl: string
+      filesUrl: string
+    }>
+  }>
+  sdListWeights: () => Promise<{
+    ok: boolean
+    weights?: Array<{
+      filename: string
+      path: string
+      sizeBytes: number
+      kind: string
+      family: string
+      likelySdxl: boolean
+      location: string
+    }>
+    error?: string
+  }>
   sdListCheckpointsCatalog: () => Promise<{
     ok: boolean
     models: Array<{
@@ -131,7 +264,7 @@ export interface KawaiiAPI {
     modelId?: string
   ) => Promise<{ ok: true; path: string; id?: string } | { ok: false; error: string }>
   onSdDownloadProgress: (
-    cb: (p: { pct: number; received: number; total: number | null }) => void
+    cb: (p: { modelId?: string; pct: number; received: number; total: number | null }) => void
   ) => () => void
   ollamaListPullJobs: () => Promise<{ ok: boolean; jobs?: Array<{ model: string; status: string; error?: string; progress?: number }> }>
   ollamaPullCancel: (model?: string) => Promise<{ ok: boolean }>
@@ -141,11 +274,17 @@ export interface KawaiiAPI {
   ) => Promise<{ ok: boolean; error?: string }>
   onOllamaPullProgress: (cb: (p: OllamaPullProgress) => void) => () => void
   imageGenerate: (payload: ImageGeneratePayload) => Promise<ImageGenerateResult>
+  imageCloudflareProbe: (accountId?: string) => Promise<{ ok: boolean; latencyMs?: number; error?: string }>
   onImageGenerateProgress: (
     cb: (p: { jobId: string; phase: string; pct: number; detail?: string }) => void
   ) => () => void
   imageCancel: (jobId?: string) => Promise<{ ok: boolean }>
   imageA1111Health: (baseUrl?: string) => Promise<{ ok: boolean; latencyMs?: number; error?: string; modelsCount?: number }>
+  imageControlNetModels: (baseUrl?: string) => Promise<{
+    ok: boolean
+    models: string[]
+    error?: string
+  }>
   imageA1111Models: (baseUrl?: string) => Promise<{
     ok: boolean
     error?: string
@@ -176,6 +315,42 @@ export interface KawaiiAPI {
     forgePresent: boolean
   }>
 
+  activityOpenWindow: (kind: 'adventure' | 'chess') => Promise<{ ok: boolean; id?: string; error?: string }>
+  onActivityWindowClosed: (cb: (p: { kind: string; id: string }) => void) => () => void
+  activityCloseWindow: (id: string) => Promise<{ ok: boolean }>
+  activityCloseAllWindows: () => Promise<{ ok: boolean; closed: number }>
+  forgeExtensionsStatus: () => Promise<unknown>
+  forgeEnsureControlNet: () => Promise<{ ok: boolean; dir: string; error?: string }>
+  forgeInstallFaceId: () => Promise<{
+    ok: boolean
+    installed: string[]
+    error?: string
+    dir?: string
+  }>
+  forgeHasFaceId: () => Promise<{
+    ok: boolean
+    hasFaceId: boolean
+    controlNetModels?: string[]
+    dir?: string
+  }>
+  onForgeFaceIdProgress: (cb: (p: { detail: string; pct?: number }) => void) => () => void
+  catalogScanLocalModels: (force?: boolean) => Promise<{
+    ok: boolean
+    count: number
+    fromCache: boolean
+    rows: unknown[]
+    error?: string
+  }>
+  catalogListModelScores: () => Promise<{
+    ok: boolean
+    rows: unknown[]
+    lastScanAt?: number
+    dbPath?: string
+    error?: string
+  }>
+  catalogPickModel: (task?: string) => Promise<{ ok: boolean; pick: unknown; error?: string }>
+  forgeInstallControlNetModels: () => Promise<{ ok: boolean; installed: string[]; error?: string }>
+  onForgeCnProgress: (cb: (p: { msg: string; pct?: number }) => void) => () => void
   forgeInstall: () => Promise<
     | { ok: true; forgeRoot: string; launcher: string; profile: unknown }
     | { ok: false; error: string; cancelled?: boolean }
@@ -224,6 +399,18 @@ export interface KawaiiAPI {
     }) => void
   ) => () => void
 
+  unloadLocalModels: (opts?: {
+    unloadAll?: boolean
+    minSizeGB?: number
+    ollamaBaseUrl?: string
+  }) => Promise<{
+    ok: boolean
+    unloaded: string[]
+    failed: Array<{ model: string; error: string }>
+    skipped: string[]
+    freedEstimateGB: number
+    detail: string
+  }>
   forgeStart: (preferredPort?: number) => Promise<{
     state: string
     port: number | null
@@ -243,6 +430,36 @@ export interface KawaiiAPI {
   }>
   forgeLogTail: () => Promise<{ lines: string[]; path: string | null }>
   onForgeLogLine: (cb: (p: { line: string; tail: string[] }) => void) => () => void
+  musicEnsureWorkspace: () => Promise<{ ok: boolean; musicRoot?: string; error?: string }>
+  musicStatus: () => Promise<Record<string, unknown>>
+  musicAnalyze: () => Promise<Record<string, unknown>>
+  musicInstall: (opts?: { forceAce?: boolean; forceYue?: boolean }) => Promise<Record<string, unknown>>
+  musicInstallCancel: () => Promise<{ ok: boolean }>
+  musicSetup: () => Promise<Record<string, unknown>>
+  musicStart: (preferredPort?: number) => Promise<Record<string, unknown>>
+  musicStop: () => Promise<Record<string, unknown>>
+  musicRuntimeStatus: () => Promise<Record<string, unknown>>
+  musicEnsureReady: (preferredPort?: number) => Promise<Record<string, unknown>>
+  musicGenerate: (req: {
+    prompt: string
+    lyrics?: string
+    durationSec?: number
+    vocalLanguage?: string
+  }) => Promise<{ ok: boolean; path?: string; audioPath?: string; error?: string; taskId?: string }>
+  onMusicRuntime: (cb: (s: Record<string, unknown>) => void) => () => void
+  musicLogTail: () => Promise<{ lines: string[]; path: string | null }>
+  onMusicLogLine: (cb: (p: { line: string; tail: string[] }) => void) => () => void
+
+  onMusicInstallProgress: (
+    cb: (p: {
+      backend: string
+      phase: string
+      pct: number
+      message: string
+      received?: number
+      total?: number | null
+    }) => void
+  ) => () => void
   forgeStatus: () => Promise<{
     state: string
     port: number | null
@@ -251,7 +468,6 @@ export interface KawaiiAPI {
     bootProgress?: number
     lastLogLine?: string
     elapsedMs?: number
-    pid: number | null
     message: string
   }>
   forgeRefreshHealth: () => Promise<{
@@ -260,6 +476,45 @@ export interface KawaiiAPI {
     baseUrl: string | null
     message: string
   }>
+  gitStatus: () => Promise<{
+    ok: boolean
+    repoRoot?: string
+    branch?: string
+    remoteUrl?: string
+    dirty?: boolean
+    ahead?: number
+    behind?: number
+    staged?: number
+    unstaged?: number
+    untracked?: number
+    userName?: string
+    userEmail?: string
+    sshCommand?: string
+    lastError?: string
+  }>
+  gitListKeys: () => Promise<Array<{ name: string; path: string }>>
+  gitApplyIdentity: (identity: {
+    label: string
+    keyPath: string
+    userName?: string
+    userEmail?: string
+    hostAlias?: string
+  }) => Promise<{ ok: boolean; steps: string[]; error?: string; stdout?: string }>
+  gitSavedIdentity: () => Promise<{
+    label?: string
+    keyPath?: string
+    userName?: string
+    userEmail?: string
+    hostAlias?: string
+  } | null>
+  gitAdd: () => Promise<{ ok: boolean; error?: string }>
+  gitCommit: (message?: string) => Promise<{ ok: boolean; error?: string }>
+  gitPush: (force?: boolean) => Promise<{ ok: boolean; error?: string }>
+  gitSync: (
+    message?: string,
+    force?: boolean
+  ) => Promise<{ ok: boolean; steps?: string[]; error?: string; stdout?: string; stderr?: string }>
+  gitTestAuth: () => Promise<{ ok: boolean; error?: string; stdout?: string }>
   forgePickPort: (preferred?: number) => Promise<{
     ok: boolean
     port?: number
@@ -282,12 +537,43 @@ export interface KawaiiAPI {
     synced: { copied: string[]; skipped: string[] }
     message: string
   }>
+  voiceSpeak: (req: { text: string; voiceId?: string }) => Promise<{
+    ok: boolean
+    audioPath?: string
+    voiceId?: string
+    error?: string
+    chars?: number
+  }>
+  voiceStop: () => Promise<{ ok: boolean; error?: string }>
+  voiceList: () => Promise<{
+    ok: boolean
+    voices: Array<{ id: string; label: string; locale: string; gender: string; region: string }>
+  }>
+  voiceStatus: () => Promise<{
+    ok: boolean
+    engine: string
+    defaultVoice: string
+    edgeTtsReady: boolean | null
+    message: string
+  }>
+  voiceEnsure: () => Promise<{
+    ok: boolean
+    python?: string
+    error?: string
+    installed?: boolean
+    messages?: string[]
+  }>
+  voiceGetLog: () => Promise<{ ok: boolean; lines: string[]; error?: string }>
+  onVoiceLogLine: (cb: (p: { line: string; tail: string[] }) => void) => () => void
   platform: NodeJS.Platform
 }
 
+
 const api: KawaiiAPI = {
-  webSearch: (query, maxResults = 5) =>
-    ipcRenderer.invoke('web:search', query, maxResults),
+  pluginsCatalog: () => ipcRenderer.invoke('plugins:catalog'),
+  pluginsList: () => ipcRenderer.invoke('plugins:list'),
+  webSearch: (query, maxResults = 5, opts) =>
+    ipcRenderer.invoke('web:search', query, maxResults, opts),
   getCloudApiKey: () => ipcRenderer.invoke('secrets:getCloudApiKey'),
   setCloudApiKey: (key) => ipcRenderer.invoke('secrets:setCloudApiKey', key),
   getProviderKey: (providerId) =>
@@ -296,16 +582,49 @@ const api: KawaiiAPI = {
     ipcRenderer.invoke('secrets:setProviderKey', providerId, key),
   getAllProviderKeys: () => ipcRenderer.invoke('secrets:getAllProviderKeys'),
   getVersion: () => ipcRenderer.invoke('app:version'),
+  agendaSetSnapshot: (payload) => ipcRenderer.invoke('agenda:setSnapshot', payload),
+  agendaGetSnapshot: () => ipcRenderer.invoke('agenda:getSnapshot'),
+  onAgendaSync: (cb: (payload: unknown) => void) => {
+    const handler = (_: unknown, payload: unknown) => cb(payload)
+    ipcRenderer.on('agenda:sync-result', handler)
+    return () => {
+      ipcRenderer.removeListener('agenda:sync-result', handler)
+    }
+  },
+  onAgendaDue: (cb) => {
+    const handler = (_: unknown, payload: unknown) => cb(payload)
+    ipcRenderer.on('agenda:due', handler)
+    return () => {
+      ipcRenderer.removeListener('agenda:due', handler)
+    }
+  },
+  notify: (payload) => ipcRenderer.invoke('app:notify', payload),
   getRuntimeMode: () => ipcRenderer.invoke('app:runtimeMode'),
   getHardwareProfile: () => ipcRenderer.invoke('system:hardwareProfile'),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+  filesToDataUrl: (filePath: string) => ipcRenderer.invoke('files:toDataUrl', filePath),
+  filesShowInFolder: (filePath: string) => ipcRenderer.invoke('files:showInFolder', filePath),
+  diagnosticsClearExports: () => ipcRenderer.invoke('diagnostics:clearExports'),
+  diagnosticsListPaths: () => ipcRenderer.invoke('diagnostics:listPaths'),
+  diagnosticsWriteTextFile: (payload) =>
+    ipcRenderer.invoke('diagnostics:writeTextFile', payload),
+  filesOpenPath: (filePath: string) => ipcRenderer.invoke('files:openPath', filePath),
+  filesListKnownDirs: () => ipcRenderer.invoke('files:listKnownDirs'),
+  pythonRunToolScript: (payload: { script?: string; args?: string[]; timeoutMs?: number }) =>
+    ipcRenderer.invoke('python:runToolScript', payload),
   ollamaStatus: (baseUrl) => ipcRenderer.invoke('ollama:status', baseUrl),
+  localFetch: (url, init) => ipcRenderer.invoke('net:localFetch', url, init),
+  discoverLocalModelsLive: (opts) => ipcRenderer.invoke('models:discoverLive', opts),
+  scanLocalModels: () => ipcRenderer.invoke('models:scanLocalDisk'),
   ollamaStart: (baseUrl) => ipcRenderer.invoke('ollama:start', baseUrl),
   ollamaPull: (model, baseUrl) =>
     ipcRenderer.invoke('ollama:pull', { model, baseUrl }),
   sdEnsureWorkspace: () => ipcRenderer.invoke('sd:ensureWorkspace'),
   sdOpenWorkspace: () => ipcRenderer.invoke('sd:openWorkspace'),
   sdListCheckpoints: () => ipcRenderer.invoke('sd:listCheckpoints'),
+  sdSearchHuggingFace: (query: string, limit?: number) =>
+    ipcRenderer.invoke('sd:searchHuggingFace', query, limit),
+  sdListWeights: () => ipcRenderer.invoke('sd:listWeights'),
   sdListCheckpointsCatalog: () => ipcRenderer.invoke('sd:listCheckpointsCatalog'),
   sdListInstalled: () => ipcRenderer.invoke('sd:listInstalled'),
   sdDiscardJob: (modelId: string) => ipcRenderer.invoke('sd:discardJob', modelId),
@@ -314,7 +633,7 @@ const api: KawaiiAPI = {
   sdDownloadCheckpoint: (modelId?: string) =>
     ipcRenderer.invoke('sd:downloadCheckpoint', modelId),
   onSdDownloadProgress: (cb) => {
-    const listener = (_: unknown, p: { pct: number; received: number; total: number | null }) =>
+    const listener = (_: unknown, p: { modelId?: string; pct: number; received: number; total: number | null }) =>
       cb(p)
     ipcRenderer.on('sd:download-progress', listener)
     return () => ipcRenderer.removeListener('sd:download-progress', listener)
@@ -342,6 +661,8 @@ const api: KawaiiAPI = {
   },
   imageCancel: (jobId) => ipcRenderer.invoke('image:cancel', jobId),
   imageA1111Health: (baseUrl) => ipcRenderer.invoke('image:a1111Health', baseUrl),
+  imageControlNetModels: (baseUrl) =>
+    ipcRenderer.invoke('image:controlNetModels', baseUrl),
   imageA1111Models: (baseUrl) => ipcRenderer.invoke('image:a1111Models', baseUrl),
   imageCleanup: (maxAgeDays) => ipcRenderer.invoke('image:cleanup', maxAgeDays),
   imageGetFolder: () => ipcRenderer.invoke('image:getFolder'),
@@ -358,6 +679,34 @@ const api: KawaiiAPI = {
   machineClearProfile: () => ipcRenderer.invoke('machine:clearProfile'),
   machinePrepareDataRoot: () => ipcRenderer.invoke('machine:prepareDataRoot'),
 
+  activityOpenWindow: (kind: 'adventure' | 'chess') =>
+    ipcRenderer.invoke('activity:openWindow', kind),
+  onActivityWindowClosed: (cb: (p: { kind: string; id: string }) => void) => {
+    const listener = (_e: unknown, p: { kind: string; id: string }) => cb(p)
+    ipcRenderer.on('activity:window-closed', listener)
+    return () => ipcRenderer.removeListener('activity:window-closed', listener)
+  },
+  activityCloseWindow: (id: string) => ipcRenderer.invoke('activity:closeWindow', id),
+  activityCloseAllWindows: () => ipcRenderer.invoke('activity:closeAllWindows'),
+  forgeExtensionsStatus: () => ipcRenderer.invoke('forge:extensionsStatus'),
+  forgeEnsureControlNet: () => ipcRenderer.invoke('forge:ensureControlNet'),
+  forgeInstallFaceId: () => ipcRenderer.invoke('forge:installFaceId'),
+  forgeHasFaceId: () => ipcRenderer.invoke('forge:hasFaceId'),
+  onForgeFaceIdProgress: (cb) => {
+    const listener = (_e: unknown, p: { detail: string; pct?: number }) => cb(p)
+    ipcRenderer.on('forge:faceid-progress', listener)
+    return () => ipcRenderer.removeListener('forge:faceid-progress', listener)
+  },
+  catalogScanLocalModels: (force?: boolean) =>
+    ipcRenderer.invoke('catalog:scanLocalModels', force),
+  catalogListModelScores: () => ipcRenderer.invoke('catalog:listModelScores'),
+  catalogPickModel: (task?: string) => ipcRenderer.invoke('catalog:pickModel', task),
+  forgeInstallControlNetModels: () => ipcRenderer.invoke('forge:installControlNetModels'),
+  onForgeCnProgress: (cb: (p: { msg: string; pct?: number }) => void) => {
+    const listener = (_e: unknown, p: { msg: string; pct?: number }) => cb(p)
+    ipcRenderer.on('forge:cn-progress', listener)
+    return () => ipcRenderer.removeListener('forge:cn-progress', listener)
+  },
   forgeInstall: () => ipcRenderer.invoke('forge:install'),
   forgeCancelInstall: (wipe?: boolean) => ipcRenderer.invoke('forge:cancelInstall', wipe),
   forgePauseInstall: () => ipcRenderer.invoke('forge:pauseInstall'),
@@ -393,6 +742,13 @@ const api: KawaiiAPI = {
     return () => ipcRenderer.removeListener('forge:install-progress', listener)
   },
 
+  /** R2 — free Ollama VRAM before Forge / heavy layers */
+  unloadLocalModels: (opts?: {
+    unloadAll?: boolean
+    minSizeGB?: number
+    ollamaBaseUrl?: string
+  }) => ipcRenderer.invoke('models:unloadLocal', opts),
+
   forgeStart: (preferredPort?: number) => ipcRenderer.invoke('forge:start', preferredPort),
   forgeStop: () => ipcRenderer.invoke('forge:stop'),
   forgeLogTail: () => ipcRenderer.invoke('forge:logTail'),
@@ -408,6 +764,108 @@ const api: KawaiiAPI = {
   sdSyncCheckpointsToForge: () => ipcRenderer.invoke('sd:syncCheckpointsToForge'),
   imageEnsureLocalPipeline: (preferredPort?: number) =>
     ipcRenderer.invoke('image:ensureLocalPipeline', preferredPort),
+  gitStatus: () => ipcRenderer.invoke('git:status'),
+  gitListKeys: () => ipcRenderer.invoke('git:listKeys'),
+  gitApplyIdentity: (identity: {
+    label: string
+    keyPath: string
+    userName?: string
+    userEmail?: string
+    hostAlias?: string
+  }) => ipcRenderer.invoke('git:applyIdentity', identity),
+  gitSavedIdentity: () => ipcRenderer.invoke('git:savedIdentity'),
+  gitAdd: () => ipcRenderer.invoke('git:add'),
+  gitCommit: (message?: string) => ipcRenderer.invoke('git:commit', message),
+  gitPush: (force?: boolean) => ipcRenderer.invoke('git:push', force),
+  gitSync: (message?: string, force?: boolean) => ipcRenderer.invoke('git:sync', message, force),
+  gitTestAuth: () => ipcRenderer.invoke('git:testAuth'),
+  musicEnsureWorkspace: () => ipcRenderer.invoke('music:ensureWorkspace'),
+  musicStatus: () => ipcRenderer.invoke('music:status'),
+  musicAnalyze: () => ipcRenderer.invoke('music:analyze'),
+  musicInstall: (opts?: { forceAce?: boolean; forceYue?: boolean }) =>
+    ipcRenderer.invoke('music:install', opts),
+  musicInstallCancel: () => ipcRenderer.invoke('music:installCancel'),
+  musicSetup: () => ipcRenderer.invoke('music:setup'),
+  musicStart: (preferredPort?: number) => ipcRenderer.invoke('music:start', preferredPort),
+  musicStop: () => ipcRenderer.invoke('music:stop'),
+  musicRuntimeStatus: () => ipcRenderer.invoke('music:runtimeStatus'),
+  musicEnsureReady: (preferredPort?: number) =>
+    ipcRenderer.invoke('music:ensureReady', preferredPort),
+  musicGenerate: (req: {
+    prompt: string
+    lyrics?: string
+    durationSec?: number
+    vocalLanguage?: string
+  }) => ipcRenderer.invoke('music:generate', req),
+  onMusicRuntime: (cb: (s: Record<string, unknown>) => void) => {
+    const listener = (_e: unknown, s: Record<string, unknown>) => cb(s)
+    ipcRenderer.on('music:runtime', listener)
+    return () => ipcRenderer.removeListener('music:runtime', listener)
+  },
+  musicLogTail: () => ipcRenderer.invoke('music:logTail'),
+  onMusicLogLine: (cb: (p: { line: string; tail: string[] }) => void) => {
+    const listener = (_e: unknown, p: { line: string; tail: string[] }) => cb(p)
+    ipcRenderer.on('music:log-line', listener)
+    return () => ipcRenderer.removeListener('music:log-line', listener)
+  },
+
+  onMusicInstallProgress: (cb: (p: {
+    backend: string
+    phase: string
+    pct: number
+    message: string
+    received?: number
+    total?: number | null
+  }) => void) => {
+    const listener = (_e: unknown, p: {
+      backend: string
+      phase: string
+      pct: number
+      message: string
+      received?: number
+      total?: number | null
+    }) => cb(p)
+    ipcRenderer.on('music:install-progress', listener)
+    return () => ipcRenderer.removeListener('music:install-progress', listener)
+  },
+  voiceSpeak: (req: { text: string; voiceId?: string }) =>
+    ipcRenderer.invoke('voice:speak', req),
+  voiceStop: () => ipcRenderer.invoke('voice:stop'),
+  voiceList: () => ipcRenderer.invoke('voice:list'),
+  voiceStatus: () => ipcRenderer.invoke('voice:status'),
+  voiceEnsure: () => ipcRenderer.invoke('voice:ensure'),
+  voiceGetLog: () => ipcRenderer.invoke('voice:getLog'),
+  onVoiceLogLine: (cb: (p: { line: string; tail: string[] }) => void) => {
+    const listener = (_e: unknown, p: { line: string; tail: string[] }) => cb(p)
+    ipcRenderer.on('voice:log-line', listener)
+    return () => { ipcRenderer.removeListener('voice:log-line', listener) }
+  },
+  layersPrepare: (target: 'none' | 'image' | 'music', reason?: string) =>
+    ipcRenderer.invoke('layers:prepare', target, reason),
+  layersActive: () =>
+    ipcRenderer.invoke('layers:active') as Promise<{
+      active: string
+      last: { phase: string; target: string; message: string; ms?: number } | null
+    }>,
+  onLayersSchedule: (
+    cb: (ev: {
+      phase: string
+      target: string
+      released?: string
+      message: string
+      ms?: number
+    }) => void
+  ) => {
+    const listener = (_e: unknown, ev: {
+      phase: string
+      target: string
+      released?: string
+      message: string
+      ms?: number
+    }) => cb(ev)
+    ipcRenderer.on('layers:schedule', listener)
+    return () => ipcRenderer.removeListener('layers:schedule', listener)
+  },
   platform: process.platform
 }
 

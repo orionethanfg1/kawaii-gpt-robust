@@ -1,176 +1,360 @@
 /**
- * App self-agent: status snapshot + tool execution.
- * Pattern: status in system prompt + model emits <<<APP_ACTION>>> JSON; host executes.
- * Works with local models (no native function-calling required).
+ * App self-agent orchestration (M2: tools live under ./hostTools).
  */
-
-import { formatStatusForPrompt, type AppStatusSnapshot } from '@core/agent'
-import { parseAppActions, type AppToolCall } from '@core/agent'
+import {
+  AgentAuditLog,
+  parseAppActions,
+  parseAppPlan,
+  planFromActions,
+  suggestPlanFromUserGoal,
+  executePlan,
+  refinePlanWithLiveStatus,
+  formatPlanForLog,
+  type AppToolName,
+  type AgentPlan,
+  recordToolFailure,
+  recordToolSuccess,
+  shouldSkipTool,
+  recordPreferredLocalModel,
+  recordHarnessSuccess
+} from '@core/agent'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
-import { APP_VERSION } from '@shared/version'
-import { runSelfDiagnosis } from '@core/diagnostics/self-heal'
+import { useAgentApprovalStore } from '@shared/lib/stores/agentApprovalStore'
 import { tryHandleAppControl } from './appControl'
+import {
+  extractModelTagsFromObservations,
+  formatHostStatusAndModelsReply,
+  formatHostModelListReply,
+  isHallucinatedModelList,
+  buildToolObservationPrompt,
+  isStatusOrModelsQuery
+} from './host-formatters'
+import {
+  executeAppTool,
+  buildAppStatusSnapshot,
+  applySmartLocalModelAuto,
+  applyAutoModelRouting,
+  buildAppAgentSystemBlock,
+  invalidateAppAgentStatusCache
+} from './hostTools'
 
-export async function buildAppStatusSnapshot(): Promise<AppStatusSnapshot> {
-  const s = useSettingsStore.getState().settings
-  const notes: string[] = []
-  let localOk: boolean | null = null
-  try {
-    const st = await window.kawaii?.ollamaStatus?.(s.localBaseUrl)
-    localOk = Boolean(st?.reachable)
-    if (!localOk) notes.push('Ollama no responde — puedo intentar start_ollama')
-  } catch {
-    localOk = false
-    notes.push('No se pudo consultar Ollama')
-  }
+const agentAudit = new AgentAuditLog()
 
-  let forgeState = 'unknown'
-  let forgeApi: string | null = null
-  try {
-    const f = await window.kawaii?.forgeStatus?.()
-    forgeState = (f as { state?: string })?.state || 'unknown'
-    forgeApi = (f as { baseUrl?: string })?.baseUrl || null
-    if (forgeState === 'starting') {
-      notes.push('Forge aún arrancando; si lleva >2 min tras Startup time, health_forge o reinicio')
-    }
-    if (forgeState === 'error') notes.push('Forge en error — start_forge o diagnóstico')
-  } catch {
-    notes.push('Estado Forge no disponible')
-  }
-
-  const cloudEnabled = (s.cloudSlots || [])
-    .filter((c) => c.enabled)
-    .map((c) => c.id)
-
-  return {
-    version: APP_VERSION,
-    providerMode: s.providerMode || 'smart',
-    localModel: s.localModel || '',
-    localOk,
-    cloudEnabled,
-    imageGen: s.imageGenEnabled !== false,
-    imageMode: s.imageProviderMode || 'smart',
-    forgeState,
-    forgeApi,
-    characterName: s.character?.name || '',
-    notes
-  }
+export {
+  executeAppTool,
+  buildAppStatusSnapshot,
+  applySmartLocalModelAuto,
+  applyAutoModelRouting,
+  buildAppAgentSystemBlock,
+  invalidateAppAgentStatusCache
 }
 
-export async function buildAppAgentSystemBlock(): Promise<string> {
-  const snap = await buildAppStatusSnapshot()
-  return formatStatusForPrompt(snap)
-}
-
-export async function executeAppTool(call: AppToolCall): Promise<{ ok: boolean; summary: string }> {
-  const s = useSettingsStore.getState()
-  switch (call.tool) {
-    case 'get_app_status': {
-      const snap = await buildAppStatusSnapshot()
-      return { ok: true, summary: formatStatusForPrompt(snap) }
-    }
-    case 'set_provider_mode': {
-      const mode = String(call.args?.mode || '')
-      if (!['local', 'cloud', 'smart'].includes(mode)) {
-        return { ok: false, summary: 'mode debe ser local|cloud|smart' }
-      }
-      s.update({ providerMode: mode as 'local' | 'cloud' | 'smart' })
-      return { ok: true, summary: `Modo de chat → ${mode}` }
-    }
-    case 'set_local_model': {
-      const model = String(call.args?.model || '').trim()
-      if (!model) return { ok: false, summary: 'Falta args.model' }
-      s.update({ localModel: model })
-      return { ok: true, summary: `Modelo local → ${model}` }
-    }
-    case 'set_image_mode': {
-      const mode = String(call.args?.mode || '')
-      if (!['off', 'local', 'cloud', 'smart'].includes(mode)) {
-        return { ok: false, summary: 'mode=off|local|cloud|smart' }
-      }
-      s.update({
-        imageProviderMode: mode as 'off' | 'local' | 'cloud' | 'smart',
-        imageGenEnabled: mode !== 'off'
-      })
-      return { ok: true, summary: `Imágenes → ${mode}` }
-    }
-    case 'set_ui_mode': {
-      const mode = String(call.args?.mode || '')
-      if (!['smart', 'advanced'].includes(mode)) {
-        return { ok: false, summary: 'mode=smart|advanced' }
-      }
-      s.update({ uiComplexity: mode as 'smart' | 'advanced' })
-      return { ok: true, summary: `UI → ${mode}` }
-    }
-    case 'start_forge': {
-      try {
-        await window.kawaii?.forgeStart?.()
-        return { ok: true, summary: 'Arranque de Forge solicitado' }
-      } catch (e) {
-        return { ok: false, summary: String(e) }
-      }
-    }
-    case 'stop_forge': {
-      try {
-        await window.kawaii?.forgeStop?.()
-        return { ok: true, summary: 'Forge detenido' }
-      } catch (e) {
-        return { ok: false, summary: String(e) }
-      }
-    }
-    case 'health_forge': {
-      try {
-        const h = await window.kawaii?.forgeRefreshHealth?.() || await window.kawaii?.imageA1111Health?.()
-        return { ok: true, summary: JSON.stringify(h).slice(0, 300) }
-      } catch (e) {
-        return { ok: false, summary: String(e) }
-      }
-    }
-    case 'start_ollama': {
-      try {
-        const r = await window.kawaii?.ollamaStart?.(s.settings.localBaseUrl)
-        return { ok: Boolean((r as { ok?: boolean })?.ok !== false), summary: JSON.stringify(r).slice(0, 200) }
-      } catch (e) {
-        return { ok: false, summary: String(e) }
-      }
-    }
-    case 'run_diagnosis': {
-      try {
-        const report = await runSelfDiagnosis({
-          cloudflareProbe: async (id: string) =>
-            (await window.kawaii?.imageCloudflareProbe?.(id)) ?? { ok: false, error: 'n/a' },
-          imageA1111Health: async (url?: string) =>
-            (await window.kawaii?.imageA1111Health?.(url)) ?? { ok: false, error: 'n/a' }
-        })
-        return {
-          ok: Boolean(report?.healthy),
-          summary: (report?.checks || [])
-            .map((c) => `${c.status}: ${c.label}`)
-            .slice(0, 8)
-            .join(' · ') || 'Diagnóstico listo'
-        }
-      } catch (e) {
-        return { ok: false, summary: String(e) }
-      }
-    }
-    case 'open_settings_hint':
-      return { ok: true, summary: 'Abre Ajustes (icono engranaje) para cambios manuales.' }
-    default:
-      return { ok: false, summary: `Herramienta desconocida: ${call.tool}` }
-  }
-}
-
-export async function runActionsFromAssistantText(text: string): Promise<{
-  cleanText: string
+export async function forceStatusAndModelsReport(): Promise<{
+  content: string
+  observations: string[]
+  tags: string[]
   actionLog: string[]
 }> {
-  const { cleanText, actions } = parseAppActions(text)
   const actionLog: string[] = []
-  for (const a of actions) {
-    const r = await executeAppTool(a)
-    actionLog.push(`${r.ok ? '✓' : '✗'} ${a.tool}: ${r.summary}`)
+  const observations: string[] = []
+  const run = async (tool: string, args?: Record<string, unknown>) => {
+    const r = await executeAppTool({ tool, args })
+    const summary = r.summary || (r.ok ? 'ok' : r.error || 'fail')
+    observations.push(JSON.stringify({ tool, ok: r.ok, summary }))
+    actionLog.push(`${r.ok ? '✓' : '✗'} ${tool}: ${summary.slice(0, 160)}`)
+    return r
   }
-  return { cleanText, actionLog }
+  try {
+    await run('get_app_status')
+  } catch (e) {
+    observations.push(JSON.stringify({ tool: 'get_app_status', ok: false, summary: String(e) }))
+  }
+  try {
+    await run('list_installed_models')
+  } catch (e) {
+    observations.push(JSON.stringify({ tool: 'list_installed_models', ok: false, summary: String(e) }))
+  }
+  try {
+    await run('check_local_runtime')
+  } catch {
+    /* optional */
+  }
+  try {
+    await run('health_forge')
+  } catch {
+    /* optional */
+  }
+  try {
+    await run('assess_image_stack')
+  } catch {
+    /* optional */
+  }
+  const tags = extractModelTagsFromObservations(observations)
+  let content = formatHostStatusAndModelsReply(observations, tags)
+  const gapObs = observations.find((o) => {
+    try {
+      return JSON.parse(o).tool === 'assess_image_stack'
+    } catch {
+      return false
+    }
+  })
+  if (gapObs) {
+    try {
+      const j = JSON.parse(gapObs) as { summary?: string }
+      if (j.summary) content += '\n\n' + j.summary
+    } catch {
+      /* */
+    }
+  }
+  try {
+    recordHarnessSuccess('status_report', `${tags.length} models`)
+    const active = useSettingsStore.getState().settings.localModel
+    if (active) recordPreferredLocalModel(active)
+  } catch {
+    /* ignore */
+  }
+  return { content, observations, tags, actionLog }
 }
 
-export { tryHandleAppControl, parseAppActions }
+
+export async function runHostToolPlanFromUserGoal(userGoal: string): Promise<{
+  content: string
+  actionLog: string[]
+  observations: string[]
+  hadActions: boolean
+  planSummary?: string
+}> {
+  const { isHostOnlyToolQuery, suggestPlanFromUserGoal } = await import('@core/agent/planner')
+  if (!isHostOnlyToolQuery(userGoal) && !suggestPlanFromUserGoal(userGoal)) {
+    return { content: '', actionLog: [], observations: [], hadActions: false }
+  }
+  // Empty assistant text → host plan from user goal only
+  const r = await runActionsFromAssistantText('', { userGoal })
+  const obs = r.observations.filter(Boolean)
+  let body: string
+  try {
+    const { humanizeHostObservations } = await import('@core/agent/humanize-host-reply')
+    body =
+      obs.length > 0
+        ? humanizeHostObservations(obs, { userGoal })
+        : r.hadActions
+          ? 'Listo (sin detalle técnico).'
+          : 'No encontré acciones de host para ese pedido.'
+    // Never leave raw JSON blobs as the only reply
+    if (body.trim().startsWith('{') && /"tool"\s*:/.test(body)) {
+      const tags = extractModelTagsFromObservations(obs)
+      body = formatHostStatusAndModelsReply(obs, tags)
+    }
+  } catch {
+    try {
+      const tags = extractModelTagsFromObservations(obs)
+      body = formatHostStatusAndModelsReply(obs, tags)
+    } catch {
+      body =
+        obs.length > 0
+          ? 'Revisión hecha, pero no pude formatear el detalle. Mira Ajustes → Detectar Ollama / LM Studio.'
+          : r.hadActions
+            ? 'Listo (sin detalle extra).'
+            : 'No encontré acciones de host para ese pedido.'
+    }
+  }
+  return {
+    content: body,
+    actionLog: r.actionLog,
+    observations: r.observations,
+    hadActions: r.hadActions,
+    planSummary: r.planSummary
+  }
+}
+
+export async function runActionsFromAssistantText(
+
+  text: string,
+  opts?: { userGoal?: string }
+): Promise<{
+  cleanText: string
+  actionLog: string[]
+  observations: string[]
+  hadActions: boolean
+  planSummary?: string
+}> {
+  const userGoal = opts?.userGoal || ''
+  const planned = parseAppPlan(text)
+  const { cleanText: afterActions, actions } = parseAppActions(planned.cleanText)
+  const cleanText = afterActions
+
+  let plan: AgentPlan | null = planned.plan
+  if (!plan) plan = planFromActions(actions, userGoal)
+  if (!plan || !plan.steps.length) {
+    // Host fallback: only if the user clearly asked for app control
+    const host = suggestPlanFromUserGoal(userGoal)
+    if (host) plan = host
+  }
+
+  if (!plan || !plan.steps.length) {
+    return { cleanText, actionLog: [], observations: [], hadActions: false }
+  }
+
+  // Adaptive plan: rewrite steps using live app status (skip start_forge if already up, etc.)
+  try {
+    const snap = await buildAppStatusSnapshot()
+    let musicRunning = false
+    try {
+      const ms = await window.kawaii?.musicStatus?.()
+      musicRunning =
+        Boolean((ms as { running?: boolean })?.running) ||
+        String((ms as { state?: string })?.state || '') === 'running'
+    } catch {
+      /* ignore */
+    }
+    const refined = refinePlanWithLiveStatus(plan, {
+      forgeState: snap.forgeState,
+      forgeOk: /run|ready/i.test(String(snap.forgeState || '')),
+      localOk: snap.localOk,
+      musicRunning,
+      localModel: snap.localModel,
+      notes: snap.notes
+    })
+    if (JSON.stringify(refined.steps) !== JSON.stringify(plan.steps)) {
+      plan = {
+        ...refined,
+        goal: plan.goal || refined.goal,
+        source: plan.source
+      }
+    }
+  } catch {
+    /* keep original plan */
+  }
+
+  if (!plan.steps.length) {
+    return {
+      cleanText,
+      actionLog: ['📋 plan vacío tras adaptar al estado vivo'],
+      observations: [],
+      hadActions: false,
+      planSummary: 'plan vacío (estado ya OK)'
+    }
+  }
+
+  const actionLog: string[] = []
+  actionLog.push(`📋 ${formatPlanForLog(plan)}`)
+
+  const approve = async (toolName: string, risk: string) => {
+    if (risk === 'read' || risk === 'reversible') return true
+    const reasons: Record<string, string> = {
+      start_forge: 'iniciará Forge (RAM/VRAM/disco)',
+      start_music: 'iniciará ACE / capa de música (VRAM/CPU)',
+      voice_ensure: 'instalará o preparará el motor de voz (red/disco)',
+      start_ollama: 'iniciará Ollama (memoria/CPU)',
+      download_model: 'descargará un modelo (puede ser varios GB de disco y red)',
+      resume_download: 'reanudará una descarga de modelo',
+      delete_model: 'ELIMINARÁ un modelo del disco de forma permanente'
+    }
+    return useAgentApprovalStore.getState().request(
+      toolName,
+      reasons[toolName] || `acción sensible: ${toolName}`
+    )
+  }
+
+  const riskOf = (tool: string): string => {
+    if (
+      [
+        'get_app_status',
+        'health_forge',
+        'list_models',
+        'list_installed_models',
+        'recommend_model',
+        'check_local_runtime',
+        'list_download_jobs',
+        'run_diagnosis'
+      ].includes(tool)
+    )
+      return 'read'
+    if (
+      [
+        'start_forge',
+        'start_music',
+        'start_ollama',
+        'download_model',
+        'resume_download',
+        'voice_ensure'
+      ].includes(tool)
+    )
+      return 'resource'
+    if (tool === 'delete_model') return 'destructive'
+    return 'reversible'
+  }
+
+  const { results, stoppedReason } = await executePlan(
+    plan,
+    async (step) => {
+      const tool = String(step.tool)
+      const force =
+        tool === 'start_forge' ||
+        tool === 'start_ollama' ||
+        tool === 'start_music' ||
+        tool === 'ensure_faceid'
+      const skip = shouldSkipTool(tool, { force })
+      if (skip.skip) {
+        return { ok: false, summary: skip.reason || 'skipped_by_failure_memory', error: 'cooldown' }
+      }
+      const risk = riskOf(tool)
+      if (!(await approve(tool, risk))) {
+        return { ok: false, summary: 'resource_action_requires_approval', error: 'denied' }
+      }
+      const out = await executeAppTool({ tool: tool as AppToolName, args: step.args })
+      if (out.ok) recordToolSuccess(tool)
+      else recordToolFailure(tool, out.summary)
+      return out
+    },
+    { maxSteps: 8 }
+  )
+
+  for (const step of results) {
+    if (step.skipped) {
+      actionLog.push(`⏭ ${step.tool}: omitido`)
+      agentAudit.push(`skip ${step.tool}`)
+      continue
+    }
+    const output = step.output as { ok?: boolean; summary?: string } | undefined
+    const summary = output?.summary || step.error || 'sin resultado'
+    actionLog.push(`${step.ok ? '✓' : '✗'} ${step.tool}: ${summary}`)
+    agentAudit.push(`${step.tool} ok=${step.ok} ${summary}`)
+  }
+  if (stoppedReason) {
+    actionLog.push(`⏹ plan detenido: ${stoppedReason}`)
+  }
+
+  const observations = results
+    .filter((s) => !s.skipped)
+    .map((step) => {
+      const output = step.output as { ok?: boolean; summary?: string } | undefined
+      return JSON.stringify({
+        tool: step.tool,
+        ok: step.ok,
+        summary: output?.summary || step.error || null,
+        durationMs: step.durationMs
+      })
+    })
+
+  return {
+    cleanText,
+    actionLog,
+    observations,
+    hadActions: results.some((r) => !r.skipped),
+    planSummary: formatPlanForLog(plan)
+  }
+}
+
+export function getAgentAuditLog(): string { return agentAudit.export() }
+
+export { tryHandleAppControl, parseAppActions, parseAppPlan }
+
+export {
+  isStatusOrModelsQuery,
+  extractModelTagsFromObservations,
+  formatHostStatusAndModelsReply,
+  formatHostModelListReply,
+  isHallucinatedModelList,
+  buildToolObservationPrompt
+} from './host-formatters'

@@ -1,19 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import { shouldSummarize, summarizeConversation } from './summarize'
-import type { ChatMessage, ChatProvider, ChatCompletionResult } from '@core/providers'
+import type { ChatMessage, ChatProvider, ChatResult } from '@core/providers'
 
 function mockProvider(content: string): ChatProvider {
   return {
     id: 'mock',
-    kind: 'openai-compatible',
     displayName: 'Mock',
     healthCheck: async () => ({ ok: true }),
-    listModels: async () => [],
-    chat: async (): Promise<ChatCompletionResult> => ({
+    chat: async (): Promise<ChatResult> => ({
       content,
       model: 'mock-model'
     }),
-    chatStream: async () => ({ content, model: 'mock-model' })
+    chatStream: async () => {}
   }
 }
 

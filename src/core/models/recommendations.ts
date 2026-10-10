@@ -8,6 +8,9 @@ export interface HardwareProfile {
   totalMemoryGB: number
   cpuCores: number
   architecture: string
+  gpuName?: string | null
+  vramGB?: number | null
+  hasDiscreteGpu?: boolean | null
 }
 
 export type ModelSource = 'ollama-official' | 'ollama-community' | 'hf-gguf'

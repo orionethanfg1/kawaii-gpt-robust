@@ -1,5 +1,13 @@
+import { useAgendaDue } from '@features/chat/hooks/useAgendaDue'
+import { AboutSystemModal } from '../features/about/AboutSystemModal'
+import { useLayerScheduleToasts } from '../features/layers/useLayerScheduleToasts'
+import { GitSyncPanel } from '@/features/git/GitSyncPanel'
+import { ensureVisualDescriptionFromAvatar } from '@features/settings/ensureVisualDescription'
+import { runAutoBootstrap } from '@features/assistant/autoBootstrap'
 import { Suspense, lazy, useEffect, useState } from 'react'
-import { Settings } from 'lucide-react'
+import { PanelLeftClose, PanelLeft, Puzzle } from 'lucide-react'
+import { KawaiiIcon } from '@shared/ui/KawaiiIcon'
+import { useUiChromeStore } from '@shared/lib/stores/uiChromeStore'
 import { Button } from '@shared/ui/Button'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -7,9 +15,9 @@ import { Sidebar } from '@features/chat/components/Sidebar'
 import { ChatView } from '@features/chat/components/ChatView'
 import { RecoveryBanner } from '@features/chat/components/RecoveryBanner'
 import { useDownloadStore } from '@features/models/downloadStore'
-import { useRecoveryStore } from '@shared/lib/stores/recoveryStore'
 import { GenerativeLayersBadge } from '@features/generative/GenerativeLayersBadge'
 import { ActivityToasts } from '@shared/ui/ActivityToasts'
+import { AgentApprovalBanner } from '@shared/ui/AgentApprovalBanner'
 
 /**
  * Wizard / settings / download bar: lazy (optional surface).
@@ -27,12 +35,6 @@ const DownloadBar = lazy(() =>
 const ContextualTips = lazy(() =>
   import('@features/assistant/ContextualTips').then((m) => ({ default: m.ContextualTips }))
 )
-const ModelsStatusPanel = lazy(() =>
-  import('@features/models/ModelsStatusPanel').then((m) => ({
-    default: m.ModelsStatusPanel
-  }))
-)
-
 function useOllamaPullBridge() {
   const upsert = useDownloadStore((s) => s.upsert)
   const remove = useDownloadStore((s) => s.remove)
@@ -112,6 +114,38 @@ function useBackgroundSummarySafe() {
 }
 
 export function AppShell() {
+  useLayerScheduleToasts()
+  useAgendaDue()
+  const sidebarCollapsed = useUiChromeStore((s) => s.sidebarCollapsed)
+  const toggleSidebar = useUiChromeStore((s) => s.toggleSidebar)
+  const pluginsOpen = useUiChromeStore((s) => s.pluginsOpen)
+  const togglePlugins = useUiChromeStore((s) => s.togglePlugins)
+  useEffect(() => {
+    const onGit = () => setGitOpen(true)
+    window.addEventListener('kawaii:open-git-sync', onGit)
+    return () => window.removeEventListener('kawaii:open-git-sync', onGit)
+  }, [])
+
+  useEffect(() => {
+    const unsub = window.kawaii?.onActivityWindowClosed?.(() => {
+      void import('@features/activities/companion').then(({ endActivityWithComment }) => {
+        endActivityWithComment('window-closed')
+      })
+    })
+    return () => {
+      unsub?.()
+    }
+  }, [])
+
+  const [aboutOpen, setAboutOpen] = useState(false)
+
+  useEffect(() => {
+    void runAutoBootstrap()
+    // Extra pass for avatar description if bootstrap is still downloading vision
+    const t = window.setTimeout(() => void ensureVisualDescriptionFromAvatar(), 12_000)
+    return () => window.clearTimeout(t)
+  }, [])
+
   const uiComplexity = useSettingsStore((s) => s.settings.uiComplexity || 'smart')
 
 
@@ -178,6 +212,27 @@ export function AppShell() {
 
   const hasCompletedSetup = useSettingsStore((s) => s.settings.hasCompletedSetup)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [gitOpen, setGitOpen] = useState(false)
+
+  // ESC cierra ajustes / Git / asistente
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (settingsOpen) {
+        e.preventDefault()
+        setSettingsOpen(false)
+        return
+      }
+      if (gitOpen) {
+        e.preventDefault()
+        setGitOpen(false)
+        return
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [settingsOpen, gitOpen])
+
   const [showWizard, setShowWizard] = useState(() => !hasCompletedSetup)
   // Persist rehydration: open wizard only if setup never completed
   useEffect(() => {
@@ -224,36 +279,76 @@ export function AppShell() {
 
       <header className="flex items-center justify-between px-4 py-2 border-b border-kawaii-border bg-white/60 backdrop-blur shrink-0 z-10">
         <div className="flex items-center gap-2">
-          <span className="text-2xl" aria-hidden>
-            🌸
-          </span>
+          <button
+            type="button"
+            className="p-1.5 rounded-lg border border-kawaii-border hover:bg-white/80 text-kawaii-text-muted"
+            title={sidebarCollapsed ? 'Mostrar panel' : 'Ocultar panel'}
+            onClick={() => toggleSidebar()}
+          >
+            {sidebarCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+          </button>
+          <KawaiiIcon name="app" size={28} title="KawaiiGPT" />
           <h1 className="font-bold text-lg text-kawaii-text tracking-tight">
             KawaiiGPT <span className="text-kawaii-pink-deep font-semibold">Robust</span>
           </h1>
         </div>
-        <div className="flex items-center gap-2">
-          <ErrorBoundary name="Capas" fallback={null}><span className="text-[10px] px-2 py-0.5 rounded-full border border-kawaii-border text-kawaii-text-muted hidden sm:inline">
-            UI: {uiComplexity === 'advanced' ? 'Avanzado' : 'Smart'}
-          </span>
-          <GenerativeLayersBadge /></ErrorBoundary>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <ErrorBoundary name="Capas" fallback={null}>
+            <GenerativeLayersBadge />
+          </ErrorBoundary>
+          <button
+            type="button"
+            className={`text-[11px] px-2.5 py-1 rounded-full border font-medium transition ${
+              uiComplexity === 'advanced'
+                ? 'bg-violet-100 border-violet-400 text-violet-900'
+                : 'bg-kawaii-pink-soft border-kawaii-pink-deep text-kawaii-pink-deep'
+            }`}
+            title="Alternar interfaz Smart / Avanzada"
+            onClick={() => {
+              const next = uiComplexity === 'advanced' ? 'smart' : 'advanced'
+              useSettingsStore.getState().update({ uiComplexity: next })
+            }}
+          >
+            {uiComplexity === 'advanced' ? '🔧 Avanzada' : '✨ Smart'}
+          </button>
+          <Button
+            variant="ghost"
+            className={`text-xs ${pluginsOpen ? 'bg-kawaii-pink-soft' : ''}`}
+            onClick={() => togglePlugins()}
+            title="Plugins y skills"
+          >
+            <Puzzle className="w-4 h-4" />
+            Plugins
+          </Button>
           <Button
             variant="ghost"
             className="text-xs"
             onClick={() => setShowWizard(true)}
             title="Asistente de configuración"
           >
+            <KawaiiIcon name="ai" size={16} className="mr-1" />
             Asistente
           </Button>
+          <Button
+            variant="ghost"
+            className="text-xs"
+            onClick={() => setAboutOpen(true)}
+            title="Tu equipo y Acerca de"
+          >
+            Equipo
+          </Button>
           <Button variant="ghost" onClick={() => setSettingsOpen(true)} title="Ajustes">
-            <Settings className="w-4 h-4" />
+            <KawaiiIcon name="settings" size={16} className="mr-1" />
             Ajustes
           </Button>
         </div>
       </header>
 
       <RecoveryBanner />
+      <AgentApprovalBanner />
 
       <div className="flex-1 flex min-h-0">
+        {!sidebarCollapsed && (
         <ErrorBoundary
           name="Sidebar"
           fallback={
@@ -264,6 +359,7 @@ export function AppShell() {
         >
           <Sidebar />
         </ErrorBoundary>
+        )}
 
         <ErrorBoundary
           name="Chat"
@@ -290,11 +386,22 @@ export function AppShell() {
         </Suspense>
       </ErrorBoundary>
 
+      {aboutOpen && (
+        <ErrorBoundary name="Equipo">
+          <AboutSystemModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
+        </ErrorBoundary>
+      )}
+
       {settingsOpen && (
         <ErrorBoundary name="Ajustes">
           <Suspense fallback={null}>
             <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
           </Suspense>
+        </ErrorBoundary>
+      )}
+      {gitOpen && (
+        <ErrorBoundary name="GitHub">
+          <GitSyncPanel open={gitOpen} onClose={() => setGitOpen(false)} />
         </ErrorBoundary>
       )}
     </div>

@@ -6,7 +6,7 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
-import { mkdir, readFile, writeFile, rename, unlink, readdir, stat } from 'fs/promises'
+import { mkdir, readFile, writeFile, rename, unlink, readdir } from 'fs/promises'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { platform, totalmem } from 'os'
@@ -205,9 +205,10 @@ export function runPreflight(
   const nvidia = gpu.includes('nvidia') || gpu.includes('geforce') || gpu.includes('rtx') || gpu.includes('gtx')
   const discrete = hw.hasDiscreteGpu === true || nvidia
 
+  // GPU miss is a warning, never a hard block — detection often fails while Forge works.
   if (!discrete || !nvidia) {
-    reasons.push(
-      'No se detectó GPU NVIDIA dedicada. Forge CUDA no es fiable aquí; usa generación cloud (Pollinations).'
+    warnings.push(
+      'No se detectó GPU NVIDIA en el perfil de hardware. Forge puede arrancar igual (CUDA/CPU); cloud sigue disponible.'
     )
   } else if (vram > 0 && vram < 4) {
     reasons.push(`VRAM ~${vram} GB es baja (< 4 GB). SD local será muy lento o inestable.`)

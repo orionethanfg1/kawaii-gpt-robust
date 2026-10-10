@@ -21,9 +21,9 @@ export interface PackedContext {
 
 /** Rough char budget by provider kind */
 export function defaultBudget(kind: 'local' | 'cloud'): ContextBudget {
-  // Conservative: leave room for response generation
+  // Keep local history intact when possible; shrink only when the model rejects it.
   if (kind === 'local') {
-    return { maxChars: 12_000, keepRecentMessages: 8 }
+    return { maxChars: 48_000, keepRecentMessages: 24 }
   }
   return { maxChars: 48_000, keepRecentMessages: 16 }
 }
@@ -67,29 +67,24 @@ export function packContext(
 ): PackedContext {
   const recent = history.slice(-budget.keepRecentMessages)
   const older = history.slice(0, Math.max(0, history.length - budget.keepRecentMessages))
-
-  let messages: ChatMessage[] = [...systemMessages, ...recent, userMessage]
-  let truncated = false
+  const summary = externalSummary?.trim() || buildHeuristicSummary(older)
+  const summaryMessage: ChatMessage | null = summary
+    ? {
+        role: 'system',
+        content:
+          'Resumen de turnos anteriores de esta conversación (para continuidad; puede ser incompleto):\n' +
+          summary
+      }
+    : null
+  let messages: ChatMessage[] = [
+    ...systemMessages,
+    ...(summaryMessage ? [summaryMessage] : []),
+    ...recent,
+    userMessage
+  ]
+  let truncated = older.length > 0
   let droppedCount = older.length
-  let summaryInjected = false
-
-  if (older.length > 0) {
-    const summary = (externalSummary && externalSummary.trim()) || buildHeuristicSummary(older)
-    if (summary) {
-      messages = [
-        ...systemMessages,
-        {
-          role: 'system',
-          content:
-            'Resumen de turnos anteriores de esta conversación (para continuidad; puede ser incompleto):\n' +
-            summary
-        },
-        ...recent,
-        userMessage
-      ]
-      summaryInjected = true
-    }
-  }
+  let summaryInjected = Boolean(summaryMessage)
 
   // If still too large, drop oldest recent messages (keep system + user)
   while (approxLen(messages) > budget.maxChars && messages.length > systemMessages.length + 2) {

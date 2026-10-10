@@ -22,27 +22,27 @@ interface Props {
 export function SetupChecklist({ onOpenSettings, onOpenWizard, onStartChat }: Props) {
   const settings = useSettingsStore((s) => s.settings)
   const conversations = useChatStore((s) => s.conversations)
-  const [ollamaOk, setOllamaOk] = useState<boolean | null>(null)
+  const [localRuntimeOk, setLocalRuntimeOk] = useState<boolean | null>(null)
   const [hasAnyKey, setHasAnyKey] = useState<boolean | null>(null)
 
   useEffect(() => {
     let cancelled = false
     const run = async () => {
-      // Ollama
+      // Local runtime: Ollama OR LM Studio (either is enough)
       if (settings.providerMode === 'cloud') {
-        if (!cancelled) setOllamaOk(null)
+        if (!cancelled) setLocalRuntimeOk(null)
       } else {
         try {
-          const controller = new AbortController()
-          const timer = setTimeout(() => controller.abort(), 3500)
-          const res = await fetch(
-            `${settings.localBaseUrl.replace(/\/$/, '')}/api/tags`,
-            { signal: controller.signal }
-          )
-          clearTimeout(timer)
-          if (!cancelled) setOllamaOk(res.ok)
+          const { resolveLocalRuntime } = await import('@core/providers')
+          const resolved = await resolveLocalRuntime({
+            preference: 'auto',
+            ollamaBaseUrl: settings.localBaseUrl,
+            openAIBaseUrl: (settings.localOpenAIBaseUrl || '').trim() || undefined,
+            preferredModel: (settings.localModel || '').trim() || undefined
+          })
+          if (!cancelled) setLocalRuntimeOk(Boolean(resolved))
         } catch {
-          if (!cancelled) setOllamaOk(false)
+          if (!cancelled) setLocalRuntimeOk(false)
         }
       }
 
@@ -60,7 +60,12 @@ export function SetupChecklist({ onOpenSettings, onOpenWizard, onStartChat }: Pr
     return () => {
       cancelled = true
     }
-  }, [settings.localBaseUrl, settings.providerMode])
+  }, [
+    settings.localBaseUrl,
+    settings.localOpenAIBaseUrl,
+    settings.localModel,
+    settings.providerMode
+  ])
 
   const needsLocal = settings.providerMode === 'local' || settings.providerMode === 'smart'
   const needsCloud = settings.providerMode === 'cloud' || settings.providerMode === 'smart'
@@ -81,13 +86,13 @@ export function SetupChecklist({ onOpenSettings, onOpenWizard, onStartChat }: Pr
     ...(needsLocal
       ? [
           {
-            id: 'ollama',
-            label: 'Ollama en marcha',
-            done: ollamaOk === true,
+            id: 'local-runtime',
+            label: 'Runtime local (Ollama o LM Studio)',
+            done: localRuntimeOk === true,
             hint:
-              ollamaOk === false
-                ? 'Abre Ollama o usa el Asistente → Iniciar'
-                : ollamaOk === null
+              localRuntimeOk === false
+                ? 'Inicia Ollama o en LM Studio: Developer → Start Server (:1234)'
+                : localRuntimeOk === null
                   ? 'Comprobando…'
                   : undefined,
             action: onOpenWizard,
@@ -97,7 +102,7 @@ export function SetupChecklist({ onOpenSettings, onOpenWizard, onStartChat }: Pr
             id: 'local-model',
             label: 'Modelo local elegido',
             done: Boolean(settings.localModel?.trim()),
-            hint: settings.localModel || 'Ej. llama3.2:3b',
+            hint: settings.localModel || 'Ej. qwen2.5:7b o qwen/qwen3.8-27b',
             action: onOpenSettings,
             actionLabel: 'Ajustes'
           } satisfies ChecklistItem

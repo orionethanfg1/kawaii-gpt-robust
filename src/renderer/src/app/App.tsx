@@ -1,11 +1,16 @@
-import { ErrorBoundary } from './ErrorBoundary'
+import '@core/activities/register'
 import { AppShell } from './AppShell'
+import { ActivityRoot, readActivityKindFromHash } from '@features/activities/ActivityRoot'
 
-/** Root: thin wrapper. Features live under AppShell with boundaries. */
+/** Root: activity windows use hash route; main chat uses AppShell. */
 export default function App() {
+  const kind = readActivityKindFromHash()
+  if (kind) {
+    return <ActivityRoot kind={kind} />
+  }
   return (
-    <ErrorBoundary name="App">
+    <div className="h-full">
       <AppShell />
-    </ErrorBoundary>
+    </div>
   )
 }

@@ -29,6 +29,22 @@ export async function ensureSdWorkspace(): Promise<{
   const modelsDir = getSdModelsDir()
   const created = !existsSync(root)
   await mkdir(modelsDir, { recursive: true })
+  const loraDir = join(root, 'models', 'Lora')
+  await mkdir(loraDir, { recursive: true })
+  // Also mirror under forge if configured
+  try {
+    const { loadMachineProfile } = await import('./machine-profile')
+    const p = await loadMachineProfile()
+    const forgeRoot = (p as { forgeInstallPath?: string })?.forgeInstallPath
+    if (forgeRoot) {
+      await mkdir(join(forgeRoot, 'models', 'Stable-diffusion'), { recursive: true })
+      await mkdir(join(forgeRoot, 'models', 'Lora'), { recursive: true })
+      await mkdir(join(forgeRoot, 'webui', 'models', 'Stable-diffusion'), { recursive: true })
+      await mkdir(join(forgeRoot, 'webui', 'models', 'Lora'), { recursive: true })
+    }
+  } catch {
+    /* optional */
+  }
   await mkdir(join(root, 'outputs'), { recursive: true })
 
   // Helper scripts for Windows users
@@ -64,10 +80,86 @@ explorer "${modelsDir.replace(/\//g, '\\')}"
 }
 
 export async function listLocalCheckpoints(): Promise<string[]> {
-  const dir = getSdModelsDir()
-  if (!existsSync(dir)) return []
-  const files = await readdir(dir)
-  return files.filter((f) => f.endsWith('.safetensors') || f.endsWith('.ckpt'))
+  const detailed = await listLocalWeightsDetailed()
+  return detailed.filter((d) => d.kind === 'checkpoint').map((d) => d.filename)
+}
+
+export type LocalWeightInfo = {
+  filename: string
+  path: string
+  sizeBytes: number
+  kind: 'checkpoint' | 'lora' | 'unknown'
+  family: string
+  /** Heuristic: SDXL-class if very large */
+  likelySdxl: boolean
+  location: 'workspace' | 'forge'
+}
+
+/** Scan workspace + Forge model folders (checkpoints AND LoRAs). Always disk-fresh. */
+export async function listLocalWeightsDetailed(): Promise<LocalWeightInfo[]> {
+  const { readdir, stat } = await import('fs/promises')
+  const out: LocalWeightInfo[] = []
+  const seen = new Set<string>()
+
+  const dirs: Array<{ dir: string; location: 'workspace' | 'forge' }> = []
+  try {
+    dirs.push({ dir: getSdModelsDir(), location: 'workspace' })
+  } catch {
+    /* ignore */
+  }
+  try {
+    const { loadMachineProfile } = await import('./machine-profile')
+    const p = await loadMachineProfile()
+    const forgeRoot = (p as { forgeInstallPath?: string })?.forgeInstallPath
+    if (forgeRoot) {
+      dirs.push({ dir: join(forgeRoot, 'models', 'Stable-diffusion'), location: 'forge' })
+      dirs.push({ dir: join(forgeRoot, 'models', 'Lora'), location: 'forge' })
+      dirs.push({ dir: join(forgeRoot, 'webui', 'models', 'Stable-diffusion'), location: 'forge' })
+      dirs.push({ dir: join(forgeRoot, 'webui', 'models', 'Lora'), location: 'forge' })
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const { classifyLocalWeight, familyFromFilename } = await import(
+    '../core/generative/smart-checkpoint'
+  )
+
+  for (const { dir, location } of dirs) {
+    if (!existsSync(dir)) continue
+    let names: string[] = []
+    try {
+      names = await readdir(dir)
+    } catch {
+      continue
+    }
+    for (const f of names) {
+      if (!/\.(safetensors|ckpt)$/i.test(f)) continue
+      const fp = join(dir, f)
+      const key = f.toLowerCase()
+      if (seen.has(key)) continue
+      try {
+        const stt = await stat(fp)
+        if (!stt.isFile() || stt.size < 1_000_000) continue
+        seen.add(key)
+        let kind = classifyLocalWeight(f, stt.size)
+        if (/[\\/]Lora[\\/]/i.test(dir) || /\blora\b/i.test(f)) kind = 'lora'
+        out.push({
+          filename: f,
+          path: fp,
+          sizeBytes: stt.size,
+          kind,
+          family: familyFromFilename(f),
+          likelySdxl: stt.size >= 5_500_000_000,
+          location
+        })
+      } catch {
+        /* skip */
+      }
+    }
+  }
+  out.sort((a, b) => b.sizeBytes - a.sizeBytes)
+  return out
 }
 
 export async function openSdWorkspace(): Promise<void> {
@@ -168,6 +260,20 @@ export const CHECKPOINT_CATALOG: CheckpointCatalogEntry[] = [
     mergeFriendly: true
   },
   {
+    id: 'ultra-v15-local',
+    filename: 'ultra_v15.safetensors',
+    url: '',
+    mirrors: [],
+    approxGB: 14,
+    label: 'Ultra v1.5 (local / Civitai)',
+    safety: 'flexible',
+    styles: ['photo', 'art'],
+    notes:
+      'Modelo grande (~14 GB). Suele ser SDXL o merge pesado. En 12 GB VRAM usa con cuidado (atención baja, --medvram). No hay mirror HF fijo: colócalo en models/Stable-diffusion.',
+    bestFor: 'Máximo detalle si VRAM aguanta; si no, usa Realistic Vision / DreamShaper',
+    mergeFriendly: true
+  },
+  {
     id: 'deliberate-v2',
     filename: 'Deliberate_v2.safetensors',
     url: 'https://huggingface.co/XpucT/Deliberate/resolve/main/Deliberate_v2.safetensors',
@@ -238,44 +344,15 @@ export function setActiveSdControl(
 export async function listInstalledCheckpoints(): Promise<
   Array<{ id: string; filename: string; path: string; sizeBytes: number }>
 > {
-  const modelsDir = await resolveSdModelsDir()
-  const { readdir, stat } = await import('fs/promises')
-  const { existsSync } = await import('fs')
-  const out: Array<{ id: string; filename: string; path: string; sizeBytes: number }> = []
-  if (!existsSync(modelsDir)) return out
-  let names: string[] = []
-  try {
-    names = await readdir(modelsDir)
-  } catch {
-    return out
-  }
-  for (const entry of CHECKPOINT_CATALOG) {
-    const candidates = [entry.filename, ...names.filter((n) => n === entry.filename)]
-    const loose = names.find(
-      (n) =>
-        n.toLowerCase() === entry.filename.toLowerCase() ||
-        n.toLowerCase().includes(entry.id.replace(/-/g, '').slice(0, 10).toLowerCase())
-    )
-    const fileName = existsSync(join(modelsDir, entry.filename))
-      ? entry.filename
-      : loose
-    if (!fileName) continue
-    const fp = join(modelsDir, fileName)
-    try {
-      const stt = await stat(fp)
-      if (stt.isFile() && stt.size > 50_000_000) {
-        out.push({
-          id: entry.id,
-          filename: fileName,
-          path: fp,
-          sizeBytes: stt.size
-        })
-      }
-    } catch {
-      /* skip */
-    }
-  }
-  return out
+  const detailed = await listLocalWeightsDetailed()
+  return detailed
+    .filter((d) => d.kind === 'checkpoint')
+    .map((d) => ({
+      id: d.filename.replace(/\.(safetensors|ckpt)$/i, ''),
+      filename: d.filename,
+      path: d.path,
+      sizeBytes: d.sizeBytes
+    }))
 }
 
 export async function listSdDownloadRecovery(): Promise<
@@ -531,4 +608,26 @@ async function syncInto(
     }
   }
   return { ok: true, copied, skipped, forgeModelsDir: destDir }
+}
+
+
+/** Ensure Forge + workspace Lora dirs exist (call before LoRA downloads). */
+export async function ensureLoraDirs(): Promise<{ workspace: string; forge: string | null }> {
+  const root = getSdWorkspaceRoot()
+  const workspace = join(root, 'models', 'Lora')
+  await mkdir(workspace, { recursive: true })
+  let forge: string | null = null
+  try {
+    const { loadMachineProfile } = await import('./machine-profile')
+    const p = await loadMachineProfile()
+    const forgeRoot = (p as { forgeInstallPath?: string })?.forgeInstallPath
+    if (forgeRoot) {
+      forge = join(forgeRoot, 'models', 'Lora')
+      await mkdir(forge, { recursive: true })
+      await mkdir(join(forgeRoot, 'webui', 'models', 'Lora'), { recursive: true })
+    }
+  } catch {
+    /* ignore */
+  }
+  return { workspace, forge }
 }

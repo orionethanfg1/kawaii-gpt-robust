@@ -15,6 +15,11 @@ import {
   packContext,
   type PackedContext
 } from './context-window'
+import {
+  outputProfileForModel,
+  recentMessageLimit,
+  type ChatOutputProfile
+} from './output-budget'
 
 /** Rough tokens ≈ chars / 4 (Spanish/English mix) */
 export function estimateTokensFromChars(chars: number): number {
@@ -76,16 +81,25 @@ export function contextTokensForModel(modelId: string, kind: 'local' | 'cloud'):
 export function budgetForModel(
   modelId: string,
   kind: 'local' | 'cloud',
-  completionReserveTokens = 1024
+  completionReserveTokens = 1024,
+  profile = outputProfileForModel(modelId, kind)
 ): ContextBudget {
   const windowTok = contextTokensForModel(modelId, kind)
   const usableTok = Math.max(1024, windowTok - completionReserveTokens)
-  // Cap local aggressively; cloud can be larger but not insane for free APIs
-  const maxCharsCap = kind === 'local' ? 14_000 : 96_000
+  // Local runtimes commonly expose larger windows than the conservative legacy cap.
+  // Actual overflow is handled by the retry path, so do not compact early.
+  const profileCap: Record<ChatOutputProfile, number> = {
+    lite: 12_000,
+    mid: 24_000,
+    heavy: 48_000,
+    max: 96_000
+  }
+  const maxCharsCap = Math.min(
+    kind === 'local' ? 48_000 : 96_000,
+    profileCap[profile]
+  )
   const maxChars = Math.min(maxCharsCap, usableTok * 4)
-  const keepRecent =
-    kind === 'local' ? (maxChars < 8000 ? 6 : 8) : maxChars > 40_000 ? 20 : 14
-  return { maxChars, keepRecentMessages: keepRecent }
+  return { maxChars, keepRecentMessages: recentMessageLimit(profile) }
 }
 
 export type ContextPlan = {
@@ -110,6 +124,7 @@ export function planContext(input: {
   modelId: string
   kind: 'local' | 'cloud'
   providerId?: string
+  profile?: ChatOutputProfile
 }): ContextPlan {
   const draft: ChatMessage[] = [
     ...input.systemMessages,
@@ -118,7 +133,12 @@ export function planContext(input: {
   ]
   const estimatedChars = estimateMessagesChars(draft)
   const estimatedTokens = estimateTokensFromChars(estimatedChars)
-  const budget = budgetForModel(input.modelId, input.kind)
+  const budget = budgetForModel(
+    input.modelId,
+    input.kind,
+    1024,
+    input.profile ?? outputProfileForModel(input.modelId, input.kind)
+  )
   const windowTok = contextTokensForModel(input.modelId, input.kind)
   // Tight if we use >55% of window before packing
   const isTight = estimatedTokens > windowTok * 0.55 || estimatedChars > budget.maxChars * 0.85
