@@ -5,9 +5,56 @@ import {
   Message,
   createConversationId,
   createMessageId,
-  titleFromContent,
   smartConversationTitle
 } from '@core/conversation'
+
+const MAX_PERSISTED_IMAGE_CHARS = 900_000
+const MAX_PERSISTED_IMAGE_CHARS_PER_ITEM = 600_000
+
+export function capPersistedConversationImages(conversations: Conversation[]): Conversation[] {
+  const candidates = conversations.flatMap((conversation) =>
+    conversation.messages.flatMap((message) =>
+      (message.attachments || [])
+        .filter(
+          (attachment) =>
+            attachment.mimeType.startsWith('image/') &&
+            Boolean(attachment.dataUrl) &&
+            !attachment.filePath &&
+            attachment.dataUrl!.length <= MAX_PERSISTED_IMAGE_CHARS_PER_ITEM
+        )
+        .map((attachment) => ({
+          id: attachment.id,
+          createdAt: message.createdAt,
+          length: attachment.dataUrl!.length
+        }))
+    )
+  )
+  candidates.sort((a, b) => b.createdAt - a.createdAt)
+
+  const retained = new Set<string>()
+  let remaining = MAX_PERSISTED_IMAGE_CHARS
+  for (const candidate of candidates) {
+    if (candidate.length > remaining) continue
+    retained.add(candidate.id)
+    remaining -= candidate.length
+  }
+
+  return conversations.map((conversation) => ({
+    ...conversation,
+    messages: conversation.messages.map((message) => ({
+      ...message,
+      isStreaming: false,
+      attachments: message.attachments?.map((attachment) => {
+        if (!attachment.mimeType.startsWith('image/') || !attachment.dataUrl) return attachment
+        const filePath = attachment.filePath ||
+          (message.meta?.imageFilePath ? String(message.meta.imageFilePath) : undefined)
+        if (filePath) return { ...attachment, filePath, dataUrl: undefined }
+        if (!retained.has(attachment.id)) return { ...attachment, dataUrl: undefined }
+        return attachment
+      })
+    }))
+  }))
+}
 
 interface ChatState {
   conversations: Conversation[]
@@ -219,22 +266,14 @@ export const useChatStore = create<ChatState>()(
     {
       name: 'kawaii-chats-v1',
       partialize: (s) => ({
-        conversations: s.conversations.map((c) => ({
-          ...c,
-          // never persist streaming ghosts; cap image dataUrls to limit quota errors
-          messages: c.messages
-            .filter((m) => !(m.isStreaming && !m.content))
-            .map((m) => {
-              const MAX_DATA_URL = 1_500_000 // ~1.5MB chars
-              const attachments = m.attachments?.map((a) => {
-                if (a.dataUrl && a.dataUrl.length > MAX_DATA_URL) {
-                  return { ...a, dataUrl: undefined }
-                }
-                return a
-              })
-              return { ...m, isStreaming: false, attachments }
-            })
-        })),
+        conversations: capPersistedConversationImages(
+          s.conversations.map((conversation) => ({
+            ...conversation,
+            messages: conversation.messages.filter(
+              (message) => !(message.isStreaming && !message.content)
+            )
+          }))
+        ),
         activeId: s.activeId
       })
     }

@@ -1,197 +1,210 @@
-## [0.6.1] — 2026-09-01
+## 0.11.1-beta — Primera beta instalable
 
-### Fixed
-- Detección de Forge al generar: escaneo de puertos + intento de arranque
-- Credenciales Cloudflare (Account ID en secure store + botón Guardar y probar)
-- Launcher muestra version de package.json y limpia `out/` al arrancar
-- UI de version: alerta si electron ≠ package.json
+- Empaquetado NSIS + portable (Windows x64)
+- Wizard: modo Solo cloud para PCs sin modelo local; enlaces Ollama / LM Studio y verificación de requisitos
+- Lectura de documentos: map-reduce heurístico en resumen rolling; reseñas más densas; Continuar escribiendo transparente (chip de app)
+- Carpetas separadas: `user-uploads` (originales) vs `app-context` (extractos)
+- Ollama: arranque con espera ~45s + hint de descarga
+- Web 0 hits: no inventar fuentes
+- Forge no arranca al boot; idle release de VRAM
+- Tester Essential + UI journey por versión
+- Docs: `docs/BETA-0.11.md`, smoke 0.11
 
+## 0.10.10 rev.be — Modelos deshabilitados + web iniciativa + biblioteca + continuar
 
-### Fixed
-- Versión de UI hardcodeada (v0.5.0) → lee package.json / app.getVersion()
-- Guardado fiable de Cloudflare (Account ID + Token)
-- Cadena imagen: Local → Cloudflare FLUX → Pollinations con motivo de fallback
+- Auto **no** reabre el catálogo completo si el usuario deshabilitó modelos (pool vacío → null)
+- Match de `disabledLocalModels` más estricto
+- Iniciativa: web solo con tema claro en líneas del **usuario** (no por gustos genéricos); meta web solo si hubo modelo + hits
+- Iniciativa respeta modelos deshabilitados
+- `standingInstructions` en memoria de usuario + inyección por turno
+- Preguntas de progreso de lectura usan estado guardado de documentos
+- Botón **Continuar lectura** + biblioteca de adjuntos en el lateral
 
-### Added
-- Integración Cloudflare Workers AI (FLUX.1 Schnell)
+## 0.10.10 rev.bd — Web search operativa + iniciativa proactiva
 
----
+- Backends: Wikipedia en paralelo, Google News RSS, Brave HTML + cascade existente
+- `shouldAutoWebSearch` + `suggestInitiativeSearchQuery`
+- Chat: web automática en temas actuales si `webSearchEnabled`
+- Iniciativa: puede buscar y pasar hits al modelo; meta con web hits
+- 0 hits: no inventar hallazgos
 
-# Changelog
+## 0.10.10 rev.bc — Lectura progresiva + resumen rolling (docs largos)
 
-## [0.5.1] — 2026-09-01
+- `document-reading-state.ts`: cursor por capítulo, resumen compacto de tramos ya leídos (patrón refine)
+- `buildDocumentsWithState`: persiste progreso; «sigue» / capítulo N avanza de verdad
+- Recuperación de texto desde historial si el usuario no re-adjunta el archivo
+- `documentReadingStore` (localStorage): puntero + resumen por conversación
+- Soft-complete y párrafos más robustos en respuestas largas cortadas a media frase
+- Smoke: contratos progressive + reading state + orchestrator wire
 
-### Añadido
-- **Chat natural de imágenes**: pide fotos en el mensaje («hazme una imagen de…»); feedback («el doble», «cambia el fondo»).
-- Escala rápida ½ / 1× / 1½ / 2× en opciones de imagen; defaults imageGen **smart** activos.
-- Listado de checkpoints desde **disco** si la API Forge devuelve 404.
+## 0.10.10 rev.bb — M0+M1 dual memory + backup gate
 
-### Cambiado
-- Prioridad cloud: inteligencia (OpenRouter/Gemini) antes que velocidad (Groq).
-- Panel de imagen = opciones avanzadas; el chat es la interfaz principal.
+- assistant-memory / dual-memory / memory-backup-gate modules
+- Snapshot user memory before clear; restore vs start fresh in settings panel
+- Settings: assistantMemory, memoryGatePending, relationshipState shell
+- Orchestrator injects assistant memory prompt when present
 
----
+## 0.10.10 rev.x
 
-## [0.5.0] — 2026-09-01
+### E-ORCH-2
+- orchestratorRun.ts (runOn + cloud queue)
+- orchestratorTypes.ts
 
-### Añadido
+## 0.10.10 rev.w
 
-- **Estado de modelos en vivo** (instalados / en curso / fallidos) en barra compacta, panel de imagen y workspace SD.
-- **Modo UI Smart vs Avanzado** con diferencias reales de panel (memoria de errores, workspace Forge).
-- **Pruebas de red reales** (Cloudflare, httpbin, OpenRouter, Groq) en Autodiagnóstico y al fallar el chat.
-- Tips contextuales del asistente durante el uso (no solo onboarding).
-- Recovery SD/Forge más claro: fallidos no se muestran como “running”; **Continuar** reanuda desde disco.
-- Guía de botones en Datos locales / Stable Diffusion.
+### chatOrchestrator modular
+- orchestratorProviders.ts
+- orchestratorWebSearch.ts
 
-### Cambiado
+## 0.10.10 rev.v
 
-- Descargas SD: no borrar `.partial` al cambiar de mirror; más reintentos; mirrors en cadena tras `fetch failed`.
-- Barra de descargas: badges `descargando` / `pausado` / `falló`; incluye Ollama, SD y Forge.
-- Ajustes: banner explicativo del modo UI.
-- Documentación alineada con el flujo launcher + datos en disco no-sistema.
+### Monoliths
+- chatMusicFlow extract from useChat
 
-### Corregido
+## 0.10.10 rev.u
 
-- Claves React duplicadas en catálogo SD / recovery.
-- Jobs de recovery marcados erróneamente como en curso tras `fetch failed`.
-- Detección de checkpoints ya instalados (botón “Ya instalado”).
-- Sincronización barra inferior ↔ estado en disco (poll periódico).
+### Checkpoints message + capability replies
+- modelsCount fallback disco/sync (sd-models 500)
+- chatCapabilityReplies extract
 
-### Notas
+## 0.10.10 rev.t
 
-- Objetivo hacia **1.0**: chat estable, imágenes local/cloud usables, recovery fiable, empaquetado opcional.
-- Web search in-app para el modelo sigue siendo capa futura (la app sí mide red; el LLM no navega solo todavía).
+### Fix Forge start from chat
+- Preflight GPU no bloquea arranque
+- Probe API antes de preflight
+- ensureForgeReady: más puertos + strip GPU scare
 
----
+## 0.10.10 rev.s
 
-## [0.4.0] — 2026-08-30
+### E-USECHAT-2 + E-IMG-GEN
+- chatMediaPlan.ts
+- image-ipc-generate.ts + shell image-ipc
 
-### Añadido
-- **Reenviar** mensajes fallidos (sin reescribir el texto).
-- **Eliminar** mensajes individuales del chat.
-- **Memoria del usuario**: hechos cortos (nombre, gustos…) inyectados en el system prompt sin volcar todo el historial.
-- **Forge boot**: progreso en vivo (logs + toast), timeouts largos, recovery de descargas, filtro de logs ruidosos.
-- Sincronización de checkpoints → Forge; pipeline local de imagen.
+## 0.10.10 rev.r
 
-### Cambiado
-- Si Ollama no está disponible en modo smart, se usa cloud directamente (menos errores «modelo no disponible (ollama)» engañosos).
-- Cloud solo usa proveedores **Activo** + key (A4).
-- Descarga resumible con reintentos ante red inestable.
+### useChat modular (parcial)
+- chatNotify.ts, chatLocalShortcuts.ts
+- useChat ~1326 LOC (antes ~1583)
 
-### Corregido
-- Escritura atómica de `machine-profile.json` (race ENOENT).
-- Export `listRecoveryJobs` tras refactor de descargas.
-- Preload `onForgeBootProgress` (sintaxis).
-- Toast de arranque de Forge sincronizado con progreso real.
+## 0.10.10 rev.q
 
-## [0.3.0]
-## Multi-generative layers
+### image-ipc modular
+- image-pollinations.ts
+- image-ipc-meta.ts (health/models/folders)
+- image-ipc.ts ~generate only + secureStore via globalThis
 
-- Core generative module: intent + capability registry
-- Text hub invokes image/music/video only when needed
-- Settings flags for experimental music/video
-- Header badge for layer status
+## 0.10.10 rev.p
 
-# Changelog
+### E-FORGE-RT
+- forge-launch.ts: root, python, webui-user, bat launcher
+- forge-runtime ~935 LOC (ciclo vida)
+- fix orphan syntax post-ports extract
 
-Todos los cambios relevantes de **KawaiiGPT Robust** se documentan aquí.
+## 0.10.10 rev.o
 
-El formato se inspira en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
-y el proyecto usa [Semantic Versioning](https://semver.org/lang/es/).
+### E-FORGE-RT (parcial)
+- Nuevo src/main/forge-ports.ts (puertos + probe/scan health)
+- forge-runtime reexporta; ~200 LOC menos de proceso puro
 
-## [Unreleased]
+## 0.10.10 rev.n
 
-### Añadido
+### E-FAILMEM
+- start_forge nunca bloqueado por cooldown
+- éxito Forge limpia fallos de la familia health/start/probe
+- mensajes sin URL :7890; humanize oculta omit health si start OK
 
-- **Launcher Windows para principiantes**: comprobaciones Node/npm, logs, `pause` siempre, `Diagnostico.bat`.
+## 0.10.10 rev.m
 
-- **Wizard: paso Imágenes**: activar/cloud/smart/local, detección GPU, probar A1111; checklist post-setup.
-- **Checkpoints A1111**: listado en desplegable (panel + Ajustes), `override_settings.sd_model_checkpoint`.
-- **Imagen Fases 2–7**: adjuntar al hilo, meta, GPU hints, A1111/Forge, smart fallback, `/image`, estilo de personaje, limpieza de disco, tests de recomendaciones.
-- **Imagen Fase 0–1**: contratos `ImageProvider`, errores tipados, settings `imageGenEnabled` (default off).
-- **Pollinations**: IPC `image:generate` / `image:cancel`, guardado en `userData/images`, panel UI en chat.
-- Tests de URL Pollinations y clasificación de errores de imagen.
+### Fix health Forge puerto muerto
+- refreshForgeHealth: limpia baseUrl muerto (:7890); mensaje genérico 7860-7890
+- strip fetch failed @ URL en humanize y health_forge
+- Versiones: package + shared + renderer alineados 0.10.10 rev.m
 
-### Cambiado
+## 0.10.10 rev.l
 
-### Corregido
+### E-TC
+- scripts/typecheck-gate.mjs (tsc web+node si typescript instalado)
+- engines node >=20
+- npm run typecheck:gate
 
-## [0.3.0] — 2026-08-22
+## 0.10.10 rev.k
 
-### Añadido
+### E-SMOKE+
+- smoke-step3: contratos E-INIT, E-HMSG2, E4, planner, health_forge
+- verify-step1: mismos contratos
 
-- **Resumen en segundo plano**: pre-comprime chats largos en idle; se pausa durante el stream.
-- **Resumen background vía cloud** (opt-in): si no hay Ollama, usa el primer proveedor cloud con key (aviso de cuota en Ajustes).
-- **Indicador de resumen** en el header del chat: fuente y antigüedad (“hace X min”).
-- **Empaquetado NSIS + portable**: `Empaquetar-NSIS.bat` / `Empaquetar-Portable.bat`, iconos, `installer.nsh`, idiomas ES/EN.
-- **CI Windows** (GitHub Actions): tests + build NSIS/portable; release en tags `v*`; firma opcional vía `CSC_LINK`.
-- **Tests de integración del orquestador** (failover, rotación cloud, overflow, resumen); DI `deps` en `sendChatMessage`.
-- **Checklist post-setup** en el estado vacío del chat.
-- **Exportar / importar** conversaciones (JSON y Markdown).
-- **Indicador en vivo** de ruta/modelo durante la respuesta.
-- **Rotación multi-proveedor cloud** (OpenRouter, Groq, Gemini, OpenAI).
-- IPC de keys por proveedor + UI de slots en Ajustes.
-- **Resumen de contexto con modelo** (fallback heurístico) y persistencia `rollingSummary`.
+## 0.10.10 rev.j
 
-### Cambiado
+### E4 identity-match
+- plugins/identity-match + tools/identity_match.py (analyze + score)
+- host tools analyze_identity_refs, score_identity_match
+- registry + catalog
 
-- Orquestador: resume solo cuando hay turnos nuevos fuera de la ventana reciente.
-- Versión de producto **0.3.0**.
+## 0.10.10 rev.i
 
-### Corregido
+### E-HMSG2
+- health_forge: ok solo si running; sin JSON; stopped=fail
+- strip GPU NVIDIA scare
+- LM Studio no se sugiere en flujos Forge
 
-- Merge de ajustes: `traits` / `cloudSlots` al actualizar no se corrompen con parches parciales.
-- Flag de resumen en background: default activo; off solo con `false` explícito.
+## 0.10.10 rev.h
 
-## [0.2.0] — 2026-08-22
+### E-INIT fix fuerte
+- Timer por tiempo absoluto desde ultimo mensaje user (no reset por settings genéricos)
+- Streaming: reintento 4s, no reinicio del intervalo completo
+- Modo fijo: sin horario silencioso; idle ~40% del intervalo
+- Plantilla inmediata si modelo es LM Studio (id con /); Ollama LLM timeout 12s
+- Harness no bloquea iniciativa; console.debug [initiative]
 
-### Añadido
+## 0.10.10 rev.g
 
-- **Personalidad y avatar**: nombre, tagline, instrucciones, estilo, rasgos; emoji o imagen en el chat.
-- **Asistente de configuración** mejorado: progreso, detección de Ollama, sugerencias por hardware, descarga de modelos, proveedores cloud free.
-- **Gestión de modelos Ollama**: descargar (segundo plano), detener/cancelar, eliminar; listado de instalados.
-- **Intentar iniciar Ollama** desde la app si no responde.
-- **Ventana de contexto deslizante** + resumen heurístico de turnos antiguos.
-- **Reintentos ante overflow** de contexto/tokens (presupuesto reducido automático).
-- **Failover automático** local ↔ cloud (rate limit, cuota, red, indisponibilidad).
-- **Metadatos de ruta** en mensajes: modelo, ruta, motivo, hora, failover, contexto ajustado.
-- **Autodiagnóstico** en Ajustes + disparo opcional al fallar un proveedor (incluye intento de arrancar Ollama).
-- Catálogo de modelos cloud gratuitos (OpenRouter, Groq, Gemini, OpenAI).
-- Tests unitarios para el empaquetado de contexto.
+### E-HMSG + E-INTENT
+- planner: revisa Ollama/LM/Forge -> get_app_status
+- start_forge human summary (R2 note not error)
+- humanize start_forge/health_forge
+- catalog phrases
 
-### Cambiado
+## 0.10.10 rev.f
 
-- Orquestador de chat reescrito: personalidad + pack de contexto + failover transparente.
-- Settings persistidos en clave `kawaii-settings-v2` con merge seguro al actualizar.
-- README alineado con el estado real del proyecto (launcher, no empaquetado obligatorio).
+### E-INIT iniciativa
+- shouldSendInitiative: waitMinOverride + minUserIdleMs (modo fijo 1 min ya no choca con gate de 3 min)
+- useConversationInitiative: no reinicia el timer en cada pointer/key (solo mensajes user + settings)
+- maxPerDay 8; reanuda al salir de actividad (mini-juego)
+- Test: fixed mode short idle
 
-### Corregido
+## 0.10.10 rev.e
 
-- Clasificación de errores de contexto/tokens (precedencia y más patrones).
-- Posible **duplicación del mensaje de usuario** al construir el historial para el proveedor.
-- Merge incompleto de `character` al actualizar ajustes parciales.
-- Formato del handler `before-quit` en el proceso main.
-- Tipos/API de preload para pull cancel y delete de modelos.
+### E3 checklist release honesto
+- docs/RELEASE-0.10.md reescrito para 0.10.10 (auto + manual + limitaciones)
+- Criterio de uso diario separado de “perfecto”
 
-### Notas
+### Limitaciones 0.10.x (declaradas)
+- Plugin identity-match (E4) pendiente
+- Typecheck global puede fallar fuera de módulos recientes
+- R2 unload prioritario en Ollama; LM Studio best-effort
+- Hi-Res 2K puede saturar VRAM baja
+- FaceID sin score InsightFace no garantiza similitud numérica
 
-- Empaquetado NSIS/portable sigue configurado pero **no es el flujo por defecto** hasta aprobar una build.
-- “Pausar” descarga de Ollama no existe en la API oficial: **Detener** cancela; volver a descargar suele reanudar capas ya bajadas.
+## 0.10.10 rev.d
 
-## [0.1.0] — 2026-08-22
+### E2 contratos automatizados
+- verify-step1: R2 unload, forge-runtime skipUnload, ensureForgeReady, preload models:unloadLocal, forge-api-resolve, image-ipc wire, image-size, subject-prompt
+- smoke-step3: archivos + recover_settings/web_search en hostTools + R2/resolve
+- npm run release:check = verify + smoke (ambos OK)
 
-### Añadido
+## 0.10.10 rev.c
 
-- Scaffold Electron + Vite + React + TypeScript + Tailwind (tema kawaii).
-- Providers Ollama y OpenAI-compatible.
-- Smart router básico (local / cloud / web-augmented).
-- Circuit breaker y retries.
-- IPC: secrets, web search, hardware profile, single-instance, window state.
-- UI de chat, sidebar y ajustes mínimos.
-- Launchers Windows (`.bat`) y scripts de icono/shortcuts.
-- Configuración electron-builder (NSIS + portable).
+### E1 ingeniería
+- Nuevo : resolveForgeApiForGeneration (status → scan → start → probe)
+-  tryA1111 delega en ese módulo (~40 LOC menos de lógica duplicada)
 
----
+### Aprendizaje face corrections r2
+- Módulos pequeños con contrato claro (mismo estilo que image-size / subject-prompt)
 
-[0.2.0]: https://github.com/your-username/kawaii-gpt-robust/releases/tag/v0.2.0
-[0.1.0]: https://github.com/your-username/kawaii-gpt-robust/releases/tag/v0.1.0
+## 0.10.10 rev.b — engineering docs
+
+### Ingeniería
+- docs/ENGINEERING.md: carril E0–E4, inventario LOC, reglas de módulo
+- ROADMAP reorientado: ingeniería antes que features nuevas
+- package.json kawaiiRevision alineado a b
+
