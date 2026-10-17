@@ -1,142 +1,128 @@
 /**
- * Live discovery of OpenRouter free models.
- * Best practice: never hardcode only :free slugs — they rotate.
- * Prefer openrouter/free router when available.
+ * Discover free-tier models on OpenRouter for the setup wizard.
  */
 
-export interface DiscoveredFreeModel {
+export type OpenRouterFreeModel = {
   id: string
   name: string
+  free: boolean
   contextLength?: number
-  description?: string
 }
 
-export interface DiscoverFreeResult {
+export type DiscoverOpenRouterResult = {
   ok: boolean
-  models: DiscoveredFreeModel[]
-  error?: string
-  /** Recommended default */
+  models: OpenRouterFreeModel[]
   recommendedId: string
+  error?: string
 }
 
-const FALLBACK: DiscoveredFreeModel[] = [
-  { id: 'openrouter/free', name: 'Free Models Router (recomendado)' },
-  { id: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B Instruct (free)' },
-  { id: 'google/gemma-4-26b-a4b-it:free', name: 'Gemma 4 26B (free)' },
-  { id: 'nvidia/nemotron-3-nano-30b-a3b:free', name: 'Nemotron 3 Nano (free)' },
-  { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (free)' }
+const FALLBACK_FREE: OpenRouterFreeModel[] = [
+  {
+    id: 'meta-llama/llama-3.3-70b-instruct:free',
+    name: 'Llama 3.3 70B (free)',
+    free: true
+  },
+  {
+    id: 'google/gemma-2-9b-it:free',
+    name: 'Gemma 2 9B (free)',
+    free: true
+  },
+  {
+    id: 'mistralai/mistral-7b-instruct:free',
+    name: 'Mistral 7B (free)',
+    free: true
+  },
+  {
+    id: 'openrouter/free',
+    name: 'OpenRouter free router',
+    free: true
+  }
 ]
 
-function isZeroPrice(v: unknown): boolean {
-  if (v == null) return false
-  const s = String(v).trim()
-  return s === '0' || s === '0.0' || s === '0.00'
+function isFreeModel(m: {
+  id?: string
+  pricing?: { prompt?: string | number; completion?: string | number }
+  name?: string
+}): boolean {
+  const id = String(m.id || '')
+  if (/:free$/i.test(id) || /\/free$/i.test(id)) return true
+  const p = m.pricing?.prompt
+  const c = m.pricing?.completion
+  const zp = p === 0 || p === '0' || p === '0.0'
+  const zc = c === 0 || c === '0' || c === '0.0'
+  return zp && zc
 }
 
-/** Fetch free models from OpenRouter (key optional for public list on some deployments). */
-export async function discoverOpenRouterFreeModels(options: {
+/** Preferred free chat models when available on the live list. */
+const PREFERRED = [
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'meta-llama/llama-3.1-70b-instruct:free',
+  'google/gemma-2-9b-it:free',
+  'mistralai/mistral-7b-instruct:free',
+  'openrouter/free'
+]
+
+export async function discoverOpenRouterFreeModels(opts?: {
   apiKey?: string
-  signal?: AbortSignal
   timeoutMs?: number
-}): Promise<DiscoverFreeResult> {
-  const timeoutMs = options.timeoutMs ?? 12_000
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
-  const onAbort = () => controller.abort()
-  options.signal?.addEventListener('abort', onAbort)
-
+}): Promise<DiscoverOpenRouterResult> {
+  const timeoutMs = opts?.timeoutMs ?? 12_000
   try {
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-      'HTTP-Referer': 'https://kawaii-gpt-robust.local',
-      'X-Title': 'KawaiiGPT Robust'
-    }
-    if (options.apiKey?.trim()) {
-      headers.Authorization = `Bearer ${options.apiKey.trim()}`
-    }
-
+    const headers: Record<string, string> = { Accept: 'application/json' }
+    if (opts?.apiKey) headers.Authorization = `Bearer ${opts.apiKey}`
     const res = await fetch('https://openrouter.ai/api/v1/models', {
-      method: 'GET',
       headers,
-      signal: controller.signal
+      signal: AbortSignal.timeout(timeoutMs)
     })
-
     if (!res.ok) {
       return {
         ok: false,
-        models: FALLBACK,
-        recommendedId: 'openrouter/free',
-        error: `OpenRouter HTTP ${res.status} — usando lista de respaldo`
+        models: FALLBACK_FREE,
+        recommendedId: FALLBACK_FREE[0].id,
+        error: `OpenRouter HTTP ${res.status}`
       }
     }
-
-    const data = (await res.json()) as {
+    const json = (await res.json()) as {
       data?: Array<{
         id?: string
         name?: string
-        description?: string
         context_length?: number
-        pricing?: { prompt?: string; completion?: string }
+        pricing?: { prompt?: string | number; completion?: string | number }
       }>
     }
+    const free = (json.data || [])
+      .filter((m) => isFreeModel(m))
+      .map((m) => ({
+        id: String(m.id || ''),
+        name: String(m.name || m.id || ''),
+        free: true,
+        contextLength: m.context_length
+      }))
+      .filter((m) => m.id)
 
-    const free: DiscoveredFreeModel[] = []
-    for (const m of data.data ?? []) {
-      if (!m.id) continue
-      const id = m.id
-      const pricing = m.pricing
-      const zero =
-        pricing &&
-        isZeroPrice(pricing.prompt) &&
-        isZeroPrice(pricing.completion)
-      const suffixFree = id.endsWith(':free') || id === 'openrouter/free'
-      if (!zero && !suffixFree) continue
-      free.push({
-        id,
-        name: m.name || id,
-        contextLength: m.context_length,
-        description: m.description
-      })
-    }
-
-    // Ensure router is first if present or always inject
-    const hasRouter = free.some((m) => m.id === 'openrouter/free')
-    if (!hasRouter) {
-      free.unshift({
-        id: 'openrouter/free',
-        name: 'Free Models Router (recomendado)'
-      })
-    } else {
-      free.sort((a, b) => {
-        if (a.id === 'openrouter/free') return -1
-        if (b.id === 'openrouter/free') return 1
-        return a.id.localeCompare(b.id)
-      })
-    }
-
-    if (free.length === 0) {
-      return {
-        ok: false,
-        models: FALLBACK,
-        recommendedId: 'openrouter/free',
-        error: 'No se listaron free; usando respaldo'
+    const models = free.length ? free.slice(0, 80) : FALLBACK_FREE
+    let recommendedId = models[0]?.id || FALLBACK_FREE[0].id
+    for (const pref of PREFERRED) {
+      if (models.some((m) => m.id === pref)) {
+        recommendedId = pref
+        break
       }
     }
-
-    return {
-      ok: true,
-      models: free.slice(0, 40),
-      recommendedId: 'openrouter/free'
-    }
-  } catch (err) {
+    return { ok: true, models, recommendedId }
+  } catch (e) {
     return {
       ok: false,
-      models: FALLBACK,
-      recommendedId: 'openrouter/free',
-      error: err instanceof Error ? err.message : String(err)
+      models: FALLBACK_FREE,
+      recommendedId: FALLBACK_FREE[0].id,
+      error: e instanceof Error ? e.message : String(e)
     }
-  } finally {
-    clearTimeout(timer)
-    options.signal?.removeEventListener('abort', onAbort)
   }
+}
+
+/** Broad list (free + paid); used by optional tooling. */
+export async function discoverOpenRouterModels(opts?: {
+  apiKey?: string
+}): Promise<Array<{ id: string; name?: string }>> {
+  const r = await discoverOpenRouterFreeModels(opts)
+  return r.models.map((m) => ({ id: m.id, name: m.name }))
 }

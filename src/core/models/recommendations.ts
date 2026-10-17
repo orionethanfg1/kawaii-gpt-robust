@@ -8,10 +8,21 @@ export interface HardwareProfile {
   totalMemoryGB: number
   cpuCores: number
   architecture: string
+  gpuName?: string | null
+  vramGB?: number | null
+  hasDiscreteGpu?: boolean | null
 }
 
 export type ModelSource = 'ollama-official' | 'ollama-community' | 'hf-gguf'
 export type ModelRisk = 'none' | 'uncensored'
+
+export type ModelRole =
+  | 'general'
+  | 'companion'
+  | 'code'
+  | 'reason'
+  | 'vision'
+  | 'optional-rp'
 
 export interface ModelRecommendation {
   id: string
@@ -20,6 +31,8 @@ export interface ModelRecommendation {
   label: string
   sizeHint: string
   minRamGB: number
+  /** Soft ceiling: smoother than minRamGB (C1) */
+  comfortRamGB?: number
   reason: string
   tier: 'tiny' | 'small' | 'medium' | 'large'
   source: ModelSource
@@ -27,6 +40,10 @@ export interface ModelRecommendation {
   /** Shown when risk !== none */
   riskWarning?: string
   tags?: string[]
+  /** Catalog roles for routing / UI (C2) */
+  roles?: ModelRole[]
+  /** Lower = preferred within same role (ablit before RP) */
+  recommendRank?: number
   /** Optional mirror / docs link for the user */
   infoUrl?: string
 }
@@ -193,7 +210,9 @@ export const LOCAL_MODEL_CATALOG: ModelRecommendation[] = [
     source: 'ollama-community',
     risk: 'uncensored',
     riskWarning: ABLIT_WARN,
-    tags: ['uncensored', 'roleplay'],
+    tags: ['uncensored', 'companion', 'abliterated'],
+    roles: ['companion', 'general'],
+    recommendRank: 25,
     infoUrl: 'https://ollama.com/huihui_ai/qwen3-abliterated'
   },
   {
@@ -207,8 +226,128 @@ export const LOCAL_MODEL_CATALOG: ModelRecommendation[] = [
     source: 'ollama-community',
     risk: 'uncensored',
     riskWarning: ABLIT_WARN,
-    tags: ['uncensored'],
+    tags: ['uncensored', 'companion', 'abliterated'],
+    roles: ['companion'],
+    recommendRank: 28,
     infoUrl: 'https://ollama.com/mannix/llama3.1-8b-abliterated'
+  },
+
+  // —— Preferred companion: abliterated (general capability, fewer refusals) ——
+  {
+    id: 'qwen3-14b-ablit-huihui',
+    pullName: 'huihui_ai/qwen3-abliterated:14b-v2',
+    label: 'Qwen3 14B Abliterated (huihui v2)',
+    sizeHint: '~9 GB',
+    minRamGB: 14,
+    comfortRamGB: 18,
+    reason: 'Prioritario companion: menos negativas, sigue siendo Qwen3 general (no solo RP)',
+    tier: 'medium',
+    source: 'ollama-community',
+    risk: 'uncensored',
+    riskWarning: ABLIT_WARN,
+    tags: ['uncensored', 'companion', 'abliterated', 'qwen3', 'recomendado'],
+    roles: ['companion', 'general'],
+    recommendRank: 10,
+    infoUrl: 'https://ollama.com/huihui_ai/qwen3-abliterated'
+  },
+  {
+    id: 'qwen3-14b-ablit-richard',
+    pullName: 'richardyoung/qwen3-14b-abliterated',
+    label: 'Qwen3 14B Abliterated (richardyoung)',
+    sizeHint: '~9 GB',
+    minRamGB: 14,
+    comfortRamGB: 18,
+    reason: 'Abliterated Q4; buen equilibrio calidad/tamaño para cercanía adulta',
+    tier: 'medium',
+    source: 'ollama-community',
+    risk: 'uncensored',
+    riskWarning: ABLIT_WARN,
+    tags: ['uncensored', 'companion', 'abliterated', 'qwen3'],
+    roles: ['companion', 'general'],
+    recommendRank: 12,
+    infoUrl: 'https://ollama.com/richardyoung/qwen3-14b-abliterated'
+  },
+  {
+    id: 'qwen3-8b-ablit',
+    pullName: 'huihui_ai/qwen3-abliterated:8b',
+    label: 'Qwen3 8B Abliterated',
+    sizeHint: '~5 GB',
+    minRamGB: 10,
+    comfortRamGB: 12,
+    reason: 'Abliterated más ligero si 14B va justo de RAM',
+    tier: 'medium',
+    source: 'ollama-community',
+    risk: 'uncensored',
+    riskWarning: ABLIT_WARN,
+    tags: ['uncensored', 'companion', 'abliterated', 'qwen3'],
+    roles: ['companion', 'general'],
+    recommendRank: 20,
+    infoUrl: 'https://ollama.com/huihui_ai/qwen3-abliterated'
+  },
+  {
+    id: 'optional-rp-tifa-14b',
+    pullName: 'hf.co/ValueFX9507/Tifa-Deepsex-14b-CoT-GGUF-Q4',
+    label: 'Tifa-Deepsex 14B CoT (RP opcional)',
+    sizeHint: '~9 GB',
+    minRamGB: 14,
+    comfortRamGB: 18,
+    reason: 'Opcional: afinado novela/RP. Preferir abliterated Qwen para chat íntimo general',
+    tier: 'medium',
+    source: 'hf-gguf',
+    risk: 'uncensored',
+    riskWarning: ABLIT_WARN + ' Modelo orientado a roleplay/ficción, no como único chat cotidiano.',
+    tags: ['uncensored', 'optional-rp', 'roleplay'],
+    roles: ['optional-rp'],
+    recommendRank: 90,
+    infoUrl: 'https://huggingface.co/ValueFX9507/Tifa-Deepsex-14b-CoT-GGUF-Q4'
+  },
+  {
+    id: 'companion-dolphin-llama3',
+    pullName: 'dolphin-llama3',
+    label: 'Dolphin Llama3 (companion)',
+    sizeHint: '~4.7 GB',
+    minRamGB: 10,
+    reason: 'Menos negativas automáticas; sigue bien el system prompt de cercanía adulta',
+    tier: 'medium',
+    source: 'ollama-official',
+    risk: 'uncensored',
+    riskWarning: ABLIT_WARN,
+    tags: ['uncensored', 'companion', 'abliterated'],
+    roles: ['companion'],
+    recommendRank: 30,
+    infoUrl: 'https://ollama.com/library/dolphin-llama3'
+  },
+  {
+    id: 'companion-dolphin-mistral',
+    pullName: 'dolphin-mistral',
+    label: 'Dolphin Mistral (companion)',
+    sizeHint: '~4.1 GB',
+    minRamGB: 8,
+    reason: 'Opción ligera refusal-reduced para chat companion',
+    tier: 'small',
+    source: 'ollama-official',
+    risk: 'uncensored',
+    riskWarning: ABLIT_WARN,
+    tags: ['uncensored', 'companion'],
+    roles: ['companion'],
+    recommendRank: 35,
+    infoUrl: 'https://ollama.com/library/dolphin-mistral'
+  },
+  {
+    id: 'companion-hermes3-8b',
+    pullName: 'adrienbrault/nous-hermes3-llama3.1-8b',
+    label: 'Hermes 3 8B (steerable)',
+    sizeHint: '~5 GB',
+    minRamGB: 12,
+    reason: 'Muy gobernable por system prompt; menos moralina, no es “modo porno”',
+    tier: 'medium',
+    source: 'ollama-community',
+    risk: 'uncensored',
+    riskWarning: ABLIT_WARN,
+    tags: ['uncensored', 'companion', 'steerable'],
+    roles: ['companion'],
+    recommendRank: 40,
+    infoUrl: 'https://ollama.com/adrienbrault/nous-hermes3-llama3.1-8b'
   },
   {
     id: 'huihui-qwen25-coder-ablit',
@@ -253,25 +392,114 @@ export const LOCAL_MODEL_CATALOG: ModelRecommendation[] = [
   }
 ]
 
+
 export function usableRamGB(profile: HardwareProfile): number {
-  return Math.max(1, profile.totalMemoryGB * 0.6)
+  const ram = Math.max(1, profile.totalMemoryGB * 0.6)
+  const vram = typeof profile.vramGB === 'number' && profile.vramGB > 0 ? profile.vramGB : 0
+  // GPU offload: effective headroom is max(RAM share, VRAM + modest system)
+  if (vram >= 6) return Math.max(ram, vram + Math.min(8, profile.totalMemoryGB * 0.25))
+  return ram
+}
+
+/** C1 — soft size ceilings from live hardware */
+export type HardwareModelBudget = {
+  usableGB: number
+  /** Smooth default Auto (prefer ≤ this params B) */
+  comfortParamsB: number
+  /** Slow but OK (user ran up to ~27B) */
+  okParamsB: number
+  /** Do not recommend unless only option */
+  skipParamsB: number
+  summary: string
+}
+
+export function hardwareModelBudget(profile: HardwareProfile): HardwareModelBudget {
+  const usable = usableRamGB(profile)
+  let comfort = 7
+  let ok = 14
+  let skip = 32
+  if (usable >= 40) {
+    comfort = 14
+    ok = 32
+    skip = 70
+  } else if (usable >= 24) {
+    comfort = 14
+    ok = 27
+    skip = 40
+  } else if (usable >= 16) {
+    comfort = 9
+    ok = 14
+    skip = 32
+  } else if (usable >= 10) {
+    comfort = 7
+    ok = 9
+    skip = 14
+  } else {
+    comfort = 3
+    ok = 7
+    skip = 9
+  }
+  const vram = profile.vramGB
+  const vNote =
+    typeof vram === 'number' && vram > 0 ? ` · VRAM ~${Math.round(vram)} GB` : ''
+  return {
+    usableGB: usable,
+    comfortParamsB: comfort,
+    okParamsB: ok,
+    skipParamsB: skip,
+    summary: `Tu PC: ~${Math.round(profile.totalMemoryGB)} GB RAM${vNote} · recomendado hasta ~${comfort}B · hasta ~${ok}B posible (más lento)`
+  }
+}
+
+export function estimateParamsBFromId(id: string): number | null {
+  const x = id.toLowerCase()
+  const m =
+    x.match(/(\d+(?:\.\d+)?)\s*b/) ||
+    x.match(/[-_/:](\d{1,3})b([-_/:]|$)/) ||
+    x.match(/(\d{1,3})b-/)
+  if (!m) return null
+  return parseFloat(m[1])
+}
+
+export function catalogSpeedFit(
+  m: ModelRecommendation,
+  budget: HardwareModelBudget
+): 'comfort' | 'ok-slow' | 'skip' {
+  const pb = estimateParamsBFromId(m.pullName) ?? estimateParamsBFromId(m.label)
+  const need = m.comfortRamGB ?? m.minRamGB
+  if (need > budget.usableGB + 4) return 'skip'
+  if (pb != null) {
+    if (pb > budget.skipParamsB) return 'skip'
+    if (pb > budget.okParamsB) return 'skip'
+    if (pb > budget.comfortParamsB) return 'ok-slow'
+  }
+  if (m.minRamGB > budget.usableGB + 0.5) return 'ok-slow'
+  return 'comfort'
 }
 
 export function filterCatalog(opts: {
   profile?: HardwareProfile
   query?: string
   includeUncensored?: boolean
+  includeOptionalRp?: boolean
   source?: ModelSource | 'all'
   onlyCompatible?: boolean
 }): ModelRecommendation[] {
   const q = (opts.query || '').trim().toLowerCase()
   const usable = opts.profile ? usableRamGB(opts.profile) : 999
+  const budget = opts.profile ? hardwareModelBudget(opts.profile) : null
   return LOCAL_MODEL_CATALOG.filter((m) => {
     if (!opts.includeUncensored && m.risk === 'uncensored') return false
+    if (!opts.includeOptionalRp && (m.roles?.includes('optional-rp') || m.tags?.includes('optional-rp')))
+      return false
     if (opts.source && opts.source !== 'all' && m.source !== opts.source) return false
-    if (opts.onlyCompatible !== false && opts.profile && m.minRamGB > usable + 0.5) return false
+    if (opts.onlyCompatible !== false && opts.profile) {
+      const fit = budget ? catalogSpeedFit(m, budget) : 'comfort'
+      if (fit === 'skip') return false
+      if (m.minRamGB > usable + 4) return false
+    }
     if (!q) return true
-    const hay = `${m.label} ${m.pullName} ${m.reason} ${(m.tags || []).join(' ')}`.toLowerCase()
+    const hay = `${m.label} ${m.pullName} ${m.reason} ${(m.tags || []).join(' ')} ${(m.roles || []).join(' ')}`.toLowerCase()
     return hay.includes(q)
   })
 }
@@ -285,11 +513,15 @@ export function recommendLocalModels(
   allCompatible: ModelRecommendation[]
   installedMatches: string[]
   profileSummary: string
+  budget: HardwareModelBudget
 } {
-  const usable = usableRamGB(profile)
-  const compatible = LOCAL_MODEL_CATALOG.filter(
-    (m) => m.risk === 'none' && m.minRamGB <= usable + 0.5
-  )
+  const budget = hardwareModelBudget(profile)
+  const usable = budget.usableGB
+  const compatible = LOCAL_MODEL_CATALOG.filter((m) => {
+    if (m.risk !== 'none') return false
+    if (catalogSpeedFit(m, budget) === 'skip') return false
+    return m.minRamGB <= usable + 1
+  })
   const list =
     compatible.length > 0
       ? compatible
@@ -297,11 +529,15 @@ export function recommendLocalModels(
 
   const ranked = [...list].sort((a, b) => {
     const score = (m: ModelRecommendation) => {
-      let s = m.minRamGB
-      if (m.tier === 'small') s += 2
-      if (m.tier === 'medium') s += 4
-      if (installed.some((i) => i === m.pullName || i.startsWith(m.pullName))) s += 10
-      if (m.tags?.includes('recomendado')) s += 3
+      let s = 0
+      const fit = catalogSpeedFit(m, budget)
+      if (fit === 'comfort') s += 20
+      else if (fit === 'ok-slow') s += 5
+      const pb = estimateParamsBFromId(m.pullName)
+      if (pb != null && pb <= budget.comfortParamsB && pb >= 7) s += 8
+      if (m.tags?.includes('recomendado')) s += 5
+      if (installed.some((i) => i === m.pullName || i.startsWith(m.pullName.split(':')[0]))) s += 12
+      s += m.minRamGB * 0.3
       return s
     }
     return score(b) - score(a)
@@ -321,22 +557,57 @@ export function recommendLocalModels(
     alternatives,
     allCompatible: ranked,
     installedMatches,
-    profileSummary: `${profile.totalMemoryGB} GB RAM · ${profile.cpuCores} núcleos · ${profile.architecture}`
+    profileSummary: budget.summary,
+    budget
   }
 }
 
-export function pickInstalledOrRecommended(
-  installed: string[],
-  profile: HardwareProfile
-): string {
-  const { primary, installedMatches } = recommendLocalModels(profile, installed)
-  if (installedMatches.length > 0) {
-    for (const c of LOCAL_MODEL_CATALOG) {
-      if (c.risk !== 'none') continue
-      const hit = installed.find((i) => i === c.pullName || i.startsWith(c.pullName))
-      if (hit && c.minRamGB <= usableRamGB(profile) + 0.5) return hit
+export function isUncensoredCompanionId(id: string): boolean {
+  const x = id.toLowerCase()
+  return /abliterat|uncensor|unfiltered|dolphin|hermes3|nous-hermes|venice|role.?play|deepsex|tifa-deep/i.test(
+    x
+  )
+}
+
+export function isOptionalRpId(id: string): boolean {
+  const x = id.toLowerCase()
+  return /deepsex|tifa-deep|nsfw[_-]?wan|optional-rp|roleplay-nsfw/i.test(x)
+}
+
+/** C2 — Prefer abliterated general models; RP only if includeOptionalRp */
+export function recommendCompanionUncensored(
+  profile: HardwareProfile,
+  installed: string[] = [],
+  opts?: { includeOptionalRp?: boolean }
+): ModelRecommendation[] {
+  const budget = hardwareModelBudget(profile)
+  const usable = budget.usableGB
+  const pool = LOCAL_MODEL_CATALOG.filter((m) => {
+    if (m.risk !== 'uncensored') return false
+    const isRp =
+      m.roles?.includes('optional-rp') ||
+      m.tags?.includes('optional-rp') ||
+      isOptionalRpId(m.pullName)
+    if (isRp && !opts?.includeOptionalRp) return false
+    // Prefer companion/abliterated; exclude pure coder-ablit from companion list
+    if (m.tags?.includes('código') && !m.tags?.includes('companion')) return false
+    if (!(m.tags?.includes('companion') || m.tags?.includes('abliterated') || m.roles?.includes('companion') || isRp))
+      return false
+    if (catalogSpeedFit(m, budget) === 'skip') return false
+    return m.minRamGB <= usable + 3
+  })
+  const ranked = [...pool].sort((a, b) => {
+    const rank = (m: ModelRecommendation) => {
+      let s = 100 - (m.recommendRank ?? 50)
+      if (m.tags?.includes('abliterated')) s += 25
+      if (m.roles?.includes('optional-rp') || m.tags?.includes('optional-rp')) s -= 40
+      if (installed.some((i) => i === m.pullName || i.startsWith(m.pullName.split(':')[0]))) s += 30
+      const fit = catalogSpeedFit(m, budget)
+      if (fit === 'comfort') s += 10
+      if (fit === 'ok-slow') s += 2
+      return s
     }
-    return installedMatches[0]
-  }
-  return primary.pullName
+    return rank(b) - rank(a)
+  })
+  return ranked.slice(0, 8)
 }

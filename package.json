@@ -1,7 +1,7 @@
 {
   "name": "kawaii-gpt-robust",
-  "version": "0.8.14",
-  "description": "KawaiiGPT Robust — chat de escritorio híbrido (Ollama + cloud) con personalidad, smart routing, failover automático y autodiagnóstico",
+  "version": "0.11.1-beta",
+  "description": "KawaiiGPT Robust \u2014 companion de escritorio local-first con identidad, relaci\u00f3n evolutiva, memoria dual, harness, autodiagn\u00f3stico e imagen (Forge/FaceID)",
   "author": "Azrael",
   "license": "MIT",
   "homepage": "https://github.com/orionethanfg1/kawaii-gpt-robust",
@@ -19,7 +19,13 @@
     "package": "npm run build && electron-builder --win",
     "package:portable": "npm run build && electron-builder --win portable",
     "package:nsis": "npm run build && electron-builder --win nsis",
-    "prepackage": "node scripts/ensure-icons.js"
+    "prepackage": "node scripts/ensure-icons.js",
+    "lint:eslint": "eslint \"src/**/*.{ts,tsx}\" --max-warnings 50 || true",
+    "test:e2e": "playwright test",
+    "verify:step1": "node scripts/verify-step1.mjs",
+    "smoke:step3": "node scripts/smoke-step3.mjs",
+    "release:check": "npm run verify:step1 && npm run smoke:step3",
+    "typecheck:gate": "node scripts/typecheck-gate.mjs"
   },
   "dependencies": {
     "@fontsource/nunito": "^5.2.5",
@@ -30,7 +36,8 @@
     "react-markdown": "^9.0.3",
     "remark-gfm": "^4.0.1",
     "zod": "^3.24.2",
-    "zustand": "^5.0.3"
+    "zustand": "^5.0.3",
+    "electron-updater": "^6.3.9"
   },
   "overrides": {
     "glob": "^11.0.0",
@@ -50,12 +57,15 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.2",
     "vite": "^6.2.0",
-    "vitest": "^3.0.8"
+    "vitest": "^3.0.8",
+    "eslint": "^9.21.0",
+    "typescript-eslint": "^8.25.0",
+    "@eslint/js": "^9.21.0"
   },
   "build": {
     "appId": "com.kawaiigpt.robust",
     "productName": "KawaiiGPT Robust",
-    "copyright": "Copyright © 2026 Azrael",
+    "copyright": "Copyright \u00a9 2026 Azrael",
     "asar": true,
     "directories": {
       "output": "dist",
@@ -71,6 +81,20 @@
         "filter": [
           "**/*",
           "!README-ICONS.txt"
+        ]
+      },
+      {
+        "from": "tools/",
+        "to": "tools/",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "plugins/",
+        "to": "plugins/",
+        "filter": [
+          "**/*"
         ]
       }
     ],
@@ -132,6 +156,17 @@
       ],
       "icon": "resources/icon.png",
       "category": "Utility"
-    }
-  }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "orionethanfg1",
+        "repo": "kawaii-gpt-robust"
+      }
+    ]
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "kawaiiRevision": "ao"
 }
