@@ -26,7 +26,7 @@ export interface SummarizeResult {
   coveredCount: number
 }
 
-const SUMMARY_SYSTEM = `Comprime la conversación en pocas viñetas densas (máx 8).
+const SUMMARY_SYSTEM = `Actúa como compresor de contexto. Comprime la conversación en pocas viñetas densas (máx 8).
 Solo hechos, nombres, preferencias y estado. Español. No inventes. No respondas al usuario.`
 
 function formatTranscript(older: ChatMessage[], maxChars = 3500): string {
@@ -63,14 +63,6 @@ export async function summarizeConversation(
     const heuristic = buildHeuristicSummary(options.older, maxSummaryChars)
     const combined = `${prev}\n---\n${heuristic}`.slice(0, maxSummaryChars)
     return { summary: combined, source: 'heuristic', coveredCount }
-  }
-
-  if (options.preferFast !== false && coveredCount <= 6) {
-    return {
-      summary: buildHeuristicSummary(options.older, maxSummaryChars) || prev,
-      source: 'heuristic',
-      coveredCount
-    }
   }
 
   const transcript = formatTranscript(options.older, options.preferFast ? 2800 : 5000)

@@ -17,44 +17,40 @@ import {
 } from './machine-profile'
 import { syncCheckpointsToForge } from './sd-workspace'
 import {
-  ensurePortablePython,
   ensureForgeVenvWithTorch,
   ensureForgeWebStack,
-  isPortablePythonReady,
-  portablePythonExe,
-  forgeVenvPython,
-  isForgeVenvReady
+  ensureForgeNumpySkimage,
 } from './python-runtime'
 
-/** Preferred API ports — skip ones already in use */
-export const FORGE_PORT_CANDIDATES = [
-  7860, 7861, 7862, 7863, 7864, 7865, 7870, 7871, 7880, 7890
-]
 
-/**
- * Forge/A1111: --listen is a boolean flag (no host value).
- * Use --server-name 127.0.0.1 to bind localhost only.
- * Passing "--listen 127.0.0.1" makes argparse treat the IP as an unknown positional.
- */
-export function forgeCliArgs(port: number): string[] {
-  // --nowebui: only REST API (what KawaiiGPT needs). Skips Gradio UI create_ui()
-  // which often crashes on pydantic/fastapi mismatches (FieldInfo.in_).
-  return [
-    '--api',
-    '--nowebui',
-    '--listen',
-    '--port',
-    String(port),
-    '--server-name',
-    '127.0.0.1',
-    '--skip-python-version-check',
-    '--skip-version-check'
-  ]
-}
+// E-FORGE-RT: ports/health live in forge-ports.ts (re-export for existing imports)
+export {
+  FORGE_PORT_CANDIDATES,
+  forgeCliArgs,
+  forgeCliArgsString,
+  freePortIfStale,
+  isPortInUse,
+  canBindPort,
+  pickForgePort,
+  probeForgeHealth,
+  scanForgeApiPorts
+} from './forge-ports'
+import {
+  FORGE_PORT_CANDIDATES,
+  freePortIfStale,
+  pickForgePort,
+  probeForgeHealth,
+  scanForgeApiPorts,
+  forgeCliArgs,
+  forgeCliArgsString
+} from './forge-ports'
 
-export function forgeCliArgsString(port: number): string {
-  return forgeCliArgs(port).join(' ')
-}
+import {
+  resolveForgeRoot,
+  resolveForgePythonAndLaunch,
+  writePortLauncher,
+  ensureKawaiiWebuiUser
+} from './forge-launch'
 
 export type ForgeRuntimeStatus = {
   state: 'stopped' | 'starting' | 'running' | 'error'
@@ -70,6 +66,7 @@ export type ForgeRuntimeStatus = {
   /** 0–100 estimated while starting (API not up yet) */
   bootProgress?: number
   elapsedMs?: number
+  apiOk?: boolean
 }
 
 let child: ChildProcess | null = null
@@ -219,494 +216,12 @@ function parseForgeLogLine(line: string): { hint?: string; pct?: number } {
   return {}
 }
 
-/** True if something already accepts TCP connections on host:port */
-export function isPortInUse(port: number, host = '127.0.0.1'): Promise<boolean> {
-  return new Promise((resolve) => {
-    const net = require('net') as typeof import('net')
-    const socket = net.connect({ port, host })
-    const done = (used: boolean) => {
-      try {
-        socket.destroy()
-      } catch {
-        /* ignore */
-      }
-      resolve(used)
-    }
-    socket.once('connect', () => done(true))
-    socket.once('error', () => done(false))
-    socket.setTimeout(600, () => done(false))
-  })
-}
-
-/** Can we bind this port? (more reliable for "free to use") */
-export function canBindPort(port: number, host = '127.0.0.1'): Promise<boolean> {
-  return new Promise((resolve) => {
-    const net = require('net') as typeof import('net')
-    const server = net.createServer()
-    server.once('error', () => resolve(false))
-    server.once('listening', () => {
-      server.close(() => resolve(true))
-    })
-    try {
-      server.listen(port, host)
-    } catch {
-      resolve(false)
-    }
-  })
-}
-
-/**
- * Pick first free port from candidates.
- * If preferred is free, use it; else next free.
- */
-export async function pickForgePort(preferred?: number | null): Promise<number> {
-  const ordered = [
-    ...(preferred && Number.isFinite(preferred) ? [Number(preferred)] : []),
-    ...FORGE_PORT_CANDIDATES
-  ]
-  const seen = new Set<number>()
-  for (const p of ordered) {
-    if (seen.has(p) || p < 1024 || p > 65535) continue
-    seen.add(p)
-    const bindable = await canBindPort(p)
-    if (bindable) return p
-  }
-  // Last resort: ephemeral high port
-  for (let p = 17960; p < 18000; p++) {
-    if (await canBindPort(p)) return p
-  }
-  throw new Error('No hay puertos libres para Forge (7860–7890 / 17960+). Cierra otras apps o indica un puerto.')
-}
-
-/**
- * True API health: ONLY /sdapi/* counts.
- * Gradio UI on / or /docs without --api must NOT report ok (that caused false "API activa"
- * while txt2img returned 404).
- */
-export async function probeForgeHealth(
-  baseUrl: string,
-  timeoutMs = 6000
-): Promise<{
-  ok: boolean
-  status?: number
-  error?: string
-  baseUrl?: string
-  /** UI responds but /sdapi is missing → need --api restart */
-  uiOnly?: boolean
-}> {
-  const roots = new Set<string>()
-  const raw = baseUrl.replace(/\/$/, '')
-  roots.add(raw)
-  if (raw.includes('127.0.0.1')) roots.add(raw.replace('127.0.0.1', 'localhost'))
-  if (raw.includes('localhost')) roots.add(raw.replace('localhost', '127.0.0.1'))
-
-  // Prefer progress/options: /sd-models often 500 on Forge+pydantic
-  // (missing response field "config") even when API is fully up.
-  const apiPaths = [
-    '/sdapi/v1/progress',
-    '/sdapi/v1/options',
-    '/sdapi/v1/samplers'
-  ]
-  let lastErr = 'sin respuesta API'
-  let sawUi = false
-  let sawSdapiAlive = false
-
-  for (const root of roots) {
-    for (const path of apiPaths) {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-      try {
-        const res = await fetch(`${root}${path}`, {
-          signal: ctrl.signal,
-          headers: { Accept: 'application/json' }
-        })
-        // 200/401/403 = healthy. 500 on an /sdapi route still means API server is up
-        // (Forge bug on sd-models serialization — progress usually works).
-        if (res.ok || res.status === 401 || res.status === 403) {
-          return { ok: true, status: res.status, baseUrl: root }
-        }
-        if (res.status === 404) {
-          lastErr = `HTTP 404 ${path} @ ${root} (Forge sin --api)`
-        } else if (res.status >= 500 && path.startsWith('/sdapi/')) {
-          sawSdapiAlive = true
-          lastErr = `HTTP ${res.status} ${path} @ ${root} (API viva, endpoint con error interno)`
-          // Prefer confirming with progress if this was sd-models; else accept
-          if (path !== '/sdapi/v1/sd-models') {
-            return { ok: true, status: res.status, baseUrl: root }
-          }
-        } else {
-          lastErr = `HTTP ${res.status} ${path} @ ${root}`
-        }
-      } catch (err) {
-        lastErr = `${err instanceof Error ? err.message : String(err)} @ ${root}${path}`
-      } finally {
-        clearTimeout(timer)
-      }
-    }
-    if (sawSdapiAlive) {
-      return { ok: true, status: 500, baseUrl: root }
-    }
-    // Detect Gradio UI without API
-    for (const path of ['/', '/docs']) {
-      const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), Math.min(2000, timeoutMs))
-      try {
-        const res = await fetch(`${root}${path}`, { signal: ctrl.signal })
-        if (res.ok) sawUi = true
-      } catch {
-        /* ignore */
-      } finally {
-        clearTimeout(timer)
-      }
-    }
-  }
-
-  return {
-    ok: false,
-    error: sawUi
-      ? `${lastErr}. La UI de Forge responde pero /sdapi no: reinicia con --api (botón Arrancar Forge de la app).`
-      : lastErr,
-    uiOnly: sawUi
-  }
-}
-
-/** Scan preferred ports for any live A1111/Forge API */
-export async function scanForgeApiPorts(): Promise<{
-  ok: boolean
-  baseUrl: string | null
-  port: number | null
-  error?: string
-}> {
-  let lastErr = 'ningún puerto respondió'
-  for (const p of FORGE_PORT_CANDIDATES) {
-    for (const host of ['127.0.0.1', 'localhost'] as const) {
-      const url = `http://${host}:${p}`
-      const h = await probeForgeHealth(url, 3500)
-      if (h.ok) {
-        return { ok: true, baseUrl: h.baseUrl || url, port: p }
-      }
-      lastErr = h.error || lastErr
-    }
-  }
-  return { ok: false, baseUrl: null, port: null, error: lastErr }
-}
-
-async function resolveForgeRoot(profile: MachineProfile): Promise<string | null> {
-  const base = profile.forgeInstallPath
-  if (!(await detectForgePresent(base))) {
-    // nested folder after extract
-    try {
-      const { readdir, stat } = await import('fs/promises')
-      if (!existsSync(base)) return null
-      const names = await readdir(base)
-      for (const n of names) {
-        const sub = join(base, n)
-        try {
-          if (!(await stat(sub)).isDirectory()) continue
-          if (await detectForgePresent(sub)) return sub
-        } catch {
-          /* ignore */
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    return null
-  }
-  // Prefer directory that has run.bat
-  if (existsSync(join(base, 'run.bat')) || existsSync(join(base, 'webui-user.bat'))) {
-    return base
-  }
-  return base
-}
-
-
-
-
-/** Run `python -c` and parse major.minor; null if fails. */
-function probePythonVersion(pythonExe: string, cwd?: string): { major: number; minor: number; raw: string } | null {
-  try {
-    const r = spawnSync(pythonExe, ['-c', 'import sys; print("%d.%d"%sys.version_info[:2])'], {
-      cwd,
-      encoding: 'utf-8',
-      timeout: 8000,
-      windowsHide: true
-    })
-    const raw = (r.stdout || '').trim()
-    const m = /^(\d+)\.(\d+)/.exec(raw)
-    if (!m) return null
-    return { major: Number(m[1]), minor: Number(m[2]), raw }
-  } catch {
-    return null
-  }
-}
-
-/**
- * Forge pins old torch (e.g. 2.3.1) → needs CPython 3.10 or 3.11 (max 3.12 in some builds).
- * System Python 3.13/3.14 will always fail pip install torch==2.3.1.
- */
-function isForgeCompatiblePython(v: { major: number; minor: number } | null): boolean {
-  if (!v) return false
-  if (v.major !== 3) return false
-  return v.minor >= 10 && v.minor <= 12
-}
-
-/** Find launch.py and a usable Windows Python under forge root (nested installs). */
-async function resolveForgePythonAndLaunch(
-  forgeRoot: string
-): Promise<{ python: string; launchPy: string; cwd: string; version?: string } | null> {
-  const { readdir, stat } = await import('fs/promises')
-  const candidates: string[] = [forgeRoot]
-  try {
-    const names = await readdir(forgeRoot)
-    for (const n of names) {
-      const sub = join(forgeRoot, n)
-      try {
-        if ((await stat(sub)).isDirectory()) candidates.push(sub)
-      } catch {
-        /* ignore */
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-
-  const pyRel = [
-    ['venv', 'Scripts', 'python.exe'],
-    ['system', 'python', 'python.exe'],
-    ['python', 'python.exe'],
-    ['py', 'python.exe'],
-    ['Python310', 'python.exe'],
-    ['Python311', 'python.exe'],
-    ['portable', 'python', 'python.exe']
-  ]
-
-  type Hit = { python: string; launchPy: string; cwd: string; version: string; score: number }
-  const hits: Hit[] = []
-
-  for (const cwd of candidates) {
-    const launchPy = join(cwd, 'launch.py')
-    if (!existsSync(launchPy)) continue
-    for (const parts of pyRel) {
-      const python = join(cwd, ...parts)
-      if (!existsSync(python)) continue
-      const ver = probePythonVersion(python, cwd)
-      const score = isForgeCompatiblePython(ver) ? 100 : ver ? 10 : 0
-      // Prefer venv over embedded
-      const bonus = parts[0] === 'venv' ? 20 : parts[0] === 'system' ? 15 : 0
-      hits.push({
-        python,
-        launchPy,
-        cwd,
-        version: ver?.raw || '?',
-        score: score + bonus
-      })
-    }
-  }
-
-  hits.sort((a, b) => b.score - a.score)
-  const best = hits.find((h) => h.score >= 100)
-  if (best) return best
-
-  // Prefer app-managed portable Python if already provisioned (any data root guess)
-  // Caller also runs ensurePortablePython when resolve returns null.
-
-  // Do NOT fall back to PATH python 3.14 — that caused torch==2.3.1 install failure
-  // Try py -3.11 / py -3.10 launcher on Windows
-  const pyLaunchers = [
-    ['py', '-3.11'],
-    ['py', '-3.10'],
-    ['py', '-3.12']
-  ]
-  for (const cwd of candidates) {
-    const launchPy = join(cwd, 'launch.py')
-    if (!existsSync(launchPy)) continue
-    for (const [cmd, flag] of pyLaunchers) {
-      try {
-        const r = spawnSync(cmd, [flag, '-c', 'import sys; print("%d.%d"%sys.version_info[:2])'], {
-          encoding: 'utf-8',
-          timeout: 8000,
-          windowsHide: true
-        })
-        const raw = (r.stdout || '').trim()
-        const m = /^(\d+)\.(\d+)/.exec(raw)
-        if (!m) continue
-        const ver = { major: Number(m[1]), minor: Number(m[2]), raw }
-        if (!isForgeCompatiblePython(ver)) continue
-        // Use `py -3.11` as executable via cmd wrapper path: store as special
-        return {
-          python: cmd,
-          launchPy,
-          cwd,
-          version: ver.raw + ' (py launcher ' + flag + ')'
-        }
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-
-  return null
-}
-
-/** Human message when no compatible Python is found. */
-function noCompatiblePythonMessage(forgeRoot: string): string {
-  return (
-    'Forge necesita Python 3.10–3.12 (con venv). ' +
-    'Se detectó o se usaría Python del sistema incompatible (p. ej. 3.14), ' +
-    'con el que no existe torch==2.3.1. ' +
-    'Solución: instala Python 3.11 desde python.org (marca «py launcher»), ' +
-    'o reinstala Forge portable que trae su propio Python en system\\python o venv. ' +
-    `Carpeta: ${forgeRoot}`
-  )
-}
-
-/**
- * Force webui-user.bat to keep --api (stock file often sets COMMANDLINE_ARGS= empty).
- * Backup once as webui-user.bat.kawaii-bak
- */
-async function ensureKawaiiWebuiUser(forgeRoot: string, port: number): Promise<void> {
-  const userBat = join(forgeRoot, 'webui-user.bat')
-  const bak = join(forgeRoot, 'webui-user.bat.kawaii-bak')
-  try {
-    if (existsSync(userBat) && !existsSync(bak)) {
-      const { copyFile } = await import('fs/promises')
-      await copyFile(userBat, bak)
-    }
-  } catch {
-    /* ignore */
-  }
-  const content = `@echo off
-REM === Managed by KawaiiGPT Robust — do not clear COMMANDLINE_ARGS ===
-REM Original backed up as webui-user.bat.kawaii-bak (if present)
-set PYTHONUNBUFFERED=1
-set COMMANDLINE_ARGS=--api --nowebui --listen --port ${port} --server-name 127.0.0.1 --skip-version-check --skip-python-version-check
-`
-  try {
-    await writeFile(userBat, content, 'utf-8')
-  } catch {
-    /* ignore — non-fatal if root is nested */
-  }
-  // Also write into nested dirs that have launch.py
-  try {
-    const { readdir, stat } = await import('fs/promises')
-    const names = await readdir(forgeRoot)
-    for (const n of names) {
-      const sub = join(forgeRoot, n)
-      try {
-        if (!(await stat(sub)).isDirectory()) continue
-        if (!existsSync(join(sub, 'launch.py')) && !existsSync(join(sub, 'webui.bat'))) continue
-        const subUser = join(sub, 'webui-user.bat')
-        const subBak = join(sub, 'webui-user.bat.kawaii-bak')
-        if (existsSync(subUser) && !existsSync(subBak)) {
-          const { copyFile } = await import('fs/promises')
-          await copyFile(subUser, subBak)
-        }
-        await writeFile(subUser, content, 'utf-8')
-      } catch {
-        /* ignore */
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-/**
- * Hardened .bat: logs to disk, prefers venv+launch.py, never silent success without python.
- * Used only as fallback when direct Node spawn is unavailable.
- */
-async function writePortLauncher(forgeRoot: string, port: number): Promise<string> {
-  await ensureKawaiiWebuiUser(forgeRoot, port)
-  const bat = `@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-cd /d "%~dp0"
-set PYTHONUNBUFFERED=1
-set HF_HUB_DISABLE_TELEMETRY=1
-set "LOG=%~dp0kawaii-forge-launch.log"
-echo ==== KawaiiGPT Forge launch %DATE% %TIME% ====>> "%LOG%"
-echo [KawaiiGPT] cwd=%CD%>> "%LOG%"
-echo [KawaiiGPT] Starting Forge API on port ${port}...
-echo [KawaiiGPT] Starting Forge API on port ${port}...>> "%LOG%"
-
-set "KAWAII_ARGS=--api --nowebui --listen --port ${port} --server-name 127.0.0.1 --skip-version-check --skip-python-version-check"
-set COMMANDLINE_ARGS=%KAWAII_ARGS%
-
-REM --- Locate launch.py (this folder or one level deep) ---
-set "LAUNCH="
-if exist "%CD%\\launch.py" set "LAUNCH=%CD%\\launch.py"
-if not defined LAUNCH if exist "%CD%\\webui\\launch.py" set "LAUNCH=%CD%\\webui\\launch.py"
-for /d %%D in ("%CD%\\*") do (
-  if not defined LAUNCH if exist "%%~fD\\launch.py" set "LAUNCH=%%~fD\\launch.py"
-)
-
-REM --- Locate python ---
-set "PY="
-if exist "%CD%\\venv\\Scripts\\python.exe" set "PY=%CD%\\venv\\Scripts\\python.exe"
-if not defined PY if exist "%CD%\\system\\python\\python.exe" set "PY=%CD%\\system\\python\\python.exe"
-if not defined PY if exist "%CD%\\python\\python.exe" set "PY=%CD%\\python\\python.exe"
-if not defined PY (
-  for /d %%D in ("%CD%\\*") do (
-    if not defined PY if exist "%%~fD\\venv\\Scripts\\python.exe" set "PY=%%~fD\\venv\\Scripts\\python.exe"
-  )
-)
-
-if defined LAUNCH if defined PY (
-  echo [KawaiiGPT] PY=%PY%>> "%LOG%"
-  echo [KawaiiGPT] LAUNCH=%LAUNCH%>> "%LOG%"
-  echo [KawaiiGPT] Using direct: "%PY%" "%LAUNCH%" %KAWAII_ARGS%
-  echo [KawaiiGPT] Using direct python+launch.py>> "%LOG%"
-  "%PY%" "%LAUNCH%" %KAWAII_ARGS%
-  echo [KawaiiGPT] python exit=%ERRORLEVEL%>> "%LOG%"
-  exit /b %ERRORLEVEL%
-)
-
-if defined LAUNCH (
-  where python >nul 2>&1
-  if %ERRORLEVEL%==0 (
-    echo [KawaiiGPT] Using PATH python + launch.py>> "%LOG%"
-    python "%LAUNCH%" %KAWAII_ARGS%
-    echo [KawaiiGPT] python exit=%ERRORLEVEL%>> "%LOG%"
-    exit /b %ERRORLEVEL%
-  )
-)
-
-REM --- Fallback webui.bat (webui-user.bat already forced by ensureKawaiiWebuiUser) ---
-echo [KawaiiGPT] WARNING: fallback webui.bat / run.bat>> "%LOG%"
-if exist "%CD%\\webui.bat" (
-  call "%CD%\\webui.bat"
-  echo [KawaiiGPT] webui.bat exit=%ERRORLEVEL%>> "%LOG%"
-  exit /b %ERRORLEVEL%
-)
-if exist "%CD%\\run.bat" (
-  call "%CD%\\run.bat"
-  echo [KawaiiGPT] run.bat exit=%ERRORLEVEL%>> "%LOG%"
-  exit /b %ERRORLEVEL%
-)
-
-echo [KawaiiGPT] ERROR: no launch.py / python / webui.bat found in %CD%
-echo [KawaiiGPT] ERROR: no launch.py / python / webui.bat>> "%LOG%"
-exit /b 1
-`
-  const path = join(forgeRoot, 'run-kawaii-api.bat')
-  await writeFile(path, bat, 'utf-8')
-  // Also nested roots
-  try {
-    const resolved = await resolveForgePythonAndLaunch(forgeRoot)
-    if (resolved && resolved.cwd !== forgeRoot) {
-      await writeFile(join(resolved.cwd, 'run-kawaii-api.bat'), bat, 'utf-8')
-      await ensureKawaiiWebuiUser(resolved.cwd, port)
-    }
-  } catch {
-    /* ignore */
-  }
-  return path
-}
-
 export async function startForgeRuntime(options?: {
   preferredPort?: number
   /** Max wait for API after spawn */
   readyTimeoutMs?: number
+  /** Skip R2 unload (caller already did it) */
+  skipUnload?: boolean
 }): Promise<ForgeRuntimeStatus> {
   if (platform() !== 'win32') {
     return setStatus({
@@ -721,6 +236,34 @@ export async function startForgeRuntime(options?: {
     if (h.ok) return getForgeRuntimeStatus()
   }
 
+  // R2 — liberar VRAM de Ollama antes de CUDA/Forge (cubre forge:start e image-ipc)
+  let unloadNote = ''
+  if (!options?.skipUnload) {
+    try {
+      const { unloadLocalModelsForForge } = await import('../core/resources/unload-local')
+      const ur = await unloadLocalModelsForForge({
+        unloadAll: false,
+        minSizeGB: 4
+      })
+      unloadNote = ur.detail
+      if (ur.unloaded.length) {
+        console.log('[forge] R2 unload:', ur.detail)
+        setStatus({
+          message: 'R2: ' + ur.detail,
+          bootProgress: 2
+        })
+        broadcastForgeBoot({
+          message: 'R2: ' + ur.detail,
+          bootProgress: 2,
+          state: 'starting'
+        })
+      }
+    } catch (e) {
+      unloadNote = e instanceof Error ? e.message : String(e)
+      console.warn('[forge] R2 unload failed:', unloadNote)
+    }
+  }
+
   let hw = {}
   try {
     hw = (global as unknown as { __kawaiiHw?: object }).__kawaiiHw || {}
@@ -731,40 +274,49 @@ export async function startForgeRuntime(options?: {
   const { profile } = await ensureMachineProfile(hw as never)
   await ensureDataRootWorkspace(profile)
 
-  if (!profile.lastPreflight.ok) {
-    return setStatus({
-      state: 'error',
-      message: profile.lastPreflight.reasons[0] || 'Preflight no apto para Forge local.'
-    })
+  const forgeRoot = await resolveForgeRoot(profile)
+
+  // Prefer live API before any preflight gate (Forge may already be up)
+  for (const p of [
+    options?.preferredPort,
+    ...FORGE_PORT_CANDIDATES
+  ].filter((x): x is number => typeof x === 'number')) {
+    for (const host of ['127.0.0.1', 'localhost'] as const) {
+      const url = `http://${host}:${p}`
+      const h = await probeForgeHealth(url, 2500)
+      if (h.ok) {
+        return setStatus({
+          state: 'running',
+          port: p,
+          baseUrl: h.baseUrl || url,
+          pid: null,
+          forgeRoot: forgeRoot || profile.forgeInstallPath,
+          message: `API ya activa en ${h.baseUrl || url}`,
+          lastHealthAt: new Date().toISOString()
+        })
+      }
+    }
   }
 
-  const forgeRoot = await resolveForgeRoot(profile)
+  // Preflight: never hard-block on GPU detection false negatives (cached profile may still list it)
+  if (!profile.lastPreflight.ok) {
+    const hard = (profile.lastPreflight.reasons || []).filter(
+      (r) => !/GPU NVIDIA|Forge CUDA|Pollinations|generación cloud/i.test(r)
+    )
+    if (hard.length) {
+      return setStatus({
+        state: 'error',
+        message: hard[0] || 'Preflight no apto para Forge local.'
+      })
+    }
+  }
+
   if (!forgeRoot) {
     return setStatus({
       state: 'error',
       forgeRoot: profile.forgeInstallPath,
       message: 'Forge no instalado. Usa "Instalar Forge" en Ajustes primero.'
     })
-  }
-
-  // Reuse external instance if preferred/default ports already serve API
-  for (const p of [
-    options?.preferredPort,
-    ...FORGE_PORT_CANDIDATES
-  ].filter((x): x is number => typeof x === 'number')) {
-    const url = `http://127.0.0.1:${p}`
-    const h = await probeForgeHealth(url, 2500)
-    if (h.ok) {
-      return setStatus({
-        state: 'running',
-        port: p,
-        baseUrl: url,
-        pid: null,
-        forgeRoot,
-        message: `API ya activa en ${url} (proceso externo o previo).`,
-        lastHealthAt: new Date().toISOString()
-      })
-    }
   }
 
   let port: number
@@ -779,7 +331,7 @@ export async function startForgeRuntime(options?: {
 
   // Always prefer app-managed 3.11 venv under Forge (never system 3.14)
   let resolved = await resolveForgePythonAndLaunch(forgeRoot)
-  const dataRoot = profile.dataRoot || profile.forgeInstallPath
+  const dataRoot = profile.preferredDataRoot || profile.forgeInstallPath
 
   // Locate webui dir (launch.py)
   let webuiDir = forgeRoot
@@ -855,10 +407,35 @@ export async function startForgeRuntime(options?: {
     })
   }
 
+  const npSki = await ensureForgeNumpySkimage(webuiDir, (p) => {
+    setStatus({
+      state: 'starting',
+      message: p.message,
+      bootProgress: p.percent ?? 96
+    })
+  })
+  if (!npSki.ok) {
+    return setStatus({
+      state: 'error',
+      forgeRoot,
+      message: `numpy/skimage: ${npSki.error}. Reintenta Arrancar Forge API (repara el venv).`
+    })
+  }
+  if (npSki.repaired) {
+    setStatus({
+      state: 'starting',
+      message: 'numpy/scikit-image reparados — arrancando Forge…',
+      bootProgress: 98
+    })
+  }
+
   const workRoot = resolved.cwd
   await ensureKawaiiWebuiUser(workRoot, port)
   const launcher = await writePortLauncher(workRoot, port)
   const baseUrl = `http://127.0.0.1:${port}`
+  // Avoid zombie UI-only process answering on this port without /sdapi
+  await freePortIfStale(port)
+  await new Promise((r) => setTimeout(r, 400))
 
   forgeNearReady = false
   forgeExitedEarly = false
@@ -1044,40 +621,64 @@ export async function startForgeRuntime(options?: {
       forgeNearReady = true
     }
     if (forgeNearReady && nearReadySince == null) nearReadySince = Date.now()
-    // After Startup time, if /sdapi never appears for 90s → stop (UI without --api or stuck)
-    if (nearReadySince != null && Date.now() - nearReadySince > 90_000) {
-      const uiCheck = await probeForgeHealth(baseUrl, 3000)
-      if (!uiCheck.ok) {
-        // scan once more
-        const scan = await scanForgeApiPorts()
-        if (scan.ok && scan.baseUrl) {
-          return setStatus({
-            state: 'running',
-            port: scan.port,
-            baseUrl: scan.baseUrl,
-            message: `Forge listo en ${scan.baseUrl}`,
-            lastHealthAt: new Date().toISOString(),
-            bootProgress: 100,
-            elapsedMs: Date.now() - start
-          })
-        }
-        // Stop our child so we don't leave UI-only Gradio blocking the port
-        try {
-          if (child && !child.killed) {
-            child.kill()
-          }
-        } catch {
-          /* ignore */
-        }
-        child = null
+    // After "Startup time" / Gradio line: API may still load models for several minutes.
+    // Do NOT kill at 90s — that was a regression when Forge was healthy but slow.
+    // Only fail early if we get a hard /sdapi 404 (true missing --api) for a sustained period
+    // AND the process already exited; otherwise keep polling until main timeout.
+    if (nearReadySince != null && Date.now() - nearReadySince > 45_000) {
+      const uiCheck = await probeForgeHealth(baseUrl, 4000)
+      if (uiCheck.ok) {
+        return setStatus({
+          state: 'running',
+          port,
+          baseUrl: uiCheck.baseUrl || baseUrl,
+          message: `Forge listo en ${uiCheck.baseUrl || baseUrl}`,
+          lastHealthAt: new Date().toISOString(),
+          bootProgress: 100,
+          elapsedMs: Date.now() - start,
+          apiOk: true
+        })
+      }
+      const scan = await scanForgeApiPorts()
+      if (scan.ok && scan.baseUrl) {
+        return setStatus({
+          state: 'running',
+          port: scan.port,
+          baseUrl: scan.baseUrl,
+          message: `Forge listo en ${scan.baseUrl}`,
+          lastHealthAt: new Date().toISOString(),
+          bootProgress: 100,
+          elapsedMs: Date.now() - start,
+          apiOk: true
+        })
+      }
+      // Sustained UI-only 404 after 6 min with process still up → likely wrong flags / zombie port
+      const waited = Date.now() - nearReadySince
+      const childAlive = Boolean(child && child.exitCode == null && !child.killed)
+      if (
+        uiCheck.uiOnly &&
+        /404|sin --api/i.test(uiCheck.error || '') &&
+        waited > 360_000 &&
+        !childAlive
+      ) {
         return setStatus({
           state: 'error',
           pid: null,
           message:
-            'Forge abrió la interfaz (Running on local URL) pero /sdapi no responde — suele faltar --api. ' +
-            'Cierra cualquier ventana negra de Python y pulsa otra vez «Arrancar Forge API». ' +
-            'La app ahora usa launch.py --api (no webui-user.bat).',
+            'Forge mostró interfaz pero /sdapi nunca respondió (proceso cerrado). ' +
+            'Cierra ventanas negras de Python, pulsa Detener Forge y Arrancar de nuevo.',
           bootProgress: 95,
+          elapsedMs: Date.now() - start
+        })
+      }
+      // Still starting: update message so UI is not silent
+      if (waited > 60_000 && Date.now() - lastMsgAt > 15_000) {
+        lastMsgAt = Date.now()
+        setStatus({
+          message: childAlive
+            ? `Forge arrancando API… (${Math.floor(waited / 1000)}s). Modelos pueden tardar; no cierres.`
+            : `Esperando /sdapi… (${Math.floor(waited / 1000)}s)`,
+          bootProgress: Math.min(98, 70 + Math.floor(waited / 10000)),
           elapsedMs: Date.now() - start
         })
       }
@@ -1233,10 +834,15 @@ export async function refreshForgeHealth(): Promise<ForgeRuntimeStatus> {
       lastHealthAt: new Date().toISOString()
     })
   }
+  // Do not keep a dead baseUrl (e.g. :7890) or surface last probe fetch-failed as the message.
+  const starting = status.state === 'starting'
   return setStatus({
-    state: status.state === 'starting' ? 'starting' : 'stopped',
-    message: scan.error || 'No hay API Forge en puertos conocidos.',
-    // keep baseUrl if starting so UI can still show target
+    state: starting ? 'starting' : 'stopped',
+    baseUrl: starting ? status.baseUrl : null,
+    port: starting ? status.port : null,
+    message: starting
+      ? status.message || 'Forge arrancando…'
+      : 'No hay API Forge en puertos conocidos (7860–7890). Usa Capas → Arrancar Forge.'
   })
 }
 
@@ -1251,6 +857,8 @@ export function runtimeBaseUrlOrDefault(): string {
 export async function ensureLocalImagePipeline(options?: {
   preferredPort?: number
   readyTimeoutMs?: number
+  /** When false, do not stop ACE (default true = free VRAM for SD) */
+  releaseMusic?: boolean
 }): Promise<{
   ok: boolean
   baseUrl: string | null
@@ -1259,6 +867,20 @@ export async function ensureLocalImagePipeline(options?: {
   synced: { copied: string[]; skipped: string[] }
   message: string
 }> {
+  if (options?.releaseMusic !== false) {
+    try {
+      const { prepareHeavyLayer } = await import('./layer-scheduler')
+      // prepareHeavyLayer('image') stops music then we start forge below —
+      // call release only path to avoid double start
+      const { getMusicRuntimeStatus, stopMusicRuntime } = await import('./music-runtime')
+      const ms = getMusicRuntimeStatus()
+      if (ms.state === 'running' || ms.state === 'starting') {
+        await stopMusicRuntime()
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   const sync = await syncCheckpointsToForge()
   const synced = { copied: sync.copied || [], skipped: sync.skipped || [] }
 
@@ -1285,8 +907,10 @@ export async function ensureLocalImagePipeline(options?: {
   }
 
   // Health + model count
+  // Forge often returns 500 on /sd-models (pydantic); fall back to disk list.
   const h = await probeForgeHealth(st.baseUrl, 8000)
   let modelsCount = 0
+  let modelsNote = ''
   if (h.ok) {
     try {
       const res = await fetch(`${st.baseUrl.replace(/\/$/, '')}/sdapi/v1/sd-models`)
@@ -1296,6 +920,20 @@ export async function ensureLocalImagePipeline(options?: {
       }
     } catch {
       /* ignore */
+    }
+    if (modelsCount === 0) {
+      try {
+        const { listInstalledCheckpoints } = await import('./sd-workspace')
+        const disk = await listInstalledCheckpoints()
+        modelsCount = disk.length
+        if (modelsCount > 0) modelsNote = ' (desde disco)'
+      } catch {
+        /* ignore */
+      }
+    }
+    if (modelsCount === 0 && (synced.copied.length || synced.skipped.length)) {
+      modelsCount = synced.copied.length + synced.skipped.length
+      modelsNote = ' (sync)'
     }
   }
 
@@ -1318,7 +956,7 @@ export async function ensureLocalImagePipeline(options?: {
     synced,
     message:
       modelsCount > 0
-        ? `Forge listo en ${st.baseUrl} · ${modelsCount} checkpoint(s)`
-        : `Forge listo en ${st.baseUrl} · sin checkpoints visibles (sincroniza o descarga SD 1.5)`
+        ? `Forge listo en ${st.baseUrl} · ${modelsCount} checkpoint(s)${modelsNote}`
+        : `Forge listo en ${st.baseUrl} · API OK (lista de modelos aún vacía; si falla txt2img, sincroniza checkpoints en Capas)`
   }
 }
