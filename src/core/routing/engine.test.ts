@@ -11,7 +11,9 @@ const base: RoutingContext = {
   webSearchEnabled: true,
   longPromptThreshold: 1500,
   localMaxTokens: 2048,
-  cloudMaxTokens: 4096
+  cloudMaxTokens: 4096,
+  networkOnline: true,
+  preferLocal: true
 }
 
 describe('decideRoute', () => {
@@ -21,7 +23,7 @@ describe('decideRoute', () => {
       prompt: 'Busca noticias de IA de hoy',
       promptLength: 30
     })
-    expect(decision.target).toBe('web-augmented-cloud')
+    expect(decision.target).toBe('web-augmented-local') // local available + preferLocal
     expect(decision.useWebSearch).toBe(true)
   })
 
@@ -34,14 +36,14 @@ describe('decideRoute', () => {
     expect(decision.target).toBe('local')
   })
 
-  it('routes long prompts to cloud', () => {
+  it('keeps long prompts local when local is available (local-first)', () => {
     const long = 'x'.repeat(2000)
     const decision = decideRoute({
       ...base,
       prompt: long,
       promptLength: long.length
     })
-    expect(decision.target).toBe('cloud')
+    expect(decision.target).toBe('local')
   })
 
   it('falls back to cloud when local is unavailable', () => {
@@ -54,6 +56,17 @@ describe('decideRoute', () => {
     expect(decision.target).toBe('cloud')
   })
 
+  it('stays local when offline even if cloud is configured', () => {
+    const decision = decideRoute({
+      ...base,
+      networkOnline: false,
+      prompt: 'busca noticias de hoy',
+      promptLength: 22
+    })
+    expect(decision.target).toBe('local')
+    expect(decision.tags).toContain('offline')
+  })
+
   it('lowers temperature for coding prompts on local', () => {
     const decision = decideRoute({
       ...base,
@@ -62,5 +75,15 @@ describe('decideRoute', () => {
     })
     expect(decision.target).toBe('local')
     expect(decision.temperature).toBeLessThan(0.5)
+  })
+
+  it('applies chat sampling profile (preferThinkingOff)', () => {
+    const decision = decideRoute({
+      ...base,
+      prompt: 'cuéntame algo corto',
+      promptLength: 20
+    })
+    expect(decision.preferThinkingOff).toBe(true)
+    expect(decision.topP).toBeDefined()
   })
 })

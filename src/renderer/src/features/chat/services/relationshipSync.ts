@@ -59,14 +59,34 @@ export function syncRelationshipFromTurn(
     }
     const history = [...(ch.relationshipHistory || []), entry].slice(-MAX_RELATIONSHIP_HISTORY)
 
+    let assistantMemory = useSettingsStore.getState().settings.assistantMemory
+    let memoryEpisodes = (useSettingsStore.getState().settings as { memoryEpisodes?: unknown })
+      .memoryEpisodes
+    try {
+      const { applyGrowthMilestone } = require('@core/conversation/memory-growth') as typeof import('@core/conversation/memory-growth')
+      const { appendEpisode } = require('@core/conversation/memory-episodes') as typeof import('@core/conversation/memory-episodes')
+      assistantMemory = applyGrowthMilestone(assistantMemory, {
+        type: 'relationship_stage',
+        from: current || undefined,
+        to: shift.toRole
+      })
+      memoryEpisodes = appendEpisode(memoryEpisodes as never, {
+        summary: `El vínculo pasó de «${current || 'sin rol'}» a «${shift.toRole}».`,
+        tags: ['relationship', 'rol', String(shift.toRole).toLowerCase().slice(0, 24)]
+      })
+    } catch {
+      /* E2 optional */
+    }
     useSettingsStore.getState().update({
       character: {
         ...ch,
         relationshipRole: shift.toRole,
         relationshipReaction: reaction,
         relationshipHistory: history
-      }
-    })
+      },
+      assistantMemory,
+      memoryEpisodes
+    } as never)
 
     return {
       updated: true,

@@ -1,0 +1,23 @@
+{
+  "id": "face-score",
+  "name": "Face score (identidad)",
+  "version": "1.0.0",
+  "runtime": "python",
+  "entry": "face_similarity.py",
+  "category": "imagen",
+  "summary": "Compara rostros generados vs referencia (InsightFace opcional).",
+  "tools": [
+    {
+      "name": "score_face_match",
+      "description": "Puntúa similitud facial entre imagen generada y ref"
+    }
+  ],
+  "permissions": [
+    "fs"
+  ],
+  "phrases": [
+    "compara cara",
+    "score face",
+    "similitud facial"
+  ]
+}
