@@ -1,14 +1,21 @@
-import { ErrorBoundary } from '@/app/ErrorBoundary'
+import { PluginsPanel } from './PluginsPanel'
+import { useUiChromeStore } from '@shared/lib/stores/uiChromeStore'
+import { useConversationInitiative } from '../hooks/useConversationInitiative'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ImageLightbox } from '@shared/ui/ImageLightbox'
+import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { useChatStore } from '@shared/lib/stores/chatStore'
 import { useChat } from '../hooks/useChat'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import { MessageBubble } from './MessageBubble'
 import { ChatInput } from './ChatInput'
+import { DocIngestStatusBar } from './DocIngestStatusBar'
+import { OnboardingChips, ensureOnboardingBoot } from './OnboardingChips'
 import { RouteLiveIndicator } from './RouteLiveIndicator'
 import { SetupChecklist } from './SetupChecklist'
 import { Image as ImageIcon, Sparkles } from 'lucide-react'
 import { ImageGenPanel } from '@features/image/components/ImageGenPanel'
+import { ActivitiesBar } from '@features/activities/ActivitiesBar'
 
 interface Props {
   onOpenSettings?: () => void
@@ -26,8 +33,157 @@ function formatSummaryAge(ts?: number, now = Date.now()): string | null {
   return `hace ${Math.floor(sec / 86400)} d`
 }
 
+
+/** I5 — fase íntima: settings + mensajes recientes del chat activo */
+function IntimateScenePhaseChip() {
+  const rel = useSettingsStore((s) => s.settings.relationshipState)
+  const facts = useSettingsStore((s) => s.settings.userMemory?.facts)
+  const adult = useSettingsStore((s) => s.settings.adultIntimacyOptIn)
+  const stage = String(rel?.stage || '')
+  const messages = useChatStore((s) => {
+    const id = s.activeId
+    const c = s.conversations.find((x) => x.id === id)
+    return c?.messages || []
+  })
+  // Hide for professional / non-intimate relationships unless open or adult opt-in
+  // Discrete: hide in professional / early stages unless intimacy is actually open
+  const proLike =
+    /stranger|acquaintance/i.test(stage) &&
+    !rel?.intimacyOpen &&
+    !adult &&
+    !(facts || []).some((f) => /^INTIMACY_/i.test(String(f)))
+  if (proLike) return null
+  const intimateContext =
+    Boolean(rel?.intimacyOpen) ||
+    Boolean(adult) ||
+    /intimate|familiar/i.test(stage) ||
+    (facts || []).some((f) => /^INTIMACY_/i.test(String(f)))
+  if (!intimateContext) return null
+
+  let phase = 'idle'
+  try {
+    const { resolveLiveIntimatePhase } = require('@core/conversation/intimacy-memory') as typeof import('@core/conversation/intimacy-memory')
+    phase = resolveLiveIntimatePhase({
+      relationship: rel,
+      facts: facts || [],
+      recentTexts: messages.slice(-10).map((m: { content?: string }) => String(m.content || ''))
+    })
+  } catch {
+    phase = String((rel as { scenePhase?: string } | undefined)?.scenePhase || 'idle')
+  }
+  if (phase === 'idle' && !rel?.intimacyOpen) return null
+  const label: Record<string, string> = {
+    idle: 'cercanía',
+    invited: 'propuesta',
+    open: 'cercanía',
+    scene_active: 'en escena',
+    aftercare: 'aftercare'
+  }
+  const titles: Record<string, string> = {
+    idle: 'Cercanía sin guion íntimo activo (puedes retomar cuando quieras)',
+    open: 'Cercanía adulta abierta; no hay acto en curso ahora',
+    scene_active: 'Guion íntimo activo — coherencia de escena (di «cambiemos de tema» para salir)',
+    aftercare: 'Aftercare / calma tras la escena — aún en la película suave',
+    invited: 'Propuesta de cercanía pendiente de tu sí o no'
+  }
+  const active = phase === 'scene_active' || phase === 'aftercare'
+  const showActions = phase === 'scene_active' || phase === 'aftercare' || phase === 'open' || phase === 'invited'
+
+  const sendSceneIntent = (kind: string, userVisible: string) => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('kawaii:scene-intent', {
+          detail: { kind, userVisible, phase }
+        })
+      )
+    } catch {
+      /* */
+    }
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 flex-wrap max-w-[min(100%,28rem)]">
+      <span
+        className={
+          active
+            ? 'text-[10px] px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-900 border border-rose-300 font-medium'
+            : 'text-[10px] px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-800/80 border border-rose-200/80'
+        }
+        title={titles[phase] || phase}
+      >
+        {label[phase] || phase}
+      </span>
+      {showActions ? (
+        <>
+          {(phase === 'scene_active' || phase === 'open') && (
+            <button
+              type="button"
+              className="text-[10px] px-1.5 py-0.5 rounded-full border border-rose-200/90 bg-white/80 text-rose-900 hover:bg-rose-50"
+              title="Seguir en la cercanía sin salir del tono"
+              onClick={() =>
+                sendSceneIntent(
+                  'scene-continue',
+                  'Quiero seguir cerca de ti, sin cambiar de tema de golpe.'
+                )
+              }
+            >
+              Seguir cerca
+            </button>
+          )}
+          {(phase === 'scene_active' || phase === 'aftercare') && (
+            <button
+              type="button"
+              className="text-[10px] px-1.5 py-0.5 rounded-full border border-kawaii-border/80 bg-white/80 text-kawaii-text/80 hover:bg-kawaii-surface"
+              title="Bajar intensidad, mantener cariño"
+              onClick={() =>
+                sendSceneIntent(
+                  'scene-soften',
+                  'Bajemos un poco el ritmo; quiero quedarme en la ternura.'
+                )
+              }
+            >
+              Bajar ritmo
+            </button>
+          )}
+          {(phase === 'scene_active' || phase === 'aftercare' || phase === 'open') && (
+            <button
+              type="button"
+              className="text-[10px] px-1.5 py-0.5 rounded-full border border-kawaii-border/80 bg-white/80 text-kawaii-muted hover:bg-kawaii-surface"
+              title="Salir del guion íntimo con naturalidad"
+              onClick={() =>
+                sendSceneIntent(
+                  'scene-rest',
+                  'Descansemos un rato de la escena; podemos hablar de otra cosa o simplemente estar.'
+                )
+              }
+            >
+              Descansar
+            </button>
+          )}
+        </>
+      ) : null}
+    </span>
+  )
+}
+
 export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
-  const { activeId, conversations, create } = useChatStore()
+  const pluginsOpen = useUiChromeStore((s) => s.pluginsOpen)
+  const setPluginsOpen = useUiChromeStore((s) => s.setPluginsOpen)
+
+  useConversationInitiative(true)
+  useEffect(() => {
+    try {
+      ensureOnboardingBoot()
+    } catch {
+      /* */
+    }
+  }, [])
+
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const activeId = useChatStore((s) => s.activeId)
+  const create = useChatStore((s) => s.create)
+  // Perf: only re-render when active conversation identity or messages change
+  const active = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const {
     isLoading,
     error,
@@ -36,7 +192,8 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
     resendMessage,
     deleteMessage,
     stopStreaming,
-    liveStatus
+    liveStatus,
+    continueWriting
   } = useChat()
   const character = useSettingsStore((s) => s.settings.character)
   const showRoute = useSettingsStore((s) => s.settings.showRouteInfo)
@@ -80,7 +237,6 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [now, setNow] = useState(() => Date.now())
 
-  const active = conversations.find((c) => c.id === activeId)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: isLoading ? 'auto' : 'smooth' })
@@ -113,12 +269,14 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-kawaii-text-muted px-4">
         <Sparkles className="w-12 h-12 text-kawaii-pink" />
         <div className="flex flex-col items-center gap-2">
-          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-2 border-kawaii-pink/40 bg-white flex items-center justify-center text-4xl shadow-md">
+          <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden border-2 border-kawaii-pink/40 bg-white flex items-center justify-center text-4xl shadow-md">
             {character?.visualImageUrl ? (
               <img
                 src={character.visualImageUrl}
                 alt=""
-                className="w-full h-full object-cover"
+                title="Ver avatar ampliado"
+                className="w-full h-full object-cover cursor-zoom-in"
+                onClick={() => character?.visualImageUrl && setLightboxSrc(character.visualImageUrl)}
               />
             ) : (
               <span>{character?.visualEmoji ?? '🌸'}</span>
@@ -156,42 +314,51 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
   }
 
   return (
+    <>
     <div className="flex-1 flex flex-col min-h-0">
-      <header className="px-5 py-3 border-b border-kawaii-border bg-white/60 backdrop-blur">
-        <div className="flex items-start justify-between gap-3 min-w-0">
-          <div className="min-w-0 flex items-center gap-2">
-            <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-kawaii-border bg-white flex items-center justify-center text-lg shrink-0 shadow-sm">
-              {character?.visualImageUrl ? (
-                <img
-                  src={character.visualImageUrl}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span>{character?.visualEmoji ?? '🌸'}</span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-semibold text-kawaii-text truncate">{active.title}</h2>
-              <p className="text-[10px] text-kawaii-text-muted truncate">
-                {character?.name ?? 'Kawaii'}
-                {character?.relationshipRole ? ` · ${character.relationshipRole}` : ''}
-              </p>
-            </div>
+      <header className="px-3 py-1.5 border-b border-kawaii-border bg-white/70 backdrop-blur shrink-0">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <h2 className="text-sm font-semibold text-kawaii-text truncate max-w-[40%] min-w-0" title={active.title}>
+            {active.title}
+          </h2>
+          <span className="text-[10px] text-kawaii-text-muted truncate hidden sm:inline">
+            {character?.name ?? 'Kawaii'}
+          </span>
+          <IntimateScenePhaseChip />
+          <div className="flex-1" />
+          <div className="flex items-center gap-1 flex-wrap justify-end">
+            <ActivitiesBar />
+            {summaryLabel && (
+              <span
+                className="text-[10px] text-kawaii-text-muted bg-kawaii-pink-soft/50 border border-kawaii-border rounded-full px-2 py-0.5 max-w-[140px] truncate"
+                title={active.rollingSummary ? active.rollingSummary.slice(0, 400) : summaryLabel}
+              >
+                {summaryLabel}
+              </span>
+            )}
           </div>
-          {summaryLabel && (
-            <span
-              className="shrink-0 text-[10px] sm:text-[11px] text-kawaii-text-muted bg-kawaii-pink-soft/50 border border-kawaii-border rounded-full px-2 py-0.5 max-w-[55%] truncate"
-              title={
-                active.rollingSummary
-                  ? active.rollingSummary.slice(0, 400)
-                  : summaryLabel
-              }
-            >
-              {summaryLabel}
-            </span>
-          )}
         </div>
+        {pluginsOpen && (
+          <div className="relative mt-1">
+            <PluginsPanel
+              onClose={() => setPluginsOpen(false)}
+              onInsertPhrase={(phrase) => {
+                window.dispatchEvent(
+                  new CustomEvent('kawaii:prefill-chat', { detail: { text: phrase } })
+                )
+                setPluginsOpen(false)
+              }}
+              onRunTools={(tools, phrase) => {
+                window.dispatchEvent(
+                  new CustomEvent('kawaii:run-host-tools', {
+                    detail: { tools, phrase }
+                  })
+                )
+                setPluginsOpen(false)
+              }}
+            />
+          </div>
+        )}
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -202,6 +369,9 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
               message={m}
               onResend={(id) => void resendMessage(id)}
               onDelete={(id) => deleteMessage(id)}
+              onContinueWriting={(id) => {
+                void continueWriting(id)
+              }}
             />
           ))}
           <div ref={bottomRef} />
@@ -270,11 +440,21 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
         </>
       )}
 
-      <ChatInput
+      <OnboardingChips
+          onChipSend={(label) => {
+            void sendMessage(label)
+          }}
+        />
+        <DocIngestStatusBar />
+        <ChatInput
         isLoading={isLoading}
         onSend={sendMessage}
         onStop={stopStreaming}
       />
     </div>
+    {lightboxSrc ? (
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+    ) : null}
+    </>
   )
 }

@@ -64,9 +64,12 @@ export const useRecoveryStore = create<RecoveryState>()(
             pendingUserPreview: undefined,
             ollamaPullModel: undefined,
             ollamaPullProgress: undefined,
+            lastErrorCode: undefined,
+            lastErrorMessage: undefined,
+            lastRemedy: undefined,
             updatedAt: Date.now()
           },
-          dismissed: false
+          dismissed: true
         }),
       dismiss: () => set({ dismissed: true }),
       clear: () => set({ checkpoint: empty, dismissed: false })
@@ -78,10 +81,43 @@ export const useRecoveryStore = create<RecoveryState>()(
   )
 )
 
-/** Call on boot: if dirty and recent, show recovery UI */
-export function shouldOfferRecovery(maxAgeMs = 24 * 60 * 60 * 1000): boolean {
+/**
+ * Only offer banner for real mid-stream interruptions (pending draft/stream),
+ * not for every past error. Max 2h. Chat agent still sees recovery via status.
+ */
+export function shouldOfferRecovery(maxAgeMs = 30 * 60 * 1000): boolean {
   const { checkpoint, dismissed } = useRecoveryStore.getState()
   if (dismissed || !checkpoint.dirty) return false
   if (!checkpoint.updatedAt) return false
-  return Date.now() - checkpoint.updatedAt < maxAgeMs
+  if (Date.now() - checkpoint.updatedAt >= maxAgeMs) return false
+  // Only mid-stream / pull real — NOT solo pendingUserPreview (el usuario suele seguir chateando)
+  const softError =
+    /reintentar|timeout|en un momento|cancel/i.test(
+      String(checkpoint.lastErrorMessage || '') + ' ' + String(checkpoint.lastRemedy || '')
+    )
+  if (softError && !checkpoint.pendingAssistantId && !checkpoint.ollamaPullModel) {
+    return false
+  }
+  const actionable = Boolean(
+    checkpoint.pendingAssistantId || checkpoint.ollamaPullModel
+  )
+  return actionable
+}
+
+/** Compact fact for agent / status (no UI banner). */
+export function recoveryContextForAgent(): string | null {
+  const { checkpoint } = useRecoveryStore.getState()
+  if (!checkpoint.dirty && !checkpoint.lastErrorCode) return null
+  const parts: string[] = []
+  if (checkpoint.pendingUserPreview) {
+    parts.push(`último mensaje pendiente: «${checkpoint.pendingUserPreview.slice(0, 80)}»`)
+  }
+  if (checkpoint.lastErrorCode) {
+    parts.push(`último error: ${checkpoint.lastErrorCode}`)
+  }
+  if (checkpoint.lastRemedy && !/prefer_cloud|Preferir cloud/i.test(String(checkpoint.lastRemedy))) {
+    parts.push(`nota: ${String(checkpoint.lastRemedy).slice(0, 100)}`)
+  }
+  if (!parts.length) return null
+  return 'Recuperación (silenciosa): ' + parts.join(' · ')
 }

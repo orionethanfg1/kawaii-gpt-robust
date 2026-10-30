@@ -1,0 +1,24 @@
+{
+  "id": "doc-read",
+  "name": "Lectura de documentos",
+  "version": "1.0.0",
+  "runtime": "python",
+  "entry": "tools/doc_read.py",
+  "tools": [
+    {
+      "name": "read_document",
+      "description": "Extrae texto de .docx (nativo) y .pdf (pypdf/pdftotext). Usado al adjuntar archivos al chat.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "description": "Ruta local del archivo" }
+        },
+        "required": ["path"]
+      }
+    }
+  ],
+  "permissions": ["fs"],
+  "phrases": ["lee este documento", "resume el pdf", "qué dice el word"],
+  "category": "archivos",
+  "summary": "Lee Word (.docx) y PDF en el chat; .docx sin dependencias extra."
+}

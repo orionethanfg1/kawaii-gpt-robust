@@ -65,6 +65,9 @@ export function SdWorkspacePanel({ compact = false }: { compact?: boolean }) {
     baseUrl: string | null
     message: string
     pid?: number | null
+    bootProgress?: number
+    lastLogLine?: string
+    elapsedMs?: number
   } | null>(null)
   const [portHint, setPortHint] = useState<string>('')
   const [progress, setProgress] = useState<number | null>(null)
@@ -495,88 +498,6 @@ export function SdWorkspacePanel({ compact = false }: { compact?: boolean }) {
       const m = e instanceof Error ? e.message : String(e)
       setError(m)
       activityError('No se pudo detener Forge', m)
-    } finally {
-      setBusy(null)
-    }
-  }
-
-
-  const syncCkpt = async () => {
-    setBusy('prepare')
-    setError('')
-    try {
-      const res = await window.kawaii?.sdSyncCheckpointsToForge?.()
-      if (!res?.ok) {
-        setError(res?.error || 'No se pudo sincronizar')
-        activityError('Sincronizar modelos', res?.error || 'Error')
-        return
-      }
-      const msg = `Copiados: ${res.copied.length} · Ya estaban: ${res.skipped.length}`
-      setMsg(msg + (res.forgeModelsDir ? ` → ${res.forgeModelsDir}` : ''))
-      activitySuccess('Modelos sincronizados con Forge', msg)
-    } catch (e) {
-      const m = e instanceof Error ? e.message : String(e)
-      setError(m)
-      activityError('Sincronizar modelos', m)
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const testLocalFlow = async () => {
-    setBusy('forge')
-    setError('')
-    setMsg('Probar flujo local: arranque + health…')
-    const actId = activityProgress('Probar flujo local', 'Forge + API…', 10)
-    try {
-      await window.kawaii?.machinePrepareDataRoot?.()
-      const sync = await window.kawaii?.sdSyncCheckpointsToForge?.()
-      const pipe = await window.kawaii?.imageEnsureLocalPipeline?.()
-      if (pipe?.baseUrl) {
-        try {
-          const { useSettingsStore } = await import('@shared/lib/stores/settingsStore')
-          useSettingsStore.getState().update({
-            a1111BaseUrl: pipe.baseUrl,
-            imageProviderMode:
-              useSettingsStore.getState().settings.imageProviderMode === 'off'
-                ? 'smart'
-                : useSettingsStore.getState().settings.imageProviderMode
-          })
-        } catch {
-          /* ignore */
-        }
-        setRuntime({
-          state: pipe.ok ? 'running' : 'error',
-          port: pipe.port,
-          baseUrl: pipe.baseUrl,
-          message: pipe.message
-        })
-      }
-      const { useActivityStore } = await import('@shared/lib/stores/activityStore')
-      if (pipe?.ok) {
-        setMsg(pipe.message)
-        useActivityStore.getState().update(actId, {
-          kind: 'success',
-          title: 'Flujo local listo',
-          detail: `${pipe.message}${sync?.copied?.length ? ` · sync +${sync.copied.length}` : ''}`,
-          progress: 100,
-          ttlMs: 7000
-        })
-        window.setTimeout(() => useActivityStore.getState().dismiss(actId), 7000)
-      } else {
-        setError(pipe?.message || 'Pipeline local falló')
-        useActivityStore.getState().update(actId, {
-          kind: 'error',
-          title: 'Flujo local incompleto',
-          detail: pipe?.message || 'Revisa Forge e instalación',
-          ttlMs: 12_000
-        })
-        window.setTimeout(() => useActivityStore.getState().dismiss(actId), 12_000)
-      }
-    } catch (e) {
-      const m = e instanceof Error ? e.message : String(e)
-      setError(m)
-      activityError('Probar flujo local', m)
     } finally {
       setBusy(null)
     }

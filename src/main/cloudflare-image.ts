@@ -2,6 +2,7 @@
  * Cloudflare Workers AI — FLUX.1 Schnell (free daily Neurons quota).
  * REST: POST /accounts/{id}/ai/run/@cf/black-forest-labs/flux-1-schnell
  */
+import { fitImageWithin } from '../core/image/image-size'
 
 export type CloudflareImageInput = {
   accountId: string
@@ -47,10 +48,9 @@ export async function fetchCloudflareFlux(
   body.steps = steps
   // Some Workers AI builds accept width/height (multiples of 8, typically ≤1024)
   if (input.width && input.height) {
-    const w = Math.min(1024, Math.max(256, Math.round(input.width / 8) * 8))
-    const h = Math.min(1024, Math.max(256, Math.round(input.height / 8) * 8))
-    body.width = w
-    body.height = h
+    const size = fitImageWithin(input.width, input.height, 1024)
+    body.width = size.width
+    body.height = size.height
   }
   if (input.seed != null && Number.isFinite(input.seed)) {
     body.seed = Math.floor(Math.abs(input.seed))
@@ -142,6 +142,7 @@ export async function probeCloudflareAi(
   accountId: string,
   apiToken: string
 ): Promise<{ ok: boolean; latencyMs: number; error?: string }> {
+  void accountId
   const start = Date.now()
   try {
     // Lightweight: models list or tiny run is heavy — just auth check via accounts
