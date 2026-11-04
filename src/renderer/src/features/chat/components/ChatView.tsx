@@ -1,14 +1,22 @@
+import { PluginsPanel } from './PluginsPanel'
+import { useUiChromeStore } from '@shared/lib/stores/uiChromeStore'
+import { useConversationInitiative } from '../hooks/useConversationInitiative'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ImageLightbox } from '@shared/ui/ImageLightbox'
 import { ErrorBoundary } from '@/app/ErrorBoundary'
-import { useEffect, useMemo, useRef, useState } from 'react'
 import { useChatStore } from '@shared/lib/stores/chatStore'
 import { useChat } from '../hooks/useChat'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import { MessageBubble } from './MessageBubble'
 import { ChatInput } from './ChatInput'
+import { DocIngestStatusBar } from './DocIngestStatusBar'
+import { OnboardingChips, ensureOnboardingBoot } from './OnboardingChips'
 import { RouteLiveIndicator } from './RouteLiveIndicator'
 import { SetupChecklist } from './SetupChecklist'
-import { Image as ImageIcon, Sparkles } from 'lucide-react'
+import { Image as ImageIcon, Sparkles, ChevronDown } from 'lucide-react'
 import { ImageGenPanel } from '@features/image/components/ImageGenPanel'
+import { ActivitiesBar } from '@features/activities/ActivitiesBar'
+import { resolveLiveIntimatePhase } from '@core/conversation/intimacy-memory'
 
 interface Props {
   onOpenSettings?: () => void
@@ -26,8 +34,167 @@ function formatSummaryAge(ts?: number, now = Date.now()): string | null {
   return `hace ${Math.floor(sec / 86400)} d`
 }
 
+
+/** I5 — fase íntima: settings + mensajes recientes del chat activo */
+function IntimateScenePhaseChip() {
+  const rel = useSettingsStore((s) => s.settings.relationshipState)
+  const facts = useSettingsStore((s) => s.settings.userMemory?.facts)
+  const adult = useSettingsStore((s) => s.settings.adultIntimacyOptIn)
+  const stage = String(rel?.stage || '')
+  const messages = useChatStore((s) => {
+    const id = s.activeId
+    const c = s.conversations.find((x) => x.id === id)
+    return c?.messages || []
+  })
+  // Hide for professional / non-intimate relationships unless open or adult opt-in
+  // Discrete: hide in professional / early stages unless intimacy is actually open
+  const proLike =
+    /stranger|acquaintance/i.test(stage) &&
+    !rel?.intimacyOpen &&
+    !adult &&
+    !(facts || []).some((f) => /^INTIMACY_/i.test(String(f)))
+  if (proLike) return null
+  const intimateContext =
+    Boolean(rel?.intimacyOpen) ||
+    Boolean(adult) ||
+    /intimate|familiar/i.test(stage) ||
+    (facts || []).some((f) => /^INTIMACY_/i.test(String(f)))
+  if (!intimateContext) return null
+
+  let phase = 'idle'
+  try {
+    phase = resolveLiveIntimatePhase({
+      relationship: rel,
+      facts: facts || [],
+      recentTexts: messages.slice(-24).map((m: { content?: string }) => String(m.content || ''))
+    })
+  } catch {
+    phase = String((rel as { scenePhase?: string } | undefined)?.scenePhase || 'idle')
+  }
+  // S4/S5: if store still says scene_active/aftercare and clock sticky, never show "idle"
+  try {
+    const stored = String((rel as { scenePhase?: string } | undefined)?.scenePhase || '')
+    const lastAt = Number((rel as { lastIntimateSceneAt?: number } | undefined)?.lastIntimateSceneAt || 0)
+    const sticky = lastAt > 0 && Date.now() - lastAt < 6 * 60 * 60 * 1000
+    if (sticky && (stored === 'scene_active' || stored === 'aftercare') && (phase === 'idle' || phase === 'open')) {
+      phase = stored
+    }
+  } catch {
+    /* */
+  }
+  if (phase === 'idle' && !rel?.intimacyOpen) return null
+  const label: Record<string, string> = {
+    idle: 'cercanía',
+    invited: 'propuesta',
+    open: 'cercanía',
+    scene_active: 'en escena',
+    aftercare: 'aftercare'
+  }
+  const titles: Record<string, string> = {
+    idle: 'Vínculo cercano; sin escena íntima en curso (puedes retomar cuando quieras)',
+    open: 'Cercanía adulta abierta; no hay acto en curso ahora',
+    scene_active: 'Escena íntima activa — el asistente mantiene el hilo (di «cambiemos de tema» para salir)',
+    aftercare: 'Aftercare / calma tras la escena — continuidad suave',
+    invited: 'Propuesta de cercanía pendiente de tu sí o no'
+  }
+  const active = phase === 'scene_active' || phase === 'aftercare'
+  const showActions = phase === 'scene_active' || phase === 'aftercare' || phase === 'open' || phase === 'invited'
+
+  const sendSceneIntent = (kind: string, userVisible: string) => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('kawaii:scene-intent', {
+          detail: { kind, userVisible, phase }
+        })
+      )
+    } catch {
+      /* */
+    }
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 flex-wrap max-w-[min(100%,28rem)]">
+      <span
+        className={
+          active
+            ? 'text-[10px] px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-900 border border-rose-300 font-medium'
+            : 'text-[10px] px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-800/80 border border-rose-200/80'
+        }
+        title={titles[phase] || phase}
+      >
+        {label[phase] || phase}
+      </span>
+      {showActions ? (
+        <>
+          {(phase === 'scene_active' || phase === 'open') && (
+            <button
+              type="button"
+              className="text-[10px] px-1.5 py-0.5 rounded-full border border-rose-200/90 bg-white/80 text-rose-900 hover:bg-rose-50"
+              title="Seguir en la cercanía sin salir del tono"
+              onClick={() =>
+                sendSceneIntent(
+                  'scene-continue',
+                  'Quiero seguir cerca de ti, sin cambiar de tema de golpe.'
+                )
+              }
+            >
+              Seguir cerca
+            </button>
+          )}
+          {(phase === 'scene_active' || phase === 'aftercare') && (
+            <button
+              type="button"
+              className="text-[10px] px-1.5 py-0.5 rounded-full border border-kawaii-border/80 bg-white/80 text-kawaii-text/80 hover:bg-kawaii-surface"
+              title="Bajar intensidad, mantener cariño"
+              onClick={() =>
+                sendSceneIntent(
+                  'scene-soften',
+                  'Bajemos un poco el ritmo; quiero quedarme en la ternura.'
+                )
+              }
+            >
+              Bajar ritmo
+            </button>
+          )}
+          {(phase === 'scene_active' || phase === 'aftercare' || phase === 'open') && (
+            <button
+              type="button"
+              className="text-[10px] px-1.5 py-0.5 rounded-full border border-kawaii-border/80 bg-white/80 text-kawaii-muted hover:bg-kawaii-surface"
+              title="Salir del guion íntimo con naturalidad"
+              onClick={() =>
+                sendSceneIntent(
+                  'scene-rest',
+                  'Descansemos un rato de la escena; podemos hablar de otra cosa o simplemente estar.'
+                )
+              }
+            >
+              Descansar
+            </button>
+          )}
+        </>
+      ) : null}
+    </span>
+  )
+}
+
 export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
-  const { activeId, conversations, create } = useChatStore()
+  const pluginsOpen = useUiChromeStore((s) => s.pluginsOpen)
+  const setPluginsOpen = useUiChromeStore((s) => s.setPluginsOpen)
+
+  useConversationInitiative(true)
+  useEffect(() => {
+    try {
+      ensureOnboardingBoot()
+    } catch {
+      /* */
+    }
+  }, [])
+
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const activeId = useChatStore((s) => s.activeId)
+  const create = useChatStore((s) => s.create)
+  // Perf: only re-render when active conversation identity or messages change
+  const active = useChatStore((s) => s.conversations.find((c) => c.id === s.activeId))
   const {
     isLoading,
     error,
@@ -36,12 +203,34 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
     resendMessage,
     deleteMessage,
     stopStreaming,
-    liveStatus
+    liveStatus,
+    continueWriting
   } = useChat()
+
+  // Scene chips → real user turn (was dispatch-only with no listener)
+  useEffect(() => {
+    const onSceneIntent = (ev: Event) => {
+      try {
+        void import('../services/sceneIntent').then(({ parseSceneIntentDetail, sceneIntentUserMeta }) => {
+          const detail = parseSceneIntentDetail((ev as CustomEvent).detail)
+          if (!detail?.userVisible) return
+          void sendMessage(detail.userVisible, undefined, {
+            meta: sceneIntentUserMeta(detail)
+          })
+        })
+      } catch (e) {
+        console.warn('[scene-intent] failed', e)
+      }
+    }
+    window.addEventListener('kawaii:scene-intent', onSceneIntent as EventListener)
+    return () => window.removeEventListener('kawaii:scene-intent', onSceneIntent as EventListener)
+  }, [sendMessage])
   const character = useSettingsStore((s) => s.settings.character)
   const showRoute = useSettingsStore((s) => s.settings.showRouteInfo)
   const dismissChecklist = useSettingsStore((s) => s.settings.dismissSetupChecklist)
   const imageGenEnabled = useSettingsStore((s) => s.settings.imageGenEnabled !== false)
+  const [chatDropOver, setChatDropOver] = useState(false)
+  const chatDropDepth = useRef(0)
   const [imageOpen, setImageOpen] = useState(false)
   const [imagePrefill, setImagePrefill] = useState('')
   const [imageBridge, setImageBridge] = useState<{
@@ -78,13 +267,107 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
     return () => window.removeEventListener('kawaii:open-image-gen', handler)
   }, [])
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  /** User is near the end — auto-follow stream; otherwise show jump button */
+  const pinnedBottomRef = useRef(true)
+  const showJumpRef = useRef(false)
+  const [showJumpBottom, setShowJumpBottom] = useState(false)
+  const scrollRafRef = useRef(0)
   const [now, setNow] = useState(() => Date.now())
 
-  const active = conversations.find((c) => c.id === activeId)
+  /** Avoid setState on every scroll pixel — only when visibility flips */
+  const setJumpVisible = useCallback((next: boolean) => {
+    if (showJumpRef.current === next) return
+    showJumpRef.current = next
+    setShowJumpBottom(next)
+  }, [])
+
+  const updateScrollPin = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+    const near = gap < 140
+    pinnedBottomRef.current = near
+    const shouldShow = !near && el.scrollHeight > el.clientHeight + 80
+    setJumpVisible(shouldShow)
+  }, [setJumpVisible])
+
+  const onScrollList = useCallback(() => {
+    if (scrollRafRef.current) return
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = 0
+      updateScrollPin()
+    })
+  }, [updateScrollPin])
+
+  const scrollToLatest = useCallback(
+    (behavior: ScrollBehavior = 'smooth') => {
+      pinnedBottomRef.current = true
+      setJumpVisible(false)
+      const el = scrollRef.current
+      if (el) {
+        if (behavior === 'smooth') {
+          el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+        } else {
+          el.scrollTop = el.scrollHeight
+        }
+      } else {
+        bottomRef.current?.scrollIntoView({ behavior, block: 'end' })
+      }
+    },
+    [setJumpVisible]
+  )
+
+  const msgCount = active?.messages?.length ?? 0
+  const lastMsgId = active?.messages?.length
+    ? active.messages[active.messages.length - 1]?.id
+    : undefined
+  const lastMsgLen = active?.messages?.length
+    ? String(active.messages[active.messages.length - 1]?.content || '').length
+    : 0
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: isLoading ? 'auto' : 'smooth' })
-  }, [active?.messages, isLoading, liveStatus?.phase])
+    if (!pinnedBottomRef.current) {
+      // User is reading history — never yank scroll; only refresh button state
+      updateScrollPin()
+      return
+    }
+    const el = scrollRef.current
+    if (!el) return
+    // One rAF so layout (new bubble height) is applied first
+    const id = requestAnimationFrame(() => {
+      if (!pinnedBottomRef.current || !scrollRef.current) return
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    })
+    return () => cancelAnimationFrame(id)
+  }, [msgCount, lastMsgId, isLoading, active?.id, updateScrollPin])
+  // note: lastMsgLen intentionally omitted — streaming tokens were causing scroll thrash
+
+  // Reset pin when switching conversation
+  useEffect(() => {
+    pinnedBottomRef.current = true
+    setJumpVisible(false)
+    requestAnimationFrame(() => scrollToLatest('auto'))
+  }, [active?.id, scrollToLatest, setJumpVisible])
+
+  const onResendStable = useCallback(
+    (id: string) => {
+      void resendMessage(id)
+    },
+    [resendMessage]
+  )
+  const onDeleteStable = useCallback(
+    (id: string) => {
+      deleteMessage(id)
+    },
+    [deleteMessage]
+  )
+  const onContinueStable = useCallback(
+    (id: string) => {
+      void continueWriting(id)
+    },
+    [continueWriting]
+  )
 
   // Refresh relative time every 30s when a summary exists
   useEffect(() => {
@@ -113,12 +396,14 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-kawaii-text-muted px-4">
         <Sparkles className="w-12 h-12 text-kawaii-pink" />
         <div className="flex flex-col items-center gap-2">
-          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-2 border-kawaii-pink/40 bg-white flex items-center justify-center text-4xl shadow-md">
+          <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden border-2 border-kawaii-pink/40 bg-white flex items-center justify-center text-4xl shadow-md">
             {character?.visualImageUrl ? (
               <img
                 src={character.visualImageUrl}
                 alt=""
-                className="w-full h-full object-cover"
+                title="Ver avatar ampliado"
+                className="w-full h-full object-cover cursor-zoom-in"
+                onClick={() => character?.visualImageUrl && setLightboxSrc(character.visualImageUrl)}
               />
             ) : (
               <span>{character?.visualEmoji ?? '🌸'}</span>
@@ -156,56 +441,127 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
   }
 
   return (
+    <>
     <div className="flex-1 flex flex-col min-h-0">
-      <header className="px-5 py-3 border-b border-kawaii-border bg-white/60 backdrop-blur">
-        <div className="flex items-start justify-between gap-3 min-w-0">
-          <div className="min-w-0 flex items-center gap-2">
-            <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-kawaii-border bg-white flex items-center justify-center text-lg shrink-0 shadow-sm">
-              {character?.visualImageUrl ? (
-                <img
-                  src={character.visualImageUrl}
-                  alt=""
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span>{character?.visualEmoji ?? '🌸'}</span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <h2 className="font-semibold text-kawaii-text truncate">{active.title}</h2>
-              <p className="text-[10px] text-kawaii-text-muted truncate">
-                {character?.name ?? 'Kawaii'}
-                {character?.relationshipRole ? ` · ${character.relationshipRole}` : ''}
-              </p>
-            </div>
+      <header className="px-3 py-1.5 border-b border-kawaii-border bg-white/70 backdrop-blur shrink-0">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+          <h2 className="text-sm font-semibold text-kawaii-text truncate max-w-[40%] min-w-0" title={active.title}>
+            {active.title}
+          </h2>
+          <span className="text-[10px] text-kawaii-text-muted truncate hidden sm:inline">
+            {character?.name ?? 'Kawaii'}
+          </span>
+          <IntimateScenePhaseChip />
+          <div className="flex-1" />
+          <div className="flex items-center gap-1 flex-wrap justify-end">
+            <ActivitiesBar />
+            {summaryLabel && (
+              <span
+                className="text-[10px] text-kawaii-text-muted bg-kawaii-pink-soft/50 border border-kawaii-border rounded-full px-2 py-0.5 max-w-[140px] truncate"
+                title={active.rollingSummary ? active.rollingSummary.slice(0, 400) : summaryLabel}
+              >
+                {summaryLabel}
+              </span>
+            )}
           </div>
-          {summaryLabel && (
-            <span
-              className="shrink-0 text-[10px] sm:text-[11px] text-kawaii-text-muted bg-kawaii-pink-soft/50 border border-kawaii-border rounded-full px-2 py-0.5 max-w-[55%] truncate"
-              title={
-                active.rollingSummary
-                  ? active.rollingSummary.slice(0, 400)
-                  : summaryLabel
-              }
-            >
-              {summaryLabel}
-            </span>
-          )}
         </div>
+        {pluginsOpen && (
+          <div className="relative mt-1">
+            <PluginsPanel
+              onClose={() => setPluginsOpen(false)}
+              onInsertPhrase={(phrase) => {
+                window.dispatchEvent(
+                  new CustomEvent('kawaii:prefill-chat', { detail: { text: phrase } })
+                )
+                setPluginsOpen(false)
+              }}
+              onRunTools={(tools, phrase) => {
+                window.dispatchEvent(
+                  new CustomEvent('kawaii:run-host-tools', {
+                    detail: { tools, phrase }
+                  })
+                )
+                setPluginsOpen(false)
+              }}
+            />
+          </div>
+        )}
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 relative min-h-0">
+      <div
+        ref={scrollRef}
+        onScroll={onScrollList}
+        className={
+          'absolute inset-0 overflow-y-auto px-4 py-4 ' +
+          (chatDropOver ? 'bg-pink-50/30 ring-2 ring-inset ring-kawaii-pink/40' : '')
+        }
+        onDragEnter={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          if (!e.dataTransfer?.types?.includes('Files')) return
+          chatDropDepth.current += 1
+          setChatDropOver(true)
+        }}
+        onDragLeave={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          chatDropDepth.current = Math.max(0, chatDropDepth.current - 1)
+          if (chatDropDepth.current === 0) setChatDropOver(false)
+        }}
+        onDragOver={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          chatDropDepth.current = 0
+          setChatDropOver(false)
+          const files = e.dataTransfer?.files
+          if (!files?.length) return
+          try {
+            window.dispatchEvent(
+              new CustomEvent('kawaii:attach-files', {
+                detail: { files: Array.from(files) }
+              })
+            )
+          } catch {
+            /* */
+          }
+        }}
+      >
+        {chatDropOver ? (
+          <div className="pointer-events-none sticky top-2 z-10 mx-auto mb-2 max-w-md text-center text-sm font-medium text-kawaii-pink bg-white/90 border border-dashed border-kawaii-pink/50 rounded-full px-3 py-1.5 shadow-sm">
+            Suelta para adjuntar al mensaje
+          </div>
+        ) : null}
         <div className="max-w-3xl mx-auto">
           {active.messages.map((m) => (
             <MessageBubble
               key={m.id}
               message={m}
-              onResend={(id) => void resendMessage(id)}
-              onDelete={(id) => deleteMessage(id)}
+              onResend={onResendStable}
+              onDelete={onDeleteStable}
+              onContinueWriting={onContinueStable}
             />
           ))}
-          <div ref={bottomRef} />
+          <div ref={bottomRef} className="h-px w-full" />
         </div>
+      </div>
+        {showJumpBottom ? (
+          <button
+            type="button"
+            onClick={() => scrollToLatest('smooth')}
+            className="absolute bottom-3 right-4 z-20 flex items-center gap-1.5 rounded-full border border-kawaii-border bg-white/95 px-3 py-1.5 text-xs font-semibold text-kawaii-pink-deep shadow-md hover:bg-kawaii-pink-soft/50"
+            title="Ir al último mensaje"
+            aria-label="Ir al último mensaje"
+          >
+            <ChevronDown className="w-4 h-4" />
+            Último mensaje
+          </button>
+        ) : null}
       </div>
 
       {error && (
@@ -270,11 +626,21 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
         </>
       )}
 
-      <ChatInput
+      <OnboardingChips
+          onChipSend={(label) => {
+            void sendMessage(label)
+          }}
+        />
+        <DocIngestStatusBar />
+        <ChatInput
         isLoading={isLoading}
         onSend={sendMessage}
         onStop={stopStreaming}
       />
     </div>
+    {lightboxSrc ? (
+      <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+    ) : null}
+    </>
   )
 }

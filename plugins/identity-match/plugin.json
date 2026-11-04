@@ -1,0 +1,21 @@
+{
+  "id": "identity-match",
+  "name": "Identity match (pre + post)",
+  "version": "1.0.0",
+  "runtime": "python",
+  "entry": "identity_match.py",
+  "category": "imagen",
+  "summary": "Helper pre (calidad de refs) y juez post (similitud facial). InsightFace opcional.",
+  "tools": [
+    {
+      "name": "analyze_identity_refs",
+      "description": "Analiza calidad de fotos de referencia antes de generar"
+    },
+    {
+      "name": "score_identity_match",
+      "description": "Puntua imagen generada vs ref (post)"
+    }
+  ],
+  "permissions": ["fs"],
+  "phrases": ["analiza refs", "score identidad", "similitud identidad", "valida cara"]
+}

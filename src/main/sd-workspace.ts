@@ -29,6 +29,22 @@ export async function ensureSdWorkspace(): Promise<{
   const modelsDir = getSdModelsDir()
   const created = !existsSync(root)
   await mkdir(modelsDir, { recursive: true })
+  const loraDir = join(root, 'models', 'Lora')
+  await mkdir(loraDir, { recursive: true })
+  // Also mirror under forge if configured
+  try {
+    const { loadMachineProfile } = await import('./machine-profile')
+    const p = await loadMachineProfile()
+    const forgeRoot = (p as { forgeInstallPath?: string })?.forgeInstallPath
+    if (forgeRoot) {
+      await mkdir(join(forgeRoot, 'models', 'Stable-diffusion'), { recursive: true })
+      await mkdir(join(forgeRoot, 'models', 'Lora'), { recursive: true })
+      await mkdir(join(forgeRoot, 'webui', 'models', 'Stable-diffusion'), { recursive: true })
+      await mkdir(join(forgeRoot, 'webui', 'models', 'Lora'), { recursive: true })
+    }
+  } catch {
+    /* optional */
+  }
   await mkdir(join(root, 'outputs'), { recursive: true })
 
   // Helper scripts for Windows users
@@ -64,15 +80,181 @@ explorer "${modelsDir.replace(/\//g, '\\')}"
 }
 
 export async function listLocalCheckpoints(): Promise<string[]> {
-  const dir = getSdModelsDir()
-  if (!existsSync(dir)) return []
-  const files = await readdir(dir)
-  return files.filter((f) => f.endsWith('.safetensors') || f.endsWith('.ckpt'))
+  const detailed = await listLocalWeightsDetailed()
+  return detailed.filter((d) => d.kind === 'checkpoint').map((d) => d.filename)
 }
 
-export async function openSdWorkspace(): Promise<void> {
-  const { root } = await ensureSdWorkspace()
-  await shell.openPath(root)
+export type LocalWeightInfo = {
+  filename: string
+  path: string
+  sizeBytes: number
+  kind: 'checkpoint' | 'lora' | 'unknown'
+  family: string
+  /** Heuristic: SDXL-class if very large */
+  likelySdxl: boolean
+  location: 'workspace' | 'forge'
+}
+
+/** Scan workspace + Forge model folders (checkpoints AND LoRAs). Always disk-fresh. */
+export async function listLocalWeightsDetailed(): Promise<LocalWeightInfo[]> {
+  const { readdir, stat } = await import('fs/promises')
+  const out: LocalWeightInfo[] = []
+  const seen = new Set<string>()
+
+  const dirs: Array<{ dir: string; location: 'workspace' | 'forge' }> = []
+  try {
+    dirs.push({ dir: getSdModelsDir(), location: 'workspace' })
+  } catch {
+    /* ignore */
+  }
+  try {
+    const { loadMachineProfile } = await import('./machine-profile')
+    const p = await loadMachineProfile()
+    const roots = new Set<string>()
+    if ((p as { forgeInstallPath?: string })?.forgeInstallPath) {
+      roots.add(String((p as { forgeInstallPath: string }).forgeInstallPath))
+    }
+    try {
+      const { resolveForgeRoot } = await import('./forge-launch')
+      const resolved = await resolveForgeRoot(p as never)
+      if (resolved) roots.add(resolved)
+    } catch {
+      /* optional */
+    }
+    for (const forgeRoot of roots) {
+      dirs.push({ dir: join(forgeRoot, 'models', 'Stable-diffusion'), location: 'forge' })
+      dirs.push({ dir: join(forgeRoot, 'models', 'Lora'), location: 'forge' })
+      dirs.push({ dir: join(forgeRoot, 'webui', 'models', 'Stable-diffusion'), location: 'forge' })
+      dirs.push({ dir: join(forgeRoot, 'webui', 'models', 'Lora'), location: 'forge' })
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const { classifyLocalWeight, familyFromFilename } = await import(
+    '../core/generative/smart-checkpoint'
+  )
+
+  for (const { dir, location } of dirs) {
+    if (!existsSync(dir)) continue
+    let names: string[] = []
+    try {
+      names = await readdir(dir)
+    } catch {
+      continue
+    }
+    for (const f of names) {
+      if (!/\.(safetensors|ckpt)$/i.test(f)) continue
+      const fp = join(dir, f)
+      const key = f.toLowerCase()
+      if (seen.has(key)) continue
+      try {
+        const stt = await stat(fp)
+        if (!stt.isFile() || stt.size < 1_000_000) continue
+        seen.add(key)
+        let kind = classifyLocalWeight(f, stt.size)
+        if (/[\\/]Lora[\\/]/i.test(dir) || /\blora\b/i.test(f)) kind = 'lora'
+        out.push({
+          filename: f,
+          path: fp,
+          sizeBytes: stt.size,
+          kind,
+          family: familyFromFilename(f),
+          likelySdxl: stt.size >= 5_500_000_000,
+          location
+        })
+      } catch {
+        /* skip */
+      }
+    }
+  }
+  out.sort((a, b) => b.sizeBytes - a.sizeBytes)
+  return out
+}
+
+/**
+ * Prefer the folder that actually has checkpoints (Forge), not the empty app workspace.
+ */
+export async function resolveBestSdModelsOpenPath(): Promise<{
+  path: string
+  kind: 'forge' | 'workspace'
+  fileCount: number
+}> {
+  const { readdir } = await import('fs/promises')
+  const candidates: Array<{ dir: string; kind: 'forge' | 'workspace' }> = []
+  try {
+    const { loadMachineProfile } = await import('./machine-profile')
+    const p = await loadMachineProfile()
+    const roots = new Set<string>()
+    if ((p as { forgeInstallPath?: string })?.forgeInstallPath) {
+      roots.add(String((p as { forgeInstallPath?: string }).forgeInstallPath))
+    }
+    try {
+      const { resolveForgeRoot } = await import('./forge-launch')
+      const resolved = await resolveForgeRoot(p as never)
+      if (resolved) roots.add(resolved)
+    } catch {
+      /* optional */
+    }
+    for (const forgeRoot of roots) {
+      candidates.push(
+        { dir: join(forgeRoot, 'webui', 'models', 'Stable-diffusion'), kind: 'forge' },
+        { dir: join(forgeRoot, 'models', 'Stable-diffusion'), kind: 'forge' },
+        { dir: join(forgeRoot, 'webui', 'models', 'Stable-diffusion'), kind: 'forge' }
+      )
+    }
+  } catch {
+    /* ignore */
+  }
+  try {
+    candidates.push({ dir: getSdModelsDir(), kind: 'workspace' })
+  } catch {
+    /* ignore */
+  }
+
+  let best: { path: string; kind: 'forge' | 'workspace'; fileCount: number } | null = null
+  for (const c of candidates) {
+    if (!existsSync(c.dir)) continue
+    let n = 0
+    try {
+      const names = await readdir(c.dir)
+      n = names.filter((f) => /\.(safetensors|ckpt)$/i.test(f)).length
+    } catch {
+      continue
+    }
+    if (!best || n > best.fileCount || (n === best.fileCount && c.kind === 'forge')) {
+      best = { path: c.dir, kind: c.kind, fileCount: n }
+    }
+  }
+  if (best) return best
+  // Ensure workspace exists as last resort
+  const { modelsDir } = await ensureSdWorkspace()
+  return { path: modelsDir, kind: 'workspace', fileCount: 0 }
+}
+
+export async function openSdWorkspace(): Promise<{ path: string; kind: string; fileCount: number }> {
+  const best = await resolveBestSdModelsOpenPath()
+  await shell.openPath(best.path)
+  return best
+}
+
+/** Open Forge install root (or models parent) when user wants the full tree. */
+export async function openForgeModelsRoot(): Promise<{ path: string; ok: boolean; error?: string }> {
+  try {
+    const { loadMachineProfile } = await import('./machine-profile')
+    const p = await loadMachineProfile()
+    const forgeRoot = (p as { forgeInstallPath?: string })?.forgeInstallPath
+    if (!forgeRoot || !existsSync(forgeRoot)) {
+      return { path: '', ok: false, error: 'Forge no tiene ruta de instalación en el perfil' }
+    }
+    const webuiModels = join(forgeRoot, 'webui', 'models', 'Stable-diffusion')
+    const models = join(forgeRoot, 'models', 'Stable-diffusion')
+    const target = existsSync(webuiModels) ? webuiModels : existsSync(models) ? models : forgeRoot
+    await shell.openPath(target)
+    return { path: target, ok: true }
+  } catch (e) {
+    return { path: '', ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
 }
 
 /**
@@ -168,6 +350,20 @@ export const CHECKPOINT_CATALOG: CheckpointCatalogEntry[] = [
     mergeFriendly: true
   },
   {
+    id: 'ultra-v15-local',
+    filename: 'ultra_v15.safetensors',
+    url: '',
+    mirrors: [],
+    approxGB: 14,
+    label: 'Ultra v1.5 (local / Civitai)',
+    safety: 'flexible',
+    styles: ['photo', 'art'],
+    notes:
+      'Modelo grande (~14 GB). Suele ser SDXL o merge pesado. En 12 GB VRAM usa con cuidado (atención baja, --medvram). No hay mirror HF fijo: colócalo en models/Stable-diffusion.',
+    bestFor: 'Máximo detalle si VRAM aguanta; si no, usa Realistic Vision / DreamShaper',
+    mergeFriendly: true
+  },
+  {
     id: 'deliberate-v2',
     filename: 'Deliberate_v2.safetensors',
     url: 'https://huggingface.co/XpucT/Deliberate/resolve/main/Deliberate_v2.safetensors',
@@ -238,44 +434,15 @@ export function setActiveSdControl(
 export async function listInstalledCheckpoints(): Promise<
   Array<{ id: string; filename: string; path: string; sizeBytes: number }>
 > {
-  const modelsDir = await resolveSdModelsDir()
-  const { readdir, stat } = await import('fs/promises')
-  const { existsSync } = await import('fs')
-  const out: Array<{ id: string; filename: string; path: string; sizeBytes: number }> = []
-  if (!existsSync(modelsDir)) return out
-  let names: string[] = []
-  try {
-    names = await readdir(modelsDir)
-  } catch {
-    return out
-  }
-  for (const entry of CHECKPOINT_CATALOG) {
-    const candidates = [entry.filename, ...names.filter((n) => n === entry.filename)]
-    const loose = names.find(
-      (n) =>
-        n.toLowerCase() === entry.filename.toLowerCase() ||
-        n.toLowerCase().includes(entry.id.replace(/-/g, '').slice(0, 10).toLowerCase())
-    )
-    const fileName = existsSync(join(modelsDir, entry.filename))
-      ? entry.filename
-      : loose
-    if (!fileName) continue
-    const fp = join(modelsDir, fileName)
-    try {
-      const stt = await stat(fp)
-      if (stt.isFile() && stt.size > 50_000_000) {
-        out.push({
-          id: entry.id,
-          filename: fileName,
-          path: fp,
-          sizeBytes: stt.size
-        })
-      }
-    } catch {
-      /* skip */
-    }
-  }
-  return out
+  const detailed = await listLocalWeightsDetailed()
+  return detailed
+    .filter((d) => d.kind === 'checkpoint')
+    .map((d) => ({
+      id: d.filename.replace(/\.(safetensors|ckpt)$/i, ''),
+      filename: d.filename,
+      path: d.path,
+      sizeBytes: d.sizeBytes
+    }))
 }
 
 export async function listSdDownloadRecovery(): Promise<
@@ -531,4 +698,26 @@ async function syncInto(
     }
   }
   return { ok: true, copied, skipped, forgeModelsDir: destDir }
+}
+
+
+/** Ensure Forge + workspace Lora dirs exist (call before LoRA downloads). */
+export async function ensureLoraDirs(): Promise<{ workspace: string; forge: string | null }> {
+  const root = getSdWorkspaceRoot()
+  const workspace = join(root, 'models', 'Lora')
+  await mkdir(workspace, { recursive: true })
+  let forge: string | null = null
+  try {
+    const { loadMachineProfile } = await import('./machine-profile')
+    const p = await loadMachineProfile()
+    const forgeRoot = (p as { forgeInstallPath?: string })?.forgeInstallPath
+    if (forgeRoot) {
+      forge = join(forgeRoot, 'models', 'Lora')
+      await mkdir(forge, { recursive: true })
+      await mkdir(join(forgeRoot, 'webui', 'models', 'Lora'), { recursive: true })
+    }
+  } catch {
+    /* ignore */
+  }
+  return { workspace, forge }
 }

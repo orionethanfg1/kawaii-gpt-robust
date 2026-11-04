@@ -1,0 +1,37 @@
+{
+  "id": "web-search",
+  "name": "Web Search",
+  "version": "1.0.0",
+  "runtime": "builtin",
+  "entry": null,
+  "tools": [
+    {
+      "name": "web_search",
+      "description": "Busca en la web. Main process cascade.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string"
+          },
+          "max_results": {
+            "type": "integer",
+            "default": 5
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    }
+  ],
+  "permissions": [
+    "net"
+  ],
+  "phrases": [
+    "busca en la web",
+    "buscar en internet"
+  ],
+  "category": "sistema",
+  "summary": "Búsqueda web multi-backend (Wikipedia, SearX, DDG, Bing)."
+}

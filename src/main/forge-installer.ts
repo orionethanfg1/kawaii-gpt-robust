@@ -6,7 +6,7 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
-import { mkdir, chmod, stat, writeFile, readdir, unlink } from 'fs/promises'
+import { mkdir, chmod, stat, writeFile, readdir } from 'fs/promises'
 import { execFile, spawn } from 'child_process'
 import { promisify } from 'util'
 import { platform } from 'os'
@@ -21,7 +21,6 @@ import {
   resumableDownload,
   loadDownloadJob,
   listRecoveryJobs,
-  clearDownloadJob,
   type DownloadControl,
   type DownloadJobState
 } from './resumable-download'
@@ -253,7 +252,7 @@ export async function listInstallRecoveryJobs(): Promise<DownloadJobState[]> {
   return jobs.filter((j) => {
     if (j.status === 'completed') return false
     if (j.status === 'cancelled' && !(j.received > 0)) return false
-    return j.status === 'downloading' || j.status === 'paused' || j.status === 'failed' || (j.received > 0 && j.status !== 'completed')
+    return j.status === 'downloading' || j.status === 'paused' || j.status === 'failed' || j.received > 0
   })
 }
 

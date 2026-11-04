@@ -1,0 +1,219 @@
+/**
+ * M3 — AdvancedPanel
+ */
+import { Stethoscope, Loader2, RefreshCw } from 'lucide-react'
+import { Button } from '@shared/ui/Button'
+import { AppMemoryPanel } from '../AppMemoryPanel'
+import { useSettingsUi } from './SettingsUiContext'
+import { useState } from 'react'
+import { APP_VERSION } from '@shared/version'
+
+export function AdvancedPanel() {
+  const {
+    settings,
+    update,
+    diag,
+    diagRunning,
+    runDiag,
+    repairImageStack,
+    probeNetworkOnly
+  } = useSettingsUi()
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null)
+  const [updateBusy, setUpdateBusy] = useState(false)
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-violet-200 p-3 space-y-2 bg-violet-50/40">
+        <p className="text-xs font-semibold text-violet-900">GitHub (técnico)</p>
+        <p className="text-[10px] text-kawaii-text-muted">
+          Sync de identidad SSH y push del proyecto. Solo para desarrollo.
+        </p>
+        <Button
+          className="text-xs"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('kawaii:open-git-sync'))
+          }}
+        >
+          Abrir GitHub Sync
+        </Button>
+      </div>
+      <div className="rounded-lg border border-kawaii-border p-3 space-y-2 bg-white/70">
+        <p className="text-xs font-semibold">Búsqueda web · SearXNG</p>
+        <p className="text-[10px] text-kawaii-text-muted">
+          Opcional: URL de SearXNG local (p. ej. http://127.0.0.1:8080). Mejora hits reales. Ver
+          docs/SEARXNG.md.
+        </p>
+        <input
+          className="input-kawaii text-sm w-full"
+          placeholder="http://127.0.0.1:8080"
+          value={(settings as { searxngBaseUrl?: string }).searxngBaseUrl || ''}
+          onChange={(e) => update({ searxngBaseUrl: e.target.value } as never)}
+        />
+        <label className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={settings.webSearchEnabled !== false}
+            onChange={(e) => update({ webSearchEnabled: e.target.checked })}
+          />
+          Búsqueda web habilitada
+        </label>
+      </div>
+
+      <div className="rounded-lg border border-sky-200 p-3 space-y-2 bg-sky-50/40">
+        <p className="text-xs font-semibold text-sky-900">Clima (opcional · Open-Meteo)</p>
+        <p className="text-[10px] text-kawaii-text-muted">
+          Sin API key. Sirve para iniciativas del guardarropa (abrigos si hace frío, etc.). Caché ~45
+          min. Si falla la red, la app sigue solo con hora del día.
+        </p>
+        <label className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={Boolean((settings as { weatherEnabled?: boolean }).weatherEnabled)}
+            onChange={(e) => update({ weatherEnabled: e.target.checked } as never)}
+          />
+          Usar clima en contexto
+        </label>
+        <input
+          className="input-kawaii text-sm w-full"
+          placeholder="Ciudad (ej. Guadalajara, Ciudad de México)"
+          value={(settings as { weatherCity?: string }).weatherCity || ''}
+          onChange={(e) => update({ weatherCity: e.target.value } as never)}
+        />
+        {(settings as { weatherSummary?: string }).weatherSummary ? (
+          <p className="text-[11px] text-sky-800">
+            Ahora: {(settings as { weatherSummary?: string }).weatherSummary}
+          </p>
+        ) : null}
+        <Button
+          className="text-xs"
+          variant="ghost"
+          onClick={() => {
+            void (async () => {
+              const city = String((settings as { weatherCity?: string }).weatherCity || '').trim()
+              if (!city) return
+              try {
+                const { fetchWeatherForCity } = await import('@core/weather/open-meteo')
+                const w = await fetchWeatherForCity(city)
+                if (w) {
+                  update({
+                    weatherSummary: w.summary || '',
+                    weatherTempC: w.tempC,
+                    weatherCondition: w.condition || '',
+                    weatherFetchedAt: Date.now(),
+                    weatherEnabled: true
+                  } as never)
+                }
+              } catch {
+                /* offline */
+              }
+            })()
+          }}
+        >
+          Actualizar clima
+        </Button>
+      </div>
+
+      <div
+        id="settings-advanced"
+        className="scroll-mt-4 border border-kawaii-border rounded-kawaii p-3 space-y-2"
+      >
+        <div className="flex items-center justify-between flex-wrap gap-1">
+          <h3 className="font-bold text-sm flex items-center gap-1">
+            <Stethoscope className="w-4 h-4" /> Autodiagnóstico
+          </h3>
+          <div className="flex items-center gap-1 flex-wrap">
+            <Button
+              variant="ghost"
+              className="text-xs"
+              disabled={diagRunning}
+              onClick={() => void probeNetworkOnly()}
+            >
+              Probar red
+            </Button>
+            <Button
+              variant="ghost"
+              className="text-xs"
+              disabled={diagRunning}
+              onClick={() => void runDiag()}
+            >
+              {diagRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+              Ejecutar
+            </Button>
+            <Button
+              variant="ghost"
+              className="text-xs"
+              disabled={diagRunning}
+              onClick={() => void repairImageStack()}
+            >
+              Reparar capa de imágenes
+            </Button>
+          </div>
+        </div>
+        {diag && (
+          <ul className="space-y-1 text-xs">
+            {diag.checks.map((c) => (
+              <li key={c.id} className="flex gap-2">
+                <span>
+                  {c.status === 'ok' ? '✅' : c.status === 'warn' ? '⚠️' : '❌'}
+                </span>
+                <span>
+                  <strong>{c.label}</strong>: {c.detail}
+                  {c.repaired ? ' (reparado)' : ''}
+                  {c.repairAction ? (
+                    <span className="block text-kawaii-text-muted">→ {c.repairAction}</span>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-kawaii-border p-3 space-y-2 bg-white/70">
+        <p className="text-xs font-semibold flex items-center gap-1">
+          <RefreshCw className="w-3.5 h-3.5" /> Actualizaciones · v{APP_VERSION}
+        </p>
+        <p className="text-[10px] text-kawaii-text-muted">
+          En la app instalada (setup), comprueba releases de GitHub. En modo desarrollo no aplica.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            className="text-xs"
+            disabled={updateBusy}
+            onClick={() => {
+              void (async () => {
+                setUpdateBusy(true)
+                setUpdateMsg(null)
+                try {
+                  const r = await window.kawaii?.updateCheck?.()
+                  setUpdateMsg(r?.message || r?.error || (r?.available ? 'Hay actualización' : 'OK'))
+                } catch (e) {
+                  setUpdateMsg(e instanceof Error ? e.message : String(e))
+                } finally {
+                  setUpdateBusy(false)
+                }
+              })()
+            }}
+          >
+            {updateBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            Buscar actualizaciones
+          </Button>
+          <Button
+            variant="ghost"
+            className="text-xs"
+            onClick={() => {
+              void window.kawaii?.updateInstall?.()
+            }}
+          >
+            Instalar y reiniciar
+          </Button>
+        </div>
+        {updateMsg ? (
+          <p className="text-[11px] text-kawaii-text-muted">{updateMsg}</p>
+        ) : null}
+      </div>
+
+      <AppMemoryPanel />
+    </div>
+  )
+}

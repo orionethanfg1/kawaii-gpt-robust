@@ -8,8 +8,7 @@ import {
   recordModelFailure,
   suggestSafeModel,
   isModelBlocked,
-  applyModelMemory,
-  markProviderCooldown
+  applyModelMemory
 } from '@core/models/model-memory'
 import { SAFE_DEFAULT_MODEL } from '@core/models/free-cloud-catalog'
 
@@ -105,6 +104,14 @@ function mapRemedy(code: string, message: string, provider?: string): RemedyId {
   }
   if (code === 'CONTEXT_OVERFLOW') return 'reduce_context'
   if (code === 'PROVIDER_UNAVAILABLE' || code === 'NETWORK_ERROR') {
+    // Offline / sin red: no empujar a cloud
+    try {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return provider === 'local' || lower.includes('ollama') ? 'retry_later' : 'prefer_local'
+      }
+    } catch {
+      /* */
+    }
     if (provider === 'local' || lower.includes('ollama')) return 'prefer_cloud'
     if (code === 'NETWORK_ERROR') return 'retry_later'
     // Prefer rotating model, not blacklisting the whole provider

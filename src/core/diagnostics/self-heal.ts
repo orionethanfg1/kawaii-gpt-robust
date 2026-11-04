@@ -39,6 +39,9 @@ export async function runSelfDiagnosis(opts: {
   cloudBaseUrl: string
   hasCloudKey: boolean
   providerMode: string
+  /** OpenAI-compatible / LM Studio base (e.g. http://127.0.0.1:1234) */
+  openAIBaseUrl?: string
+  lmStudioBaseUrl?: string
   ollamaStart?: () => Promise<{ ok: boolean; message: string }>
   /** Stable Diffusion / Forge API (optional layer) */
   imageGenEnabled?: boolean
@@ -102,41 +105,30 @@ export async function runSelfDiagnosis(opts: {
   }
 
   if (opts.providerMode === 'local' || opts.providerMode === 'smart') {
-    let reachable = false
+    let ollamaNames: string[] = []
+    let ollamaOk = false
     try {
       const res = await fetchWithTimeout(
         `${opts.localBaseUrl.replace(/\/$/, '')}/api/tags`,
         {},
         4000
       )
-      reachable = res.ok
+      ollamaOk = res.ok
       if (res.ok) {
         const data = (await res.json()) as { models?: Array<{ name?: string }> }
-        const names = (data.models ?? []).map((m) => m.name).filter(Boolean) as string[]
-        const hasModel = opts.localModel
-          ? names.some((n) => n === opts.localModel || n.startsWith(opts.localModel))
-          : names.length > 0
+        ollamaNames = (data.models ?? []).map((m) => m.name).filter(Boolean) as string[]
         checks.push({
           id: 'ollama',
           label: 'Ollama',
           status: 'ok',
-          detail: `Online · ${names.length} modelo(s)`
-        })
-        checks.push({
-          id: 'local-model',
-          label: 'Modelo local',
-          status: hasModel ? 'ok' : 'warn',
-          detail: hasModel
-            ? `Configurado: ${opts.localModel || names[0]}`
-            : 'Sin modelos instalados o el elegido no está descargado',
-          repairAction: hasModel ? undefined : 'Descarga un modelo desde el Asistente'
+          detail: `Online · ${ollamaNames.length} modelo(s)`
         })
       }
     } catch {
-      reachable = false
+      ollamaOk = false
     }
 
-    if (!reachable) {
+    if (!ollamaOk) {
       let repaired = false
       let detail = 'No responde en ' + opts.localBaseUrl
       if (opts.ollamaStart) {
@@ -157,6 +149,69 @@ export async function runSelfDiagnosis(opts: {
         repaired
       })
     }
+
+    // LM Studio / OpenAI-compatible local (often the real chat backend)
+    let lmsNames: string[] = []
+    let lmsOk = false
+    const lmsCandidates = [
+      (opts.lmStudioBaseUrl || '').trim(),
+      (opts.openAIBaseUrl || '').trim(),
+      'http://127.0.0.1:1234'
+    ].filter((u, i, arr) => u && arr.indexOf(u) === i)
+    for (const base of lmsCandidates) {
+      const root = base.replace(/\/+$/, '').replace(/\/v1$/i, '')
+      try {
+        const res = await fetchWithTimeout(`${root}/v1/models`, {}, 4000)
+        if (!res.ok) continue
+        const data = (await res.json()) as { data?: Array<{ id?: string }> }
+        lmsNames = (data.data || []).map((m) => String(m.id || '')).filter(Boolean)
+        lmsOk = true
+        checks.push({
+          id: 'lm-studio',
+          label: 'LM Studio / OpenAI local',
+          status: 'ok',
+          detail: `Online · ${lmsNames.length} modelo(s) · ${root}`
+        })
+        break
+      } catch {
+        /* try next */
+      }
+    }
+    if (!lmsOk && lmsCandidates.length) {
+      checks.push({
+        id: 'lm-studio',
+        label: 'LM Studio / OpenAI local',
+        status: 'warn',
+        detail: 'No responde en ' + lmsCandidates[0],
+        repairAction: 'Abre LM Studio → Developer → Start Server'
+      })
+    }
+
+    const allNames = [...ollamaNames, ...lmsNames]
+    const want = (opts.localModel || '').trim()
+    const hasModel =
+      allNames.length > 0 &&
+      (!want ||
+        allNames.some(
+          (n) =>
+            n === want ||
+            n.startsWith(want) ||
+            want.startsWith(n) ||
+            n.toLowerCase().includes(want.toLowerCase().slice(0, 12))
+        ))
+    checks.push({
+      id: 'local-model',
+      label: 'Modelo local',
+      status: hasModel ? 'ok' : allNames.length > 0 ? 'warn' : 'warn',
+      detail: hasModel
+        ? `Disponible · pref: ${want || allNames[0]} · catálogo ${allNames.length}`
+        : allNames.length > 0
+          ? `Catálogo OK (${allNames.length}) pero no coincide «${want || '—'}» — revisa Modelos / Auto`
+          : 'Sin modelos en Ollama ni LM Studio',
+      repairAction: hasModel
+        ? undefined
+        : 'Carga un modelo en LM Studio o Ollama; revisa Ajustes → Modelos'
+    })
   }
 
   if (opts.providerMode === 'cloud' || opts.providerMode === 'smart') {
@@ -374,5 +429,45 @@ export async function runSelfDiagnosis(opts: {
   }
 
   const healthy = checks.every((c) => c.status !== 'fail')
-  return { at, checks, healthy }
+  
+  // Chat history on disk vs in-memory
+  try {
+    if (typeof window !== 'undefined' && (window as unknown as { kawaii?: { filesListChatBodies?: () => Promise<{ ok: boolean; items?: Array<{ id: string; messageCount?: number }> }> } }).kawaii?.filesListChatBodies) {
+      const list = await (window as unknown as { kawaii: { filesListChatBodies: () => Promise<{ ok: boolean; items?: Array<{ id: string; messageCount?: number; title?: string }> }> } }).kawaii.filesListChatBodies()
+      const n = list.items?.length || 0
+      if (!list.ok) {
+        checks.push({
+          id: 'chat-history-gap',
+          label: 'Historial de chats (disco)',
+          status: 'warn',
+          detail: list.error || 'no listable',
+          repairAction: 'Recuperar chats en la barra lateral'
+        })
+      } else if (n === 0) {
+        checks.push({
+          id: 'chat-history-gap',
+          label: 'Historial de chats (disco)',
+          status: 'ok',
+          detail: 'Sin respaldos aún (se crean al conversar)'
+        })
+      } else {
+        checks.push({
+          id: 'chat-history-gap',
+          label: 'Historial de chats (disco)',
+          status: 'ok',
+          detail: `${n} respaldo(s) en userData/chats — usa «Recuperar chats» si falta historial`,
+          repairAction: 'Sidebar → Recuperar chats'
+        })
+      }
+    }
+  } catch (e) {
+    checks.push({
+      id: 'chat-history-gap',
+      label: 'Historial de chats (disco)',
+      status: 'warn',
+      detail: e instanceof Error ? e.message : String(e)
+    })
+  }
+
+return { at, checks, healthy }
 }

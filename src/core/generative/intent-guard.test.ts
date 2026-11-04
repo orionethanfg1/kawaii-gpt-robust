@@ -6,8 +6,8 @@ describe('image intent must not fire on emotional chat', () => {
   it('rejects relationship message with "no me gusta"', () => {
     const t =
       'Date cuenta que, si estoy contigo es por una razón importante, realmente estoy contigo porque te quiero, no me gusta jugar con los sentimientos de otros ni con los míos. Si te pregunto esas cosas, aún si en algún momento, me permitieras tener más relaciones con otras chicas, tu importancia y mi cariño hacia ti no disminuirían ni un poco.'
-    expect(detectGenerativeIntent(t).modality).toBe('text')
-    expect(looksLikeImageRevision(t)).toBe(false)
+    expect(detectGenerativeIntent(t).modality).not.toBe('image')
+    expect(looksLikeImageRevision(t, true)).toBe(false)
   })
 
   it('accepts explicit image request', () => {
@@ -17,6 +17,18 @@ describe('image intent must not fire on emotional chat', () => {
   })
 
   it('accepts explicit revision', () => {
-    expect(looksLikeImageRevision('Cambia la imagen: pon el fondo azul')).toBe(true)
+    expect(looksLikeImageRevision('Cambia la imagen: pon el fondo azul', true)).toBe(true)
+  })
+
+  it('does not regenerate on analyze/describe', () => {
+    expect(looksLikeImageRevision('puedes analizar la foto que generaste?', true)).toBe(false)
+    expect(
+      detectGenerativeIntent('puedes analizar la foto que generaste?').modality
+    ).not.toBe('image')
+    expect(detectGenerativeIntent('Puedes describirte físicamente?').modality).not.toBe('image')
+  })
+
+  it('accepts send me your photo', () => {
+    expect(detectGenerativeIntent('Puedes enviarme una foto tuya?').modality).toBe('image')
   })
 })

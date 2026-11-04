@@ -496,3 +496,31 @@ export async function listRecoveryJobs(dir: string): Promise<DownloadJobState[]>
   return listDownloadJobsInDir(dir)
 }
 
+
+
+/** Remove completed jobs and failed jobs older than maxAgeMs (default 48h). */
+export async function purgeStaleJobs(
+  dir: string,
+  maxAgeMs = 48 * 3600 * 1000
+): Promise<number> {
+  const jobs = await listDownloadJobsInDir(dir)
+  const now = Date.now()
+  let n = 0
+  for (const j of jobs) {
+    const age = now - Date.parse(j.updatedAt || '') || 0
+    const done = j.status === 'completed' || (j.total && j.received >= j.total)
+    const dead =
+      j.status === 'failed' && age > maxAgeMs
+        ? true
+        : j.status === 'downloading' && (j.received || 0) === 0 && age > maxAgeMs
+    if (done || dead) {
+      try {
+        await clearDownloadJob(j.dest)
+        n++
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return n
+}

@@ -96,13 +96,37 @@ export function friendlyProviderMessage(
   const lower = detail.toLowerCase()
   const who = provider ? ` (${provider})` : ''
 
+  // LMS / local: image input + text-only model (or missing mmproj)
+  if (
+    /image input is not supported/i.test(detail) ||
+    /image input is not supported/i.test(rawMessage)
+  ) {
+    return (
+      'Este modelo no acepta imágenes (solo texto). Quita el adjunto visual, describe la foto en texto, ' +
+      'o usa un modelo de visión (moondream / llava). Si el error menciona mmproj, el GGUF multimodal necesita ese archivo.'
+    )
+  }
+  if (/\bmmproj\b/i.test(detail) || /\bmmproj\b/i.test(rawMessage)) {
+    return (
+      'Falta el proyector de visión (mmproj) para este modelo multimodal en LM Studio. ' +
+      'Colócalo junto al GGUF o usa un modelo solo texto sin imágenes.'
+    )
+  }
+
   // Prefer rich multi-provider summaries from the orchestrator
   if (
     /intentos:/i.test(detail) ||
     /cloud no disponible/i.test(detail) ||
-    /ningún proveedor cloud activo/i.test(detail)
+    /ningún proveedor cloud activo/i.test(detail) ||
+    /no pude completar con los proveedores/i.test(detail)
   ) {
-    return detail.length > 360 ? detail.slice(0, 357) + '…' : detail
+    if (/localhost/i.test(detail)) {
+      return (
+        'Falló la ruta a internet; conviene usar el modelo local. ' +
+        'Ajustes → local (Ollama/LM Studio) y reenvía.'
+      )
+    }
+    return detail.length > 280 ? detail.slice(0, 277) + '…' : detail
   }
 
   if (code === 'PROVIDER_AUTH') {
@@ -115,6 +139,13 @@ export function friendlyProviderMessage(
     return `Cuota agotada${who}. Cambia a openrouter/free u otro free, o espera el reinicio de cuota.`
   }
   if (code === 'PROVIDER_MODEL_NOT_FOUND') {
+    if (/ollama|local/i.test(provider || '')) {
+      return (
+        `Ese modelo no está en el runtime local${who}. ` +
+        `En Ollama tienes tags como qwen2.5:14b; en LM Studio ids tipo qwen/…. ` +
+        `Elige uno de la lista en Ajustes → Modelo local (o di «qué modelos hay»).`
+      )
+    }
     return `Modelo no disponible o no free${who}. En Ajustes usa openrouter/free, llama-3.1-8b-instant (Groq) o un modelo Ollama instalado.`
   }
   if (code === 'PROVIDER_TIMEOUT') {
@@ -124,10 +155,25 @@ export function friendlyProviderMessage(
     return `Problema de conexión${who}. Comprueba Internet/Wi‑Fi, desactiva VPN un momento y reintenta. Si hay descargas grandes (Ollama/Forge), espera a que bajen un poco.`
   }
   if (code === 'PROVIDER_UNAVAILABLE') {
-    if (/ollama|local/i.test(provider || '') || /ollama/i.test(detail)) {
-      return `Ollama no responde${who}. Inicia Ollama o usa modo cloud mientras descargas modelos. Si el modelo aún se está bajando, espera a que termine.`
+    if (/respondió vacío|no devolvió texto|thinking/i.test(detail)) {
+      return (
+        `El modelo local contestó en vacío${who}. ` +
+        `En LM Studio carga el modelo y desactiva modo thinking si aplica; en Ollama prueba otro tag. Luego reenvía.`
+      )
     }
-    return `Proveedor no respondió${who}. Causas frecuentes: sin Internet, key incorrecta, proveedor en cooldown, modelo incorrecto o todos los free saturados. Revisa Ajustes → Cloud (Activo + key) y Reenviar.`
+    if (/Solo se permiten URLs localhost|proxy solo permite localhost/i.test(detail)) {
+      return (
+        `No pude llegar a los servicios en la nube desde la app. ` +
+        `Usa tu modelo local (Ollama o LM Studio en marcha) en Ajustes → proveedor local, y reenvía el mensaje.`
+      )
+    }
+    if (/ollama|local/i.test(provider || '') || /ollama|lm studio/i.test(detail)) {
+      return `El modelo local no respondió${who}. Abre Ollama o LM Studio, carga el modelo y reenvía. Si acabas de arrancar, espera unos segundos.`
+    }
+    return (
+      `No pude completar la respuesta${who}. ` +
+      `Si tienes Ollama/LM Studio, elige proveedor local en Ajustes; si prefieres cloud, revisa las API keys.`
+    )
   }
   if (code === 'CONTEXT_OVERFLOW') {
     return `Contexto demasiado largo. La app debería resumir sola; si falla, inicia un chat nuevo o borra mensajes viejos.`
@@ -224,7 +270,9 @@ export function classifyProviderError(
   if (
     lower.includes('timeout') ||
     lower.includes('timed out') ||
-    lower.includes('aborted')
+    lower.includes('aborted') ||
+    lower.includes('tiempo de espera') ||
+    lower.includes('agotado')
   ) {
     return new AppError({
       code: 'PROVIDER_TIMEOUT',

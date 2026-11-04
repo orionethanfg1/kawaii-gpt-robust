@@ -194,3 +194,151 @@ export function stampFilename(prefix: string, ext: string): string {
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${prefix}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.${ext}`
 }
+
+
+/** Import Markdown (ours or simple User/Assistant exports). */
+export function parseImportMarkdown(text: string): ParseImportResult {
+  const raw = (text || '').trim()
+  if (!raw) return { ok: false, conversations: [], error: 'Archivo vacío' }
+
+  // Split multi-chat bundle on --- under H1 sections if multiple # titles
+  const chunks: string[] = []
+  if (/^#\s+.+/m.test(raw) && raw.includes('\n# ')) {
+    const parts = raw.split(/\n(?=#\s+)/)
+    chunks.push(...parts.filter((p) => p.trim()))
+  } else {
+    chunks.push(raw)
+  }
+
+  const conversations: Conversation[] = []
+  for (const chunk of chunks) {
+    const titleMatch = chunk.match(/^#\s+(.+)$/m)
+    const title = (titleMatch?.[1] || 'Conversación importada').trim().slice(0, 80)
+    const messages: Message[] = []
+    // Patterns: ### **Usuario**, ### User, **User**:, Usuario:, Human:, Assistant:
+    const lines = chunk.split(/\n/)
+    let role: 'user' | 'assistant' | null = null
+    let buf: string[] = []
+    const flush = () => {
+      const content = buf.join('\n').trim()
+      if (role && content) {
+        messages.push({
+          id: createMessageId(),
+          role,
+          content,
+          createdAt: Date.now(),
+          isStreaming: false
+        })
+      }
+      buf = []
+    }
+    for (const line of lines) {
+      const h = line.match(
+        /^#{1,3}\s*\*?\*?(Usuario|User|Human|Asistente|Assistant|ChatGPT|System)\*?\*?\s*$/i
+      )
+      const inline = line.match(
+        /^\*?\*?(Usuario|User|Human|Asistente|Assistant|ChatGPT)\*?\*?\s*[:：]\s*(.*)$/i
+      )
+      if (h) {
+        flush()
+        const who = h[1].toLowerCase()
+        role = /user|usuario|human/.test(who) ? 'user' : 'assistant'
+        continue
+      }
+      if (inline) {
+        flush()
+        const who = inline[1].toLowerCase()
+        role = /user|usuario|human/.test(who) ? 'user' : 'assistant'
+        if (inline[2]) buf.push(inline[2])
+        continue
+      }
+      if (role) buf.push(line)
+    }
+    flush()
+    if (messages.length === 0) continue
+    const now = Date.now()
+    conversations.push({
+      id: createConversationId(),
+      title,
+      createdAt: now,
+      updatedAt: now,
+      messages
+    })
+  }
+  if (!conversations.length) {
+    return {
+      ok: false,
+      conversations: [],
+      error: 'No se detectaron mensajes en el Markdown (usa encabezados Usuario/Asistente)'
+    }
+  }
+  return { ok: true, conversations }
+}
+
+/** Auto-detect JSON or Markdown import. */
+export function parseImportAny(text: string, fileName?: string): ParseImportResult {
+  const name = (fileName || '').toLowerCase()
+  const trimmed = (text || '').trim()
+  if (!trimmed) return { ok: false, conversations: [], error: 'Archivo vacío' }
+  if (name.endsWith('.md') || name.endsWith('.markdown') || /^#\s+/m.test(trimmed)) {
+    const md = parseImportMarkdown(trimmed)
+    if (md.ok) return md
+  }
+  // Try JSON first
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    const j = parseImportJson(trimmed)
+    if (j.ok) return j
+    // ChatGPT export: { title, mapping: { id: { message: { author, content } } } }
+    try {
+      const data = JSON.parse(trimmed) as Record<string, unknown>
+      if (data && typeof data === 'object' && data.mapping && typeof data.mapping === 'object') {
+        const title =
+          typeof data.title === 'string' && data.title.trim()
+            ? data.title.trim()
+            : 'ChatGPT import'
+        const mapping = data.mapping as Record<
+          string,
+          { message?: { author?: { role?: string }; content?: { parts?: unknown[] } } }
+        >
+        const messages: Message[] = []
+        for (const node of Object.values(mapping)) {
+          const msg = node?.message
+          if (!msg) continue
+          const roleRaw = msg.author?.role
+          if (roleRaw !== 'user' && roleRaw !== 'assistant') continue
+          const parts = msg.content?.parts
+          const content = Array.isArray(parts)
+            ? parts.filter((p) => typeof p === 'string').join('\n')
+            : ''
+          if (!content.trim()) continue
+          messages.push({
+            id: createMessageId(),
+            role: roleRaw,
+            content: content.trim(),
+            createdAt: Date.now(),
+            isStreaming: false
+          })
+        }
+        if (messages.length) {
+          const now = Date.now()
+          return {
+            ok: true,
+            conversations: [
+              {
+                id: createConversationId(),
+                title,
+                createdAt: now,
+                updatedAt: now,
+                messages
+              }
+            ]
+          }
+        }
+      }
+    } catch {
+      /* fallthrough */
+    }
+    return j
+  }
+  return parseImportMarkdown(trimmed)
+}

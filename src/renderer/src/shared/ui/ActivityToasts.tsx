@@ -38,12 +38,37 @@ export function ActivityToasts() {
               {item.kind === 'info' && <Info className="w-3.5 h-3.5 text-sky-600" />}
             </span>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold leading-snug">{item.title}</p>
+              <p className="font-semibold leading-snug">
+                {item.title}
+                {item.sticky ? (
+                  <span className="ml-1 text-[10px] font-normal opacity-70">(fijo)</span>
+                ) : null}
+              </p>
               {item.detail && (
                 <p className="text-[11px] opacity-90 mt-0.5 break-words leading-relaxed">
                   {item.detail}
                 </p>
               )}
+              {item.actionLabel && item.actionEvent ? (
+                <button
+                  type="button"
+                  className="mt-1.5 text-[11px] font-semibold text-kawaii-pink-deep underline"
+                  onClick={() => {
+                    try {
+                      window.dispatchEvent(
+                        new CustomEvent(item.actionEvent!, {
+                          detail: item.actionDetail
+                        })
+                      )
+                    } catch {
+                      /* */
+                    }
+                    dismiss(item.id)
+                  }}
+                >
+                  {item.actionLabel}
+                </button>
+              ) : null}
               {item.kind === 'progress' && typeof item.progress === 'number' && (
                 <div className="mt-1.5 h-1 rounded-full bg-kawaii-pink-soft overflow-hidden">
                   <div
