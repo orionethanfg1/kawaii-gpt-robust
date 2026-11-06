@@ -92,13 +92,13 @@ function IntimateScenePhaseChip() {
   }
   const titles: Record<string, string> = {
     idle: 'Vínculo cercano; sin escena íntima en curso (puedes retomar cuando quieras)',
-    open: 'Cercanía adulta abierta; no hay acto en curso ahora',
+    open: 'Cariño y cercanía afectuosa (no es lo mismo que una escena íntima explícita)',
     scene_active: 'Escena íntima activa — el asistente mantiene el hilo (di «cambiemos de tema» para salir)',
     aftercare: 'Aftercare / calma tras la escena — continuidad suave',
     invited: 'Propuesta de cercanía pendiente de tu sí o no'
   }
   const active = phase === 'scene_active' || phase === 'aftercare'
-  const showActions = phase === 'scene_active' || phase === 'aftercare' || phase === 'open' || phase === 'invited'
+  const showActions = phase === 'scene_active' || phase === 'aftercare' || phase === 'open' || phase === 'invited' || phase === 'idle'
 
   const sendSceneIntent = (kind: string, userVisible: string) => {
     try {
@@ -126,22 +126,43 @@ function IntimateScenePhaseChip() {
       </span>
       {showActions ? (
         <>
+          {(phase === 'open' || phase === 'idle' || phase === 'invited') && (
+            <button
+              type="button"
+              className="text-[10px] px-1.5 py-0.5 rounded-full border border-pink-200/90 bg-white/80 text-pink-900 hover:bg-pink-50"
+              title="Cariño y ternura sin subir a escena íntima explícita"
+              onClick={() =>
+                sendSceneIntent(
+                  'scene-affection',
+                  'Quiero quedarme en el cariño y la ternura contigo, sin necesidad de una escena íntima explícita.'
+                )
+              }
+            >
+              Ternura
+            </button>
+          )}
           {(phase === 'scene_active' || phase === 'open') && (
             <button
               type="button"
               className="text-[10px] px-1.5 py-0.5 rounded-full border border-rose-200/90 bg-white/80 text-rose-900 hover:bg-rose-50"
-              title="Seguir en la cercanía sin salir del tono"
+              title={
+                phase === 'scene_active'
+                  ? 'Seguir en la escena íntima'
+                  : 'Seguir en la cercanía afectuosa'
+              }
               onClick={() =>
                 sendSceneIntent(
                   'scene-continue',
-                  'Quiero seguir cerca de ti, sin cambiar de tema de golpe.'
+                  phase === 'scene_active'
+                    ? 'Quiero seguir cerca de ti, sin cambiar de tema de golpe.'
+                    : 'Sigamos en esta cercanía cariñosa, con calma y afecto.'
                 )
               }
             >
               Seguir cerca
             </button>
           )}
-          {(phase === 'scene_active' || phase === 'aftercare') && (
+          {(phase === 'scene_active' || phase === 'aftercare' || phase === 'open') && (
             <button
               type="button"
               className="text-[10px] px-1.5 py-0.5 rounded-full border border-kawaii-border/80 bg-white/80 text-kawaii-text/80 hover:bg-kawaii-surface"
@@ -149,7 +170,7 @@ function IntimateScenePhaseChip() {
               onClick={() =>
                 sendSceneIntent(
                   'scene-soften',
-                  'Bajemos un poco el ritmo; quiero quedarme en la ternura.'
+                  'Bajemos un poco el ritmo; quiero quedarme en la ternura y el cariño, sin presión.'
                 )
               }
             >

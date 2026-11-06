@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isUsableImageRef, pickAvatarDataUrl } from './identity-ref'
+import { isUsableImageRef, pickAvatarDataUrl, pickIdentityReferenceUrls } from './identity-ref'
 import { migrateGalleryItem } from './wardrobe'
 
 describe('I4 identity refs from disk', () => {
@@ -9,11 +9,10 @@ describe('I4 identity refs from disk', () => {
     expect(isUsableImageRef('hola')).toBe(false)
   })
 
-  it('migrateGalleryItem keeps filePath-only items without putting a path in dataUrl', () => {
+  it('migrateGalleryItem keeps filePath-only items', () => {
     const w = migrateGalleryItem({ id: '1', filePath: 'C:/tmp/face.png', label: 'cara' }, 0)
     expect(w).not.toBeNull()
-    expect(w!.dataUrl).toBe('')
-    expect(w!.filePath).toBe('C:/tmp/face.png')
+    expect(w!.dataUrl.startsWith('kawaii-file:')).toBe(true)
   })
 
   it('pickAvatarDataUrl uses filePath gallery', () => {

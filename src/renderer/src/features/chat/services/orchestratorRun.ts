@@ -164,11 +164,53 @@ export function createChatRunners(ctx: ChatRunContext) {
     }
     let visionTurn = false
     try {
-      if (turnAttachments?.some((a) => a.dataUrl && String(a.mimeType || '').startsWith('image/'))) {
+      let atts = turnAttachments ? [...turnAttachments] : []
+      // Soft-attach user profile photos when they ask about their looks (not every turn)
+      try {
+        const {
+          wantsUserAppearanceVision,
+          userVisualAsAttachments
+        } = await import('@core/conversation/user-visual')
+        const ut = typeof userContent === 'string' ? userContent : ''
+        const alreadyHasImage = atts.some(
+          (a) =>
+            (a.dataUrl && String(a.mimeType || '').startsWith('image/')) ||
+            String(a.mimeType || '').startsWith('image/')
+        )
+        if (!alreadyHasImage && wantsUserAppearanceVision(ut)) {
+          const settings = (await import('@shared/lib/stores/settingsStore')).useSettingsStore.getState().settings
+          const mem = settings?.userMemory
+          const synth = userVisualAsAttachments(mem as never)
+          // Hydrate file paths to data URLs for vision
+          for (const s of synth) {
+            if (s.dataUrl?.startsWith('data:image/')) {
+              atts.push(s as never)
+              continue
+            }
+            if (s.filePath && typeof window !== 'undefined' && window.kawaii?.filesReadDataUrl) {
+              try {
+                const res = await window.kawaii.filesReadDataUrl(s.filePath)
+                if (res?.ok && res.dataUrl?.startsWith('data:image/')) {
+                  atts.push({
+                    ...s,
+                    dataUrl: res.dataUrl,
+                    mimeType: 'image/jpeg'
+                  } as never)
+                }
+              } catch {
+                /* skip unread */
+              }
+            }
+          }
+        }
+      } catch {
+        /* user visual optional */
+      }
+      if (atts.some((a) => a.dataUrl && String(a.mimeType || '').startsWith('image/'))) {
         const { asChatMessageUserAsync } = await import('@core/chat/vision-attach')
         const mm = await asChatMessageUserAsync(
           typeof userContent === 'string' ? userContent : '',
-          turnAttachments
+          atts
         )
         userMsg = { role: 'user', content: mm.content, images: mm.images }
         visionTurn = Boolean(mm.images?.length) || Array.isArray(mm.content)

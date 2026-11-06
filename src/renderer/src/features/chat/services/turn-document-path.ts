@@ -166,22 +166,29 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
           if (tx.length > 80) recovered.push({ name: a.name || 'documento', text: tx })
         }
       }
+      // Explicit read-advance only. Do NOT treat «en el libro» in romantic chat as doc intent
+      // (that re-opened progressive reading + auto-chain mid-conversation).
       const wantsAdvance =
-        /\b(sigue|continua|contin\u00faa|siguiente (capitulo|cap\u00edtulo|parte)|next chapter|capitulo|cap\u00edtulo)\b/i.test(
+        /\b(sigue\s+leyendo|contin[uú]a\s+leyendo|continuar\s+la\s+lectura|siguiente\s+(cap[ií]tulo|tramo|parte)|next\s+chapter|lee\s+(el\s+)?(siguiente|otro)\s+(cap[ií]tulo|tramo)|avanza\s+(en\s+)?(el\s+)?(libro|documento|cap[ií]tulo))\b/i.test(
           trimmed
-        )
-      // Soft: user points at already-attached book without re-uploading
+        ) ||
+        (/\b(sigue|contin[uú]a|continuar)\b/i.test(trimmed) &&
+          /\b(cap[ií]tulo|tramo|documento|archivo|pdf|docx|p[aá]ginas?)\b/i.test(trimmed))
       const refersToExistingDoc =
         priorStates.length > 0 &&
-        /\b(m[ií]ralo|miralo|v[eé]alo|velo|puedes verlo|verlo t[uú]|eso puedes ver|puedes verlo t[uú] misma|rev[ií]salo|ves el|el (libro|documento|archivo|pdf|docx)|adjunto|lo que (te )?(sub[ií]|adjunt[eé]?|envi[eé]))\b/i.test(
+        /\b(lee(r|me|lo|la)?|lectura|repasa|revisa\s+el\s+(libro|documento)|abre\s+el\s+(libro|documento)|qu[eé]\s+dice\s+el\s+(libro|documento)|contin[uú]a\s+con\s+el\s+(libro|documento))\b/i.test(
           trimmed
         )
-      // Bare "sigue" / APP doc-continue with open reading state → always document path
       const bareSigue =
         /^(sigue|contin[uú]a|continuar)(\s+por\s+favor)?[.!…]?$/i.test(trimmed.trim()) ||
-        /\[APP\].*continuar la lectura del documento/i.test(trimmed)
+        /\[APP\].*(continuar la lectura del documento|Continuaci[oó]n autom[aá]tica de lectura)/i.test(
+          trimmed
+        )
+      // Bare «sigue» alone only advances doc if there is open progressive reading AND
+      // the last assistant turn was also a doc turn (not intimate chat).
       const forceDocContinue =
-        priorStates.length > 0 && (wantsAdvance || refersToExistingDoc || bareSigue)
+        priorStates.length > 0 &&
+        (wantsAdvance || refersToExistingDoc || bareSigue)
 
       // Context eviction: full text only when the turn needs the document
       const hasImageThisTurn = Boolean(
@@ -201,7 +208,8 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
           hasDocThisTurn: Boolean(hasFreshDoc),
           hasDocReadingState: priorStates.length > 0
         })
-        if (forceDocContinue || hasFreshDoc || recovered.length) {
+        // recovered text in history alone is NOT doc_active (avoids reading mid-romance)
+        if (forceDocContinue || hasFreshDoc) {
           contextTurnKind = hasImageThisTurn ? 'vision' : 'doc_active'
         }
       } catch {
@@ -214,14 +222,15 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
               : 'general'
       }
 
+      // Full progressive inject only on explicit read / new attach — never because
+      // a prior message still has textContent in history.
       const wantFullDoc =
         !hasImageThisTurn &&
-        (contextTurnKind === 'doc_active' ||
-          hasFreshDoc ||
-          recovered.length > 0 ||
-          (wantsAdvance && priorStates.length > 0) ||
+        (hasFreshDoc ||
+          forceDocContinue ||
           refersToExistingDoc ||
-          forceDocContinue)
+          (wantsAdvance && priorStates.length > 0) ||
+          (contextTurnKind === 'doc_active' && (forceDocContinue || hasFreshDoc)))
 
       // Light memory/index ONLY when this turn is about the document (not every romantic chat)
       if (
@@ -270,7 +279,29 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
           }
         }
         if (states.length) {
-          upsertDocReadingStates(states)
+          // Clear uiSuspended + mark activity when this turn is real reading
+          try {
+            const { resumeDocReadingUi } = await import('./documentReadingStore')
+            if (forceDocContinue || bareSigue || hasFreshDoc || /\[APP\].*lectura/i.test(trimmed)) {
+              resumeDocReadingUi(convId)
+            }
+          } catch {
+            /* */
+          }
+          // Ensure states are not suspended on active read
+          const stamped = states.map((s) => ({
+            ...s,
+            uiSuspended: false,
+            lastDocTurnAt: Date.now()
+          }))
+          upsertDocReadingStates(stamped)
+          // Close finished books so UI / auto-chain do not stay open forever
+          try {
+            const { pruneCompletedDocReadings } = await import('./documentReadingStore')
+            pruneCompletedDocReadings(convId)
+          } catch {
+            /* */
+          }
           try {
             if (hasFreshDoc) {
               sessionStorage.setItem('kawaii-doc-auto-chain:' + convId, '0')
@@ -285,6 +316,19 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
           try {
             const incomplete = states.filter((s) => !isDocReadingComplete(s))
             const complete = states.filter((s) => isDocReadingComplete(s))
+            if (complete.length && !incomplete.length) {
+              extraSystem =
+                (extraSystem ? extraSystem + '\n\n' : '') +
+                '[LECTURA CERRADA] Has terminado el/los documento(s) de esta sesión. ' +
+                'No pidas «Continuar lectura» ni inventes más capítulos. ' +
+                'Si el usuario sube una versión nueva del archivo, se detectará y se reiniciará la lectura.'
+              try {
+                sessionStorage.setItem('kawaii-doc-auto-chain:' + convId, '0')
+                sessionStorage.setItem('kawaii-doc-auto-paused:' + convId, '0')
+              } catch {
+                /* */
+              }
+            }
             // Persist essentials into userMemory.facts (transparent, not a full book dump)
             if (states.length) {
               const { useSettingsStore } = await import('@shared/lib/stores/settingsStore')
@@ -306,12 +350,33 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
               })
             }
             // Stash for onDone auto-continue (same turn)
-            ;(globalThis as unknown as { __kawaiiDocAuto?: { convId: string; incomplete: boolean; fileName?: string } }).__kawaiiDocAuto =
-              {
-                convId,
-                incomplete: incomplete.length > 0,
-                fileName: incomplete[0]?.fileName || complete[0]?.fileName
+            // Only arm auto-chain when this turn explicitly continued reading
+            // (APP chip / sigue leyendo / fresh attach) — never after casual «libro» mention.
+            const armAuto =
+              forceDocContinue ||
+              bareSigue ||
+              hasFreshDoc ||
+              /\[APP\].*lectura/i.test(trimmed)
+            ;(globalThis as unknown as {
+              __kawaiiDocAuto?: {
+                convId: string
+                incomplete: boolean
+                fileName?: string
+                armed?: boolean
               }
+            }).__kawaiiDocAuto = armAuto
+              ? {
+                  convId,
+                  incomplete: incomplete.length > 0,
+                  fileName: incomplete[0]?.fileName || complete[0]?.fileName,
+                  armed: true
+                }
+              : {
+                  convId,
+                  incomplete: false,
+                  fileName: incomplete[0]?.fileName || complete[0]?.fileName,
+                  armed: false
+                }
           } catch {
             /* memory optional */
           }
@@ -321,6 +386,30 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
       /* ignore */
     }
 
+
+  // Pure chat with open progressive state → hide Continuar lectura (keep progress)
+  try {
+    const prior = getDocReadingStatesForConv(convId)
+    const explicit =
+      /\[APP\].*lectura|sigue\s+leyendo|contin[uú]a\s+leyendo|continuar\s+la\s+lectura/i.test(
+        String(trimmed || '')
+      ) ||
+      Boolean(
+        attachments?.some(
+          (a) => a.textContent || /\.(pdf|docx?|txt|md)$/i.test(String(a.name || ''))
+        )
+      )
+    if (prior.length && !explicit) {
+      // Heuristic: if this path did not request full doc, suspend UI
+      const stillOpen = prior.some((s) => !s.uiSuspended)
+      if (stillOpen && !/\[LECTURA DE DOCUMENTO/i.test(extraSystem)) {
+        const { suspendDocReadingUi } = await import('./documentReadingStore')
+        suspendDocReadingUi(convId)
+      }
+    }
+  } catch {
+    /* */
+  }
 
   return extraSystem
 }

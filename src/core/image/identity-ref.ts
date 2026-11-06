@@ -222,38 +222,26 @@ export function planIdentityLock(opts: IdentityGenerateOpts): IdentityGeneratePl
       policyReason: 'not_self'
     }
   }
-  // W3: prefer wardrobe-aware pick (face + style tags); fallback legacy URLs
+  // W3: ONE canonical face for FaceID; outfit/scene never as face anchors
   const wardrobe = pickWardrobeRefs({
     character: opts.character,
     promptHint: opts.promptHint,
     framing: typeof opts.framing === 'string' ? opts.framing : undefined,
     maxStyleRefs: 2
   })
-  const legacyRefs = pickIdentityReferenceUrls(opts.character, 3)
-  // Merge wardrobe picks with legacy so we never regress multi-ref coverage
-  const merged: string[] = []
-  const seen = new Set<string>()
-  const push = (u?: string) => {
-    if (!u || seen.has(u)) return
-    seen.add(u)
-    merged.push(u)
-  }
-  for (const u of wardrobe.referenceUrls) push(u)
-  for (const u of legacyRefs) {
-    if (merged.length >= 3) break
-    push(u)
-  }
-  const refs = merged.length ? merged : legacyRefs
+  const av =
+    wardrobe.faceUrl ||
+    pickAvatarDataUrl(opts.character) ||
+    (isUsableImageRef(opts.character?.facePrimaryUrl)
+      ? opts.character!.facePrimaryUrl!.trim()
+      : undefined)
+  // Secondary = style/outfit only (low weight in IPC). Do NOT add other face photos.
+  const styleOnly = (wardrobe.styleUrls || []).filter((u) => u && u !== av).slice(0, 2)
+  const refs = av ? [av, ...styleOnly] : styleOnly
   const refSources =
     wardrobe.labels.length > 0
-      ? [
-          ...wardrobe.labels,
-          ...describeIdentityRefSources(opts.character, 3).filter(
-            (l) => !wardrobe.labels.includes(l)
-          )
-        ].slice(0, refs.length || 1)
+      ? wardrobe.labels.slice(0, refs.length || 1)
       : describeIdentityRefSources(opts.character, refs.length || 1)
-  const av = wardrobe.faceUrl || refs[0] || pickAvatarDataUrl(opts.character)
   const policy = requiresFaceIdPolicy({
     isSelf: true,
     explicitOther: opts.explicitOther,
@@ -289,10 +277,13 @@ export function planIdentityLock(opts: IdentityGenerateOpts): IdentityGeneratePl
       suggestedBatch: opts.preferBatch === false ? undefined : 2
     }
   }
-  const extra = refs.length > 1 ? ' · ' + String(refs.length) + ' refs' : ''
+  const extra = styleOnly.length
+    ? ' · cara canónica + ' + String(styleOnly.length) + ' estilo'
+    : ' · cara canónica'
   return {
     referenceImage: av,
-    referenceImages: refs,
+    // Style/outfit only — never additional faces (they fight FaceID)
+    referenceImages: styleOnly.length ? styleOnly : undefined,
     referenceDenoisingStrength: 0.72,
     cfgScaleHint: cfg,
     stepsHint,

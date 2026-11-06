@@ -178,6 +178,12 @@ export function buildSelectiveUserMemoryPrompt(
   }
   if (mem.nicknames?.length) bits.push("Apodos OK del USUARIO: " + mem.nicknames.slice(0, 4).join(", "))
   if (mem.relationshipSummary) bits.push("Vínculo: " + mem.relationshipSummary.slice(0, 160))
+  if ((mem.appearanceNotes || "").trim()) {
+    bits.push(
+      "Apariencia del USUARIO (no la del asistente): " +
+        String(mem.appearanceNotes).trim().slice(0, 280)
+    )
+  }
   const pinned = (mem.factEntries || []).filter((f) => f.pinned).map((f) => f.text)
   if (pinned.length) bits.push("Anclas: " + pinned.slice(0, 4).join("; "))
   const greetingOnly = q.length > 0 && q.length < 12 && !longChat
@@ -194,7 +200,10 @@ export function buildSelectiveUserMemoryPrompt(
     !aboutAssistantSelf &&
     (wantsFood || /\b(me gusta|mis gustos|mi favorito|lo que me gusta)\b/i.test(q))
   const wantsGoals = /meta|objetivo|proyecto|libro|plan|quiero|enfoque/i.test(q)
-  const wantsPeople = /amigo|amiga|hermano|hermana|familia|persona|novio|novia/i.test(q)
+  const wantsPeople =
+    /amigo|amiga|hermano|hermana|familia|persona|novio|novia|personaje|libro|novela|protagonista/i.test(
+      q
+    )
   const likes = (mem.likes || []).map(normalizeLikePhrase).filter(Boolean)
   const dislikes = (mem.dislikes || []).map(normalizeLikePhrase).filter(Boolean)
   const favorites = (mem.favorites || []).filter(Boolean)
@@ -220,10 +229,22 @@ export function buildSelectiveUserMemoryPrompt(
     if ((wantsGoals || longChat) && mem.currentFocus) {
       bits.push("Enfoque: " + mem.currentFocus.slice(0, 80))
     }
-    if ((wantsPeople || longChat) && mem.people?.length) {
+    const people = mem.people || []
+    const mentionedPeople = people.filter((p) => {
+      const n = String(p.name || '').trim()
+      return n.length >= 3 && q.includes(n.toLowerCase())
+    })
+    if (mentionedPeople.length) {
+      bits.push(
+        "Personas ya conocidas (no digas que no las conoces): " +
+          mentionedPeople
+            .map((p) => p.name + (p.relation ? " (" + p.relation + ")" : ""))
+            .join("; ")
+      )
+    } else if ((wantsPeople || longChat) && people.length) {
       bits.push(
         "Personas: " +
-          mem.people
+          people
             .slice(0, longChat ? 5 : 4)
             .map((p) => p.name + (p.relation ? " (" + p.relation + ")" : ""))
             .join("; ")
@@ -395,6 +416,27 @@ export function extractUserFactsFromMessage(text: string): ExtractedFacts {
   if (person) {
     out.people = [{ name: person[2], relation: person[1].toLowerCase() }]
   }
+  // Book / story characters the user writes about
+  const bookChar = t.match(
+    /([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]{2,24})\s+(?:es\s+la\s+chica|es\s+el\s+chico|es\s+(?:un|una)\s+personaje|es\s+(?:mi|la)\s+protagonista)/i
+  ) || t.match(
+    /(?:personaje|protagonista|hero[ií]na|del\s+libro|en\s+(?:mi\s+)?libro)[^.\n]{0,40}\b([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]{2,24})\b/i
+  ) || t.match(
+    /\b([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]{2,24})\s+es\s+la\s+chica\s+de\s+la\s+que\s+escribo/i
+  )
+  if (bookChar?.[1]) {
+    const nm = bookChar[1]
+    if (!/^(Ella|El|Una|Uno|Esta|Este|Mi|Tu|La|Los|Las)$/i.test(nm)) {
+      out.people = [...(out.people || []), { name: nm, relation: 'personaje del libro' }]
+    }
+  }
+  // "Ivanna" named with libro / escribir context
+  const namedBook = t.match(
+    /\b([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]{2,24})\b[^.\n]{0,60}\b(?:libro|novela|historia|escribo|escribir)\b/i
+  )
+  if (namedBook?.[1] && !/^(Niamh|Nahum)$/i.test(namedBook[1])) {
+    out.people = [...(out.people || []), { name: namedBook[1], relation: 'personaje del libro' }]
+  }
 
   if (/(vivo en|trabajo en|estudio|tengo \d+ a[ñn]os|cumplo|soy de )/i.test(t)) {
     out.facts!.push(t.slice(0, 160))
@@ -408,8 +450,24 @@ export function extractUserFactsFromMessage(text: string): ExtractedFacts {
       if (L) out.likes = [...(out.likes || []), L].slice(0, 8)
     }
   }
-  if (/(cabello|ojos|mido|peso|barba|soy alto|soy baja|mi aspecto)/i.test(t)) {
-    out.appearanceNotes = t.slice(0, 200)
+  // Physical self-description only — never erotic RP or whole assistant turns
+  {
+    const looksPhysical =
+      /\b(?:mi\s+(?:cabello|pelo|ojos|barba|estatura|complexión|complexion|aspecto|f[ií]sico)|soy\s+(?:alto|alta|bajo|baja)|mido\s+\d|peso\s+\d|cabello\s+(?:casta|rubio|negro|marrón|moreno)|ojos\s+(?:caf[eé]|marrones|verdes|azules|negros))\b/i.test(
+        t
+      )
+    const looksErotic =
+      /\b(?:gemid|orgasmo|penetra|clítoris|clitoris|vagina|pene|corr[ei]da|foll|cojo|te\s+siento\s+dentro|interior\s+ard|respiro\s+agitad|sonido\s+de\s+placer)\b/i.test(
+        t
+      )
+    if (looksPhysical && !looksErotic && t.length < 280) {
+      // Prefer a short clause, not the whole message
+      const clause =
+        t.match(
+          /[^.]{0,40}\b(?:cabello|pelo|ojos|barba|mido|estatura|complexión|aspecto|f[ií]sico|soy\s+alt[oa]|soy\s+baj[oa])[^.]{0,120}/i
+        )?.[0]?.trim() || t.slice(0, 160)
+      out.appearanceNotes = clause.slice(0, 200)
+    }
   }
   if (
     /(me siento|estoy (triste|feliz|cansad|estres|ansios|enojad|agotad)|tuve un (mal|buen) d[ií]a)/i.test(
@@ -491,11 +549,28 @@ export function mergeUserMemory(
     }
   }
   if (patch.pendingNickname !== undefined) base.pendingNickname = patch.pendingNickname
-  if (patch.appearanceNotes) {
-    base.appearanceNotes = [base.appearanceNotes, patch.appearanceNotes]
-      .filter(Boolean)
-      .join(' · ')
-      .slice(0, 400)
+  if (patch.appearanceNotes !== undefined) {
+    const next = String(patch.appearanceNotes || '').trim()
+    const erotic =
+      /\b(?:gemid|orgasmo|penetra|clítoris|vagina|pene|foll|respiro\s+agitad|sonido\s+de\s+placer|interior\s+ard)\b/i
+    if (!next) {
+      base.appearanceNotes = undefined
+    } else if (erotic.test(next)) {
+      // Refuse to store RP/erotic prose as physical identity
+    } else if ((base.appearanceNotes || '').trim()) {
+      const prev = (base.appearanceNotes || '').trim()
+      if (erotic.test(prev) && !erotic.test(next)) {
+        // Heal: replace contaminated sheet with clean physical text
+        base.appearanceNotes = next.slice(0, 400)
+      } else if (next.length >= 40 || next.includes(',')) {
+        // Manual / structured rewrite wins
+        base.appearanceNotes = next.slice(0, 400)
+      } else if (next.length >= 12 && !prev.toLowerCase().includes(next.toLowerCase())) {
+        base.appearanceNotes = [prev, next].join(' · ').slice(0, 400)
+      }
+    } else {
+      base.appearanceNotes = next.slice(0, 400)
+    }
   }
   if (patch.currentFocus) base.currentFocus = patch.currentFocus
   if (patch.goals?.length) {

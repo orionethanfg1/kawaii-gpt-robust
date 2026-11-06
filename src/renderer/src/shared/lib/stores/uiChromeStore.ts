@@ -4,10 +4,13 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 type UiChromeState = {
   sidebarCollapsed: boolean
   pluginsOpen: boolean
+  libraryOpen: boolean
   setSidebarCollapsed: (v: boolean) => void
   toggleSidebar: () => void
   setPluginsOpen: (v: boolean) => void
   togglePlugins: () => void
+  setLibraryOpen: (v: boolean) => void
+  toggleLibrary: () => void
 }
 
 const safeStorage = {
@@ -39,10 +42,13 @@ export const useUiChromeStore = create<UiChromeState>()(
     (set) => ({
       sidebarCollapsed: false,
       pluginsOpen: false,
+      libraryOpen: false,
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: Boolean(v) }),
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setPluginsOpen: (v) => set({ pluginsOpen: Boolean(v) }),
-      togglePlugins: () => set((s) => ({ pluginsOpen: !s.pluginsOpen }))
+      togglePlugins: () => set((s) => ({ pluginsOpen: !s.pluginsOpen })),
+      setLibraryOpen: (v) => set({ libraryOpen: Boolean(v) }),
+      toggleLibrary: () => set((s) => ({ libraryOpen: !s.libraryOpen }))
     }),
     {
       name: 'kawaii-ui-chrome',

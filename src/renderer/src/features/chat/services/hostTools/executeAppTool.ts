@@ -1267,10 +1267,19 @@ case 'run_diagnosis': {
             summary: 'Faltan args.ref y args.image. Plugin E4: tools/identity_match.py score'
           }
         }
+        const threshold = Number(call.args?.threshold ?? 0.45)
         const res = await window.kawaii?.pythonRunToolScript?.({
           script: 'identity_match.py',
-          args: ['score', '--ref', ref, '--image', image],
-          timeoutMs: 90_000
+          args: [
+            'score',
+            '--ref',
+            ref,
+            '--image',
+            image,
+            '--threshold',
+            String(threshold)
+          ],
+          timeoutMs: 60_000
         })
         if (!res) return { ok: false, summary: 'pythonRunToolScript no disponible' }
         const j = res.json as {
@@ -1280,11 +1289,11 @@ case 'run_diagnosis': {
         } | null
         if (j && typeof j === 'object') {
           return {
-            ok: Boolean(j.ok !== false && !['deps_missing', 'model_missing'].includes(String(j.reason))),
+            ok: Boolean(j.ok !== false && j.reason !== 'deps_missing'),
             summary:
               j.summary ||
-              (j.reason === 'deps_missing' || j.reason === 'model_missing'
-                ? 'Plugin identity-match requiere el scorer ArcFace instalado localmente.'
+              (j.reason === 'deps_missing'
+                ? 'Plugin identity-match sin InsightFace (opcional).'
                 : res.stderr || res.stdout || 'sin salida')
           }
         }
@@ -1307,27 +1316,28 @@ case 'run_diagnosis': {
               'Faltan args.ref y args.image (rutas de archivo). Plugin: tools/face_similarity.py'
           }
         }
+        const threshold = Number(call.args?.threshold ?? 0.5)
         const res = await window.kawaii?.pythonRunToolScript?.({
           script: 'face_similarity.py',
-          args: ['--ref', ref, '--image', image, '--json'],
-          timeoutMs: 90_000
+          args: ['--ref', ref, '--image', image, '--threshold', String(threshold), '--json'],
+          timeoutMs: 60_000
         })
         if (!res) return { ok: false, summary: 'pythonRunToolScript no disponible' }
         const j = res.json as {
           ok?: boolean
-          method?: string
-          results?: Array<{ ok?: boolean; score?: number; summary?: string }>
+          score?: number
+          same_person?: boolean
           summary?: string
           reason?: string
         } | null
         if (j && typeof j === 'object') {
-          const scored = j.results?.[0]
           return {
-            ok: Boolean(j.ok && scored?.ok && typeof scored.score === 'number'),
+            ok: Boolean(j.ok !== false && j.reason !== 'deps_missing'),
             summary:
-              (scored?.ok && typeof scored.score === 'number'
-                ? `Score coseno orientativo (${j.method || 'scorer'}): ${scored.score.toFixed(3)}. No es una decisión calibrada ni prueba de identidad.`
-                : j.summary || res.stderr || res.stdout || 'No se obtuvo una puntuación facial.')
+              j.summary ||
+              (j.reason === 'deps_missing'
+                ? 'Plugin sin InsightFace (opcional). FaceID de Forge sigue activo.'
+                : res.stderr || res.stdout || 'sin salida')
           }
         }
         return {

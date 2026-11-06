@@ -122,10 +122,26 @@ export function UserMemoryPanel() {
   const [appearanceDraft, setAppearanceDraft, flushAppearance] = useDebouncedCommit(
     mem.appearanceNotes || '',
     (text) => {
-      updateMemory({ appearanceNotes: text.trim() || undefined })
+      const cleaned = text.trim()
+      // Direct write (not mergeUserMemory) so manual ficha always wins
+      updateMemory({ appearanceNotes: cleaned || undefined })
     },
     300
   )
+  // One-shot heal: drop erotic/RP junk that landed in the sheet
+  useEffect(() => {
+    const cur = (mem.appearanceNotes || '').trim()
+    if (
+      cur &&
+      /\b(?:gemid|orgasmo|penetra|clítoris|vagina|pene|foll|respiro\s+agitad|sonido\s+de\s+placer|interior\s+ard)\b/i.test(
+        cur
+      )
+    ) {
+      updateMemory({ appearanceNotes: undefined })
+      setAppearanceDraft('')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [userNameDraft, setUserNameDraft, flushUserName] = useDebouncedCommit(
     (mem as { userName?: string }).userName || '',
     (text) => {

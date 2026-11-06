@@ -38,17 +38,29 @@ async function buildTimeLayer(userText: string): Promise<string> {
       weatherFetchedAt?: number
       character?: { name?: string }
     }
-    const weatherFresh =
-      st.weatherEnabled &&
-      st.weatherSummary &&
-      st.weatherFetchedAt &&
-      Date.now() - st.weatherFetchedAt < 3 * 60 * 60 * 1000 &&
-      /\b(clima|tiempo|llueve|fr[ií]o|calor)\b/i.test(t)
-        ? st.weatherSummary
-        : null
+    let weatherLine: string | null = null
+    if (st.weatherEnabled && /\b(clima|tiempo|llueve|fr[ií]o|calor|outfit|ropa)\b/i.test(t)) {
+      try {
+        const { ensureWeatherFresh } = await import('./ensureWeatherFresh')
+        await ensureWeatherFresh()
+      } catch {
+        /* */
+      }
+      const st2 = useSettingsStore.getState().settings as {
+        weatherSummary?: string
+        weatherFetchedAt?: number
+      }
+      if (
+        st2.weatherSummary &&
+        st2.weatherFetchedAt &&
+        Date.now() - st2.weatherFetchedAt < 3 * 60 * 60 * 1000
+      ) {
+        weatherLine = st2.weatherSummary
+      }
+    }
     return buildLocalTimeContextBlock({
       characterName: st.character?.name,
-      weatherLine: weatherFresh
+      weatherLine
     })
   } catch {
     return ''

@@ -172,7 +172,15 @@ export function useConversationInitiative(enabledGate: boolean) {
       }
       try {
         const chain = Number(sessionStorage.getItem('kawaii-doc-auto-chain:' + convId) || '0') || 0
-        if (chain > 0) {
+        const chainAt = Number(sessionStorage.getItem('kawaii-doc-auto-chain-at:' + convId) || '0') || 0
+        if (chain > 0 && chainAt > 0 && Date.now() - chainAt > 3 * 60_000) {
+          try {
+            sessionStorage.removeItem('kawaii-doc-auto-chain:' + convId)
+            sessionStorage.removeItem('kawaii-doc-auto-chain-at:' + convId)
+          } catch {
+            /* */
+          }
+        } else if (chain > 0) {
           clear()
           timerRef.current = setTimeout(() => void tick(), 12_000)
           return
@@ -243,8 +251,8 @@ export function useConversationInitiative(enabledGate: boolean) {
       // CV1: after harness/tool bubbles, don't force the full idle window again
       let minUserIdleMs =
         fixedMin != null
-          ? Math.max(10_000, Math.floor(fixedMin * 60_000 * 0.4))
-          : 90_000
+          ? Math.max(10_000, Math.floor(fixedMin * 60_000 * 0.35))
+          : 45_000
       if (lastRaw && isHarnessNoise(lastRaw)) {
         minUserIdleMs = Math.min(minUserIdleMs, fixedMin != null ? 15_000 : 45_000)
       }
@@ -257,18 +265,29 @@ export function useConversationInitiative(enabledGate: boolean) {
       const lastUserAt = [...conv.messages].reverse().find((m) => m.role === 'user')?.createdAt
 
       // Fixed mode: skip quiet hours so tests and daytime toggles work predictably
+      // If createdAt missing on messages, fall back to stream-done / now-wait so silence still works
+      const streamDoneFallback = getAssistantStreamDoneAt(String(convId || ''))
+      const effectiveLastUser =
+        lastUserAt && lastUserAt > 0
+          ? lastUserAt
+          : streamDoneFallback > 0
+            ? streamDoneFallback
+            : Date.now() - Math.max(minUserIdleMs, (fixedMin || 12) * 60_000)
       const gate = shouldSendInitiative({
         quietHoursStart: s.initiativeQuietHoursStart,
         quietHoursEnd: s.initiativeQuietHoursEnd,
-        respectQuietHours: s.initiativeRespectQuietHours !== false,
+        // Fixed mode: do not block on quiet hours inside shouldSend (hook also skips later)
+        respectQuietHours:
+          s.conversationInitiativeMode === 'fixed'
+            ? false
+            : s.initiativeRespectQuietHours !== false,
         enabled: true,
         snoozeUntil: s.conversationInitiativeSnoozeUntil,
         lastInitiativeAt: lastNudgeRef.current || undefined,
-        lastUserAt,
+        lastUserAt: effectiveLastUser,
         tone,
         ignoredCount: ignoredCountRef.current,
         sentToday: sentTodayRef.current.count,
-        // User max wins; fixed mode soft-cap 12; else stage default inside shouldSend
         maxPerDay:
           s.initiativeMaxPerDay && s.initiativeMaxPerDay > 0
             ? s.initiativeMaxPerDay
@@ -327,9 +346,21 @@ export function useConversationInitiative(enabledGate: boolean) {
         let modelRaw =
           (s.localModel || '').trim() ||
           (s as { preferredLocalModel?: string }).preferredLocalModel ||
+          (s as { lastEffectiveLocalModel?: string }).lastEffectiveLocalModel ||
           ''
+        // Prefer the model that last replied in this chat (same resident as conversation)
+        if (!modelRaw) {
+          try {
+            const lastAsst = [...(conv.messages || [])]
+              .reverse()
+              .find((m) => m.role === 'assistant' && m.meta?.model && !/initiative|harness/i.test(String(m.meta.model)))
+            const mid = String(lastAsst?.meta?.model || '').replace(/·initiative$/i, '').trim()
+            if (mid && !isVisionModel(mid)) modelRaw = mid
+          } catch {
+            /* */
+          }
+        }
         if (modelRaw && isVisionModel(modelRaw)) {
-          // Never use vision-only models for text initiative
           modelRaw = ''
         }
         if (modelRaw) {
@@ -341,14 +372,13 @@ export function useConversationInitiative(enabledGate: boolean) {
           }
         }
         if (!modelRaw) {
-          // Same model as chat only — never pick a second resident model for initiative
           const { isLocalModelDisabled } = await import('@core/models/disabled-local-models')
           const disabled = s.disabledLocalModels || []
-          const candidates = [
+          for (const c of [
             (s as { preferredLocalModel?: string }).preferredLocalModel,
-            (s as { lastEffectiveLocalModel?: string }).lastEffectiveLocalModel
-          ]
-          for (const c of candidates) {
+            (s as { lastEffectiveLocalModel?: string }).lastEffectiveLocalModel,
+            s.localModel
+          ]) {
             const id = String(c || '').trim()
             if (id && !isVisionModel(id) && !isLocalModelDisabled(id, disabled)) {
               modelRaw = id
@@ -357,13 +387,12 @@ export function useConversationInitiative(enabledGate: boolean) {
           }
         }
         const looksOllama = Boolean(modelRaw && !modelRaw.includes('/'))
-        // Prefer LM OpenAI port if model id looks like LM Studio path
         let base = (s.localBaseUrl || 'http://127.0.0.1:11434').replace(/\/$/, '')
-        if (modelRaw.includes('/') && !/11434/.test(base)) {
-          /* keep configured base */
-        } else if (modelRaw.includes('/')) {
-          base = (s as { lmStudioBaseUrl?: string }).lmStudioBaseUrl?.replace(/\/$/, '') ||
-            'http://127.0.0.1:1234'
+        // LM Studio / path-style ids always use OpenAI-compatible port
+        if (modelRaw.includes('/')) {
+          base =
+            (s as { lmStudioBaseUrl?: string }).lmStudioBaseUrl?.replace(/\/$/, '') ||
+            (/1234|1235|4891/.test(base) ? base : 'http://127.0.0.1:1234')
         }
 
                 // S6 short time line for decision + message
@@ -673,8 +702,15 @@ if (modelRaw) {
             scenePhase
           })
           if (gateV.ok) {
+            try {
+              const { ensureWeatherFresh } = await import('../services/ensureWeatherFresh')
+              await ensureWeatherFresh()
+            } catch {
+              /* weather optional */
+            }
+            const sWeather = useSettingsStore.getState().settings
             const weather = weatherHintFromSettings(
-              s as {
+              sWeather as {
                 weatherSummary?: string
                 weatherTempC?: number
                 weatherCondition?: string
@@ -921,30 +957,18 @@ if (modelRaw) {
           /* intimacy propose optional */
         }
 
-        let usedTemplate = false
-        // N1: no generic template when a local model is available
-        if (!text && !modelRaw) {
-          usedTemplate = true
-          text = pickInitiativeNudge({
-            tone,
-            name: charName,
-            userName,
-            recentTexts: recentNudgesRef.current,
-            focus: s.userMemory?.currentFocus,
-            memoryHint:
-              s.assistantMemory?.likes?.[0] ||
-              s.userMemory?.likes?.[0] ||
-              s.userMemory?.people?.[0]?.name ||
-              s.userMemory?.goals?.[0]
-          })
-        }
+        // Planned flow: only the LLM speaks. No template fallbacks.
         if (!text) {
           if (typeof console !== 'undefined' && console.debug) {
-            console.debug('[initiative] N1 no text after MENSAJE — skip send')
+            console.debug('[initiative] LLM empty — reschedule, no template', {
+              model: modelRaw || null,
+              base
+            })
           }
-          schedule('n1-empty')
+          schedule(modelRaw ? 'llm-empty' : 'no-model')
           return
         }
+        const usedTemplate = false
 
         recentNudgesRef.current = [text, ...recentNudgesRef.current].slice(0, 12)
         sentTodayRef.current.count += 1

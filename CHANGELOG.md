@@ -1,3 +1,100 @@
+## 0.12.0-beta rev.hv
+
+- **Iniciativas solo LLM:** eliminado el fallback de plantillas; N1 + mensaje van al modelo local (mismo que el chat).
+- Generación con reintentos de endpoint (LM Studio / Ollama); si falla, reprograma sin texto genérico.
+
+## 0.12.0-beta rev.hu
+
+- **Iniciativas:** restaurado `@core/conversation/initiative` (módulo que faltaba y rompía el flujo).
+- Gate de silencio más tolerante; fallback de plantilla si el LLM local no responde; cadena doc no bloquea >3 min.
+
+## 0.12.0-beta rev.ht
+
+- **Episodios fechados (E3):** módulo `memory-episodes` + archivo + migración one-shot desde facts/personas.
+- **Respaldo:** snapshot en localStorage antes de migrar; no borra ni reescribe userMemory.
+- **Recuperación:** al mencionar nombre/tema se inyectan episodios datados; captura en vivo de personajes de libro.
+
+## 0.12.0-beta rev.hs
+
+- **Build:** `postReplyFinalize` sin await en función sync; iniciativas no reasignan `const s`.
+- **Memoria de personas:** extrae personajes de libro (p. ej. Ivanna); si el nombre aparece en el turno, se inyecta «ya conocidas» para no fingir amnesia.
+
+## 0.12.0-beta rev.hr
+
+- **Guardarropa:** no auto-guarda fotos del chat. Chips solo si la foto parece del personaje o el LLM marca `[WARDROBE:offer]`.
+- **Terceros / libro:** «ella es Ivanna», del libro, OC → `[WARDROBE:skip]`, sin chips.
+
+## 0.12.0-beta rev.hq
+
+- **Apariencia usuario:** ya no se guarda RP erótico como ficha física; extracción más estricta; ficha manual no se pisa con basura.
+- **Visión:** cara+cuerpo juntas (no solo la full); «mis fotos» dispara visión; pide descripción detallada de ambas.
+
+## 0.12.0-beta rev.hp
+
+- **Visión del usuario:** si pregunta por su físico/foto, se adjuntan hasta 2 refs de su galería (no en cada turno).
+- **Opinión + contraste:** el modelo puede opinar del físico; con ficha+foto marca `[IDENTIDAD_VISUAL: True|False]`.
+
+## 0.12.0-beta rev.ho
+
+- **Identidad visual:** borrar la descripción ya no la resucita desde disco (`visualCleared`).
+- **Memoria:** `appearanceNotes` del usuario entra en el prompt selectivo; clear explícito no concatena basura.
+- **Docs:** `docs/MEMORY-LAYERS.md` inventario de memorias visibles y ocultas.
+
+## 0.12.0-beta rev.hn
+
+- **DNA tags:** ya no se pierde el color de pelo al matchear la palabra «hair» dentro de «brown hair»; color se escanea en el texto completo.
+
+## 0.12.0-beta rev.hm
+
+- **Identity prompt:** strip de rivales ya no borra el color/estilo bloqueado del DNA; assert final reinyecta brown/straight y elimina blonde/curly residuales.
+
+## 0.12.0-beta rev.hl
+
+- **Continuar escribiendo:** `…` / `...` al final ya no se tratan como frase completa (el botón vuelve a salir cuando el texto se corta).
+- **craft-image-prompt:** import de `assertIdentityPromptConsistency` (tests merge/DNA).
+
+## 0.12.0-beta rev.hk
+
+- **Identidad canónica:** una sola cara FaceID (`facePrimary`); outfit/escena no anclan rostro; peso secundario más bajo.
+- **Prompt final:** `assertIdentityPromptConsistency` elimina pelo contradictorio vs DNA antes de Forge.
+- **Fail-closed:** referencia facial ilegible aborta autorretrato (no sigue con path muerto).
+
+## 0.12.0-beta rev.hj
+
+- **I2 batch rank:** el lote de candidatos FaceID ya no se arma como [3,2,3] (omitía el 1.º y duplicaba el 3.º); ahora es [1,2,3] para ArcFace.
+
+## 0.12.0-beta rev.hi
+
+- **MAP barra:** ya no se pega el MAP de lectura progresiva en chat normal; solo ingesta real; se puede ocultar.
+- **Clima:** refresco automático si el cache tiene >45 min (iniciativa de outfit + preguntas de clima).
+- **Cercanía:** chip «Ternura» (cariño sin escena explícita); matices open vs scene_active.
+
+## 0.12.0-beta rev.hh
+
+- **Continuar lectura:** no se queda pegado en chat íntimo. El progreso se conserva (`uiSuspended`); el botón solo vuelve con lectura explícita o «Continuar lectura». Ya no se reinyecta el libro solo porque el historial aún tiene el adjunto.
+
+## 0.12.0-beta rev.hg
+
+- **Lectura vs chat:** mencionar «el libro» en charla íntima ya no arma lectura progresiva ni auto-cadena de capítulos. Auto-continue solo con turno de lectura explícito (`armed`).
+- **Continuar escribiendo:** solo si el *final* del texto parece cortado (no por `finishReason=length` ni por puntos suspensivos a mitad).
+
+## 0.12.0-beta rev.hf
+
+- **Continuaciones (unificado):** lectura de doc — complete/pending una sola regla, poda + evento UI para ocultar «Continuar lectura»; mensaje — `meta.limited` ya no se hereda del turno anterior; el botón solo usa detector modular (sin regex sueltos que lo dejaban siempre visible).
+
+## 0.12.0-beta rev.he
+
+- **Biblioteca:** panel propio (búsqueda, filtros, vista previa, carpetas) en lugar de lista amontonada en el sidebar. Módulos `features/library/*` sin hinchar Sidebar.
+
+## 0.12.0-beta rev.hd
+
+- **Lectura de documentos:** huella de contenido (detecta versión nueva aunque el tamaño coincida) + aviso al LLM; al terminar se poda el estado y se cierra «Continuar lectura» / auto-cadena.
+
+## 0.12.0-beta rev.hc
+
+- **hb DNA pelo:** no confundir «guantes negros» ni «sin rizos» con black/curly; prioriza sección Cabello + castaño/liso.
+- **hc Continuar:** no abortar por plan_leak en fragmento corto; onDone no descarta continuación; umbral de recuperación más bajo.
+
 ## 0.12.0-beta rev.ha
 
 - **Guardarropa multi-foto:** al adjuntar varias imágenes en un mensaje, se guardan **todas** (hasta 4) en la galería; el chip de principal sigue usando la mejor candidata (face/safe).

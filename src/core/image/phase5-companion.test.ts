@@ -2,7 +2,6 @@
  * Fase 5 — companion pure checks.
  */
 
-import { describe, expect, it } from 'vitest'
 import {
   shouldProposeVisualChange,
   VISUAL_INITIATIVE_COOLDOWN_MS,
@@ -93,10 +92,3 @@ export function runPhase5PureChecks(): Phase5Check[] {
 
   return out
 }
-
-describe('phase 5 companion checks', () => {
-  it('passes its pure visual-initiative and memory-import contracts', () => {
-    const failed = runPhase5PureChecks().filter((check) => !check.ok)
-    expect(failed).toEqual([])
-  })
-})

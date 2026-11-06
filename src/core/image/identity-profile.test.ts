@@ -96,6 +96,22 @@ describe('I0 identity-profile', () => {
     expect(joined).toMatch(/match reference/)
   })
 
+
+  it('does not take clothing black or sin rizos as hair DNA', () => {
+    const tags = appearanceToIdentityTags(
+      '## Cabello\n' +
+        'cabello largo liso de color castaño natural. sin rizos marcados.\n' +
+        '## Estética\n' +
+        'vestidos negros y guantes negros largos. ojos verdes. piel clara.'
+    )
+    const j = tags.join(' ').toLowerCase()
+    expect(j).toMatch(/brown hair/)
+    expect(j).toMatch(/straight hair/)
+    expect(j).not.toMatch(/black hair/)
+    expect(j).not.toMatch(/curly hair/)
+    expect(j).toMatch(/green eyes/)
+  })
+
 describe('I0 outfit-spec', () => {
   it('parses blue dress for this turn only', () => {
     const o = parseOutfitSpecFromText('foto tuya con un vestido azul')

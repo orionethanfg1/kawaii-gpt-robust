@@ -14,6 +14,7 @@ import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import { useChatStore } from '@shared/lib/stores/chatStore'
 import { ErrorBoundary } from './ErrorBoundary'
 import { Sidebar } from '@features/chat/components/Sidebar'
+import { LibraryPanel } from '@features/library/LibraryPanel'
 import { ChatView } from '@features/chat/components/ChatView'
 import { RecoveryBanner } from '@features/chat/components/RecoveryBanner'
 import { useDownloadStore } from '@features/models/downloadStore'
@@ -170,6 +171,8 @@ export function AppShell() {
   const sidebarCollapsed = useUiChromeStore((s) => s.sidebarCollapsed)
   const toggleSidebar = useUiChromeStore((s) => s.toggleSidebar)
   const pluginsOpen = useUiChromeStore((s) => s.pluginsOpen)
+  const libraryOpen = useUiChromeStore((s) => s.libraryOpen)
+  const toggleLibrary = useUiChromeStore((s) => s.toggleLibrary)
   const togglePlugins = useUiChromeStore((s) => s.togglePlugins)
   useEffect(() => {
     const onGit = () => setGitOpen(true)
@@ -419,6 +422,14 @@ export function AppShell() {
           </button>
           <Button
             variant="ghost"
+            className={`text-xs ${libraryOpen ? 'bg-kawaii-pink-soft' : ''}`}
+            onClick={() => toggleLibrary()}
+            title="Biblioteca de adjuntos y archivos"
+          >
+            📚 Biblioteca
+          </Button>
+          <Button
+            variant="ghost"
             className={`text-xs ${pluginsOpen ? 'bg-kawaii-pink-soft' : ''}`}
             onClick={() => togglePlugins()}
             title="Plugins y skills"
@@ -488,7 +499,10 @@ export function AppShell() {
             <ContextualTips />
           </Suspense>
           <DownloadBar />
-          <ActivityToasts />
+          <ErrorBoundary name="Library" fallback={null}>
+        <LibraryPanel />
+      </ErrorBoundary>
+      <ActivityToasts />
         </Suspense>
       </ErrorBoundary>
 

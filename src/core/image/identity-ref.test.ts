@@ -19,23 +19,31 @@ describe('identity-ref 3.1', () => {
     expect(plan.ipAdapterWeight).toBeGreaterThanOrEqual(0.75)
   })
 
-  it('sends the canonical avatar plus distinct gallery references', () => {
+  it('uses a single canonical face; outfit/scene only as low-weight secondary', () => {
     const plan = planIdentityLock({
       isSelf: true,
       character: {
+        facePrimaryUrl: 'data:image/png;base64,main',
         visualImageUrl: 'data:image/png;base64,main',
         visualGallery: [
-          { dataUrl: 'data:image/png;base64,portrait', label: 'face portrait' },
-          { dataUrl: 'data:image/png;base64,scene', label: 'forest scene' },
-          { dataUrl: 'data:image/png;base64,extra', label: 'night portrait' }
+          { dataUrl: 'data:image/png;base64,portrait', label: 'face portrait', role: 'face' },
+          {
+            dataUrl: 'data:image/png;base64,scene',
+            label: 'forest scene',
+            role: 'scene',
+            tags: ['scene:forest']
+          },
+          { dataUrl: 'data:image/png;base64,extra', label: 'night portrait', role: 'face' }
         ]
       }
     })
 
-    expect(plan.referenceImages).toHaveLength(3)
     expect(plan.referenceImage).toBe('data:image/png;base64,main')
-    expect(plan.referenceImages?.[0]).toBe(plan.referenceImage)
-    expect(plan.ipAdapterWeight).toBeLessThanOrEqual(0.88)
+    // Secondary must not include extra face photos
+    const secs = plan.referenceImages || []
+    expect(secs.every((u) => u !== 'data:image/png;base64,extra')).toBe(true)
+    expect(secs.every((u) => u !== 'data:image/png;base64,portrait')).toBe(true)
+    expect(plan.ipAdapterWeight).toBeGreaterThanOrEqual(0.82)
   })
 
   it('does not lock explicit other', () => {

@@ -26,8 +26,10 @@ import {
 } from '@core/conversation/mood-memory'
 import {
   peekPendingCharacterPhotoOffer,
-  wardrobeOfferToMeta
+  wardrobeOfferToMeta,
+  clearPendingCharacterPhotoOffer
 } from '@core/image/character-photo-offer'
+import { detectThirdPartyPhotoIntent } from '@core/image/wardrobe-classify'
 
 export type PostReplyFinalizeArgs = {
   convId: string
@@ -440,7 +442,28 @@ export function finalizeCompletedAssistantReply(
             }
           }
           if ((offer?.dataUrl || offer?.filePath) && !prevMeta.wardrobeResolved) {
-            offerMeta = wardrobeOfferToMeta(offer)
+            const charName =
+              useSettingsStore.getState().settings.character?.name || ''
+            const third = detectThirdPartyPhotoIntent(userText || '', charName)
+            const reply = String(finalText || rawText || '')
+            const llmSkip = /\[\s*WARDROBE\s*:\s*skip\s*\]/i.test(reply)
+            const llmOffer = /\[\s*WARDROBE\s*:\s*offer\s*\]/i.test(reply)
+            if (third || llmSkip) {
+              clearPendingCharacterPhotoOffer(convId)
+              offerMeta = {}
+            } else if (llmOffer || Boolean(offer)) {
+              // Host may have queued; LLM offer confirms. Third-party already excluded.
+              offerMeta = wardrobeOfferToMeta(offer)
+            }
+          }
+          // Strip internal wardrobe decision tags from displayed reply
+          try {
+            finalText = String(finalText || '')
+              .replace(/\[\s*WARDROBE\s*:\s*(?:offer|skip)\s*\]/gi, '')
+              .replace(/[ \t]+\n/g, '\n')
+              .trim()
+          } catch {
+            /* */
           }
         } catch {
           /* optional */
@@ -572,5 +595,39 @@ export function finalizeCompletedAssistantReply(
     console.warn('[kawaii-memory] mood collect failed', e)
   }
 
-  return { finalText, rawText, memoryChanged, limited }
+  
+  // E3 — live episode when user names book characters or asks to remember
+  try {
+    const ut = String(userText || '').trim()
+    if (ut.length >= 12) {
+      const bookPerson = ut.match(
+        /\b([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]{2,24})\b[^.\n]{0,80}\b(?:libro|personaje|novela|escribo)\b/i
+      ) || ut.match(
+        /\b(?:libro|personaje|novela)[^.\n]{0,40}\b([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]{2,24})\b/i
+      )
+      const name = bookPerson?.[1]
+      if (name && !/^(Niamh|Nahum|Ella|El)$/i.test(name)) {
+        const { appendEpisode, dayFromMs, approxTimeFromMs } = require('@core/conversation/memory-episodes') as typeof import('@core/conversation/memory-episodes')
+        const now = Date.now()
+        const prev = (useSettingsStore.getState().settings as { memoryEpisodes?: import('@core/conversation/memory-episodes').EpisodeStore }).memoryEpisodes
+        const next = appendEpisode(prev, {
+          summary: `Hablamos de ${name} en el contexto del libro / escritura del usuario.`,
+          tags: ['libro', 'persona', 'live'],
+          people: [name],
+          at: now,
+          day: dayFromMs(now),
+          approxTime: approxTimeFromMs(now),
+          conversationId: convId,
+          source: 'live'
+        })
+        if (next !== prev) {
+          useSettingsStore.getState().update({ memoryEpisodes: next } as never)
+        }
+      }
+    }
+  } catch {
+    /* episodes optional */
+  }
+
+return { finalText, rawText, memoryChanged, limited }
 }

@@ -11,6 +11,7 @@ import {
   emptyDocReadingState,
   makeSourceFingerprint,
   documentSourceChanged,
+  makeContentFingerprint,
   markSliceRead,
   buildRollingReadingBlock,
   makeDocReadingKey
@@ -304,7 +305,8 @@ export function buildDocumentsWithState(
     const full = d.text
     const chapters = splitIntoChapters(full)
     const key = makeDocReadingKey(convId, d.name, full.length)
-    const srcFp = makeSourceFingerprint(full.length, 0)
+    const srcFp = makeContentFingerprint(full)
+    let sourceVersionChanged = false
     let state =
       priorMap.get(key) ||
       priorMap.get(convId + '::name::' + d.name.toLowerCase()) ||
@@ -312,17 +314,20 @@ export function buildDocumentsWithState(
         fingerprint: srcFp
       })
 
-    // Delta: same name but body length fingerprint changed → re-ingest (new extract)
-    if (
-      state.sourceFingerprint &&
-      documentSourceChanged(state, full.length, 0) &&
-      state.totalChars !== full.length
-    ) {
+    // Delta: revised file (content hash / length) → restart progressive reading
+    if (state.sourceFingerprint && documentSourceChanged(state, full)) {
+      sourceVersionChanged = true
       state = emptyDocReadingState(convId, d.name, full.length, chapters.length, {
         fingerprint: srcFp
       })
     } else if (!state.sourceFingerprint) {
       state = { ...state, sourceFingerprint: srcFp }
+    } else if (state.sourceFingerprint !== srcFp) {
+      // migrate legacy len:0 fingerprints to content hash without forced restart
+      // if length matches and we already progressed — only update fp when unread
+      if (!state.readTitles?.length && !(state.streamOffset || 0)) {
+        state = { ...state, sourceFingerprint: srcFp }
+      }
     }
 
     // Soft name match when totalChars changed (partial extract → full hydrate)
@@ -442,6 +447,8 @@ export function buildDocumentsWithState(
         ...state,
         chapterIndex: chapters.length,
         chapterCount: chapters.length,
+        streamOffset: Math.max(Number(state.streamOffset || 0), Number(state.totalChars || full.length || 0)),
+        totalChars: Number(state.totalChars || full.length || 0),
         updatedAt: Date.now()
       }
       nextStates.push(doneState)
@@ -536,6 +543,13 @@ export function buildDocumentsWithState(
     }
 
     hints.push(slice.hint)
+    if (sourceVersionChanged) {
+      hints.push(
+        `[DOCUMENTO ACTUALIZADO] «${d.name}» cambió respecto a la lectura anterior ` +
+          `(nueva huella de contenido). Se reinicia la lectura desde el inicio. ` +
+          `No asumas el progreso viejo; trata este texto como la versión vigente.`
+      )
+    }
     const pct = full.length
       ? Math.min(100, Math.round((nextOff / full.length) * 100))
       : 0

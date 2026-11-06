@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   makeSourceFingerprint,
+  makeContentFingerprint,
   documentSourceChanged,
   emptyDocReadingState
 } from './document-reading-state'

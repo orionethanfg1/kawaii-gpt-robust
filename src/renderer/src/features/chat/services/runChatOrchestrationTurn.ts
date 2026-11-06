@@ -162,6 +162,22 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
     } catch {
       /* */
     }
+    // Disarm stale doc auto-chain on pure chat (e.g. user said «en el libro» casually)
+    try {
+      const isExplicitDoc =
+        /\[APP\].*lectura|continuar la lectura|sigue\s+leyendo|contin[uú]a\s+leyendo/i.test(
+          String(trimmed || '')
+        ) || Boolean(attachments?.some((a) => a.textContent || /\.(pdf|docx?|txt|md)$/i.test(a.name || '')))
+      if (!isExplicitDoc) {
+        const g = globalThis as unknown as { __kawaiiDocAuto?: { convId?: string; armed?: boolean } }
+        if (g.__kawaiiDocAuto && g.__kawaiiDocAuto.convId === convId) {
+          g.__kawaiiDocAuto = { ...g.__kawaiiDocAuto, armed: false, incomplete: false } as never
+        }
+      }
+    } catch {
+      /* */
+    }
+
     armLoading(docHeavy ? 1_200_000 : 1_200_000) // Gemma 26B RP: never unlock@5min mid-stream
     setBackgroundSummaryBusy(true)
     try {
@@ -451,7 +467,8 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
             characterPhotoScore: charPhoto.score,
             giftScore: gift.score,
             userText: trimmed,
-            hasImage: true
+            hasImage: true,
+            characterName: useSettingsStore.getState().settings.character?.name
           })
           if (offer && (a.dataUrl?.startsWith('data:image/') || (a as { filePath?: string }).filePath)) {
             let dataUrl = a.dataUrl?.startsWith('data:image/') ? a.dataUrl : undefined
@@ -541,60 +558,10 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
           /* */
         }
 
-        // Auto-save ALL offered images into wardrobe
+        // Never auto-save into wardrobe. Only queue a pending offer for UI chips
+        // when host heuristics say it could be the character (or gift). LLM may
+        // confirm with [WARDROBE:offer] / reject with [WARDROBE:skip].
         if (offeredAll.length) {
-          try {
-            const { approveManyImagesToWardrobe } = await import('@core/image/wardrobe-approve')
-            const st = useSettingsStore.getState()
-            const ch = st.settings.character
-            if (ch) {
-              const inputs = offeredAll.map((o, i) => ({
-                dataUrl: o.dataUrl || '',
-                filePath: o.filePath,
-                title:
-                  o.classification.kind
-                    ? `Look · ${o.classification.kind}${offeredAll.length > 1 ? ` (${i + 1})` : ''}`
-                    : offeredAll.length > 1
-                      ? `Foto compartida (${i + 1})`
-                      : 'Foto compartida',
-                tags: [
-                  'source:user_chat',
-                  ...(o.classification.tags || []),
-                  offeredAll.length > 1 ? 'batch:' + offeredAll.length : ''
-                ].filter(Boolean),
-                role: (['face', 'half', 'full', 'scene', 'outfit'].includes(
-                  String(o.classification.role || '')
-                )
-                  ? o.classification.role
-                  : 'outfit') as 'face' | 'half' | 'full' | 'scene' | 'outfit',
-                source: 'user' as const
-              }))
-              const patch = approveManyImagesToWardrobe(ch, inputs, {
-                maxItems: WARDROBE_UPLOAD.maxWardrobeItems || 48
-              })
-              st.update({
-                character: {
-                  ...ch,
-                  visualGallery: patch.visualGallery as typeof ch.visualGallery,
-                  visualImageUrl: patch.visualImageUrl
-                }
-              })
-              try {
-                const { persistWardrobeDataUrl } = await import(
-                  '@features/settings/services/wardrobeDisk'
-                )
-                for (const o of offeredAll) {
-                  if (o.dataUrl?.startsWith('data:image/')) {
-                    void persistWardrobeDataUrl(o.dataUrl)
-                  }
-                }
-              } catch {
-                /* disk optional */
-              }
-            }
-          } catch (e) {
-            console.warn('[wardrobe] multi-save failed', e)
-          }
           const primaryOffer =
             offeredAll.find(
               (o) =>
@@ -613,7 +580,7 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
               title: primaryOffer.classification.kind
                 ? `Look · ${primaryOffer.classification.kind}`
                 : offeredAll.length > 1
-                  ? `${offeredAll.length} fotos en guardarropa`
+                  ? `${offeredAll.length} fotos`
                   : 'Foto compartida',
               classification: primaryOffer.classification || undefined
             })
@@ -840,12 +807,22 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
             if (!next || next === base) return
             streamAccRef.current[accKey] = next
 
-            // R1 — abort mid-stream on char/ngram loop or plan leak (do not wait for max_tokens)
+            // R1 — abort mid-stream on hard loops. Continuar: only char/ngram on the NEW
+            // fragment (plan_leak on a short continue fragment was wiping good continuations).
             try {
+              const prefMid = String(streamPrefix || '').trim()
               const verdict = detectStreamDegeneration(next)
-              if (!verdict.ok) {
+              const hardLoop =
+                !verdict.ok &&
+                (verdict.reason === 'char_loop' || verdict.reason === 'ngram_loop')
+              const softLeak = !verdict.ok && verdict.reason === 'plan_leak'
+              // Continuar: ignore plan_leak until fragment is substantial
+              const shouldAbort = prefMid
+                ? hardLoop || (softLeak && next.length > 600)
+                : !verdict.ok
+              if (shouldAbort) {
                 hitDegenerate = true
-                degenerateReason = verdict.reason
+                degenerateReason = verdict.ok ? 'unknown' : verdict.reason
                 try {
                   console.warn('[stream-degeneration] abort', verdict)
                 } catch {
@@ -856,15 +833,14 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
                 } catch {
                   /* */
                 }
-                // Keep prefix only; never leave //// wall in the bubble
-                const pref = String(streamPrefix || '').trim()
+                const pref = prefMid
                 updateMessage(convId!, assistantId, {
                   content: pref || '',
                   isStreaming: true,
                   meta: {
                     ...((current?.meta || {}) as object),
                     degenerate: true,
-                    degenerateReason: verdict.reason
+                    degenerateReason: verdict.ok ? 'unknown' : verdict.reason
                   }
                 })
                 return
@@ -1144,30 +1120,50 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
                       ? 'Sigo con el documento… dame un momento y te cuento el siguiente tramo con calma.'
                       : 'Estoy ordenando la idea… un segundo y te respondo en personaje.'
                 }
-                // R1 — final-pass degeneration (plan leak / empty after strip / residual loops)
+                // R1 — final-pass degeneration. Continuar: never trash the whole bubble
+                // when the fragment alone looks "unusable" — stitch whatever is usable.
+                const prefDone = String(streamPrefix || '').trim()
                 try {
                   const unusable = isUnusableAssistantVisible(best, visible)
                   if (!unusable.ok) {
-                    hitDegenerate = true
-                    degenerateReason = unusable.reason
-                    try {
-                      console.warn('[stream-degeneration] onDone unusable', unusable)
-                    } catch {
-                      /* */
+                    if (prefDone) {
+                      try {
+                        console.warn('[stream-degeneration] onDone continue soft', unusable)
+                      } catch {
+                        /* */
+                      }
+                      if (best.trim().length > 40) {
+                        thinkingExtra = [thinkingExtra, best]
+                          .filter(Boolean)
+                          .join('\n\n')
+                          .slice(0, 12000)
+                      }
+                      if (!String(visible || '').trim()) {
+                        visible = ''
+                      }
+                    } else {
+                      hitDegenerate = true
+                      degenerateReason = unusable.reason
+                      try {
+                        console.warn('[stream-degeneration] onDone unusable', unusable)
+                      } catch {
+                        /* */
+                      }
+                      if (best.trim().length > 40) {
+                        thinkingExtra = [thinkingExtra, best]
+                          .filter(Boolean)
+                          .join('\n\n')
+                          .slice(0, 12000)
+                      }
+                      visible = ''
                     }
-                    // Park dump in thinking; do not show wall/plan to the user
-                    if (best.trim().length > 40) {
-                      thinkingExtra = [thinkingExtra, best].filter(Boolean).join('\n\n').slice(0, 12000)
-                    }
-                    visible = String(streamPrefix || '').trim()
                   }
                 } catch {
                   /* */
                 }
-                if (hitDegenerate) {
-                  // Skip heavy finalize / memory on garbage — R2 may retry
+                if (hitDegenerate && !prefDone) {
                   updateMessage(convId!, assistantId, {
-                    content: String(streamPrefix || '').trim(),
+                    content: '',
                     isStreaming: false,
                     meta: {
                       ...prevMeta,
@@ -1180,23 +1176,24 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
                   return
                 }
                 {
-                  const pref = String(streamPrefix || '').trim()
+                  const pref = prefDone
                   let finalContent = String(visible || '').trim()
                   if (pref) {
-                    // Single owner: extract fragment + build continued bubble
                     const frag = extractContinueFragment(pref, {
                       acc: String(acc || ''),
                       metaContent,
                       visible: finalContent
                     })
                     finalContent = buildContinuedContent(pref, frag)
+                    if (!finalContent.trim()) finalContent = pref
                   }
                 updateMessage(convId!, assistantId, {
                   content: finalContent,
                   isStreaming: false,
                   meta: {
                     ...prevMeta,
-                    continuing: Boolean(pref),
+                    continuing: false,
+                    continuedAt: Date.now(),
                     continueFragChars: pref
                       ? Math.max(0, finalContent.length - pref.length)
                       : undefined,
@@ -1293,7 +1290,15 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
               const flag = (globalThis as unknown as { __kawaiiDocAuto?: { convId: string; incomplete: boolean; fileName?: string } }).__kawaiiDocAuto
               const chainKey = 'kawaii-doc-auto-chain:' + convId
               const pauseKey = 'kawaii-doc-auto-paused:' + convId
-              if (flag && flag.convId === convId && flag.incomplete) {
+              // Only auto-chain when this turn armed progressive reading (not casual «libro»)
+              const allowAuto = Boolean(
+                flag &&
+                  flag.convId === convId &&
+                  flag.incomplete &&
+                  ((flag as { armed?: boolean }).armed === true ||
+                    /\[APP\].*lectura|continuar la lectura/i.test(String(trimmed || '')))
+              )
+              if (allowAuto) {
                 const paused = sessionStorage.getItem(pauseKey) === '1'
                 const n = Number(sessionStorage.getItem(chainKey) || '0') || 0
                 if (!paused && n < DOC_AUTO_MAX) {
@@ -1382,15 +1387,20 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
                 ?.messages.find((m) => m.id === assistantId)
               const prevMeta = (cur?.meta || {}) as Record<string, unknown>
               const bodyNow = String(cur?.content || '').trim()
-              let limitedNow = Boolean(meta.limited) || Boolean(prevMeta.limited)
-              if (!limitedNow && bodyNow.length > 80) {
+              // UI «Continuar escribiendo» only when the visible text itself looks cut off.
+              // Provider finishReason=length alone is not enough if the bubble ends cleanly.
+              let limitedNow = false
+              if (bodyNow.length > 40) {
                 try {
-                  if (looksIncompleteAssistantText(bodyNow)) limitedNow = true
+                  limitedNow = looksIncompleteAssistantText(bodyNow)
                 } catch {
-                  if (/(?:\.{2,}|…)\s*$/u.test(bodyNow)) limitedNow = true
-                  if ((bodyNow.slice(-400).match(/"/g) || []).length % 2 === 1) limitedNow = true
+                  limitedNow =
+                    /(?:\.{2,}|…)\s*$/u.test(bodyNow) ||
+                    ((bodyNow.slice(-400).match(/"/g) || []).length % 2) === 1
                 }
               }
+              // Soft signal for memory/telemetry only
+              const providerLimited = Boolean(meta.limited)
               updateMessage(convId!, assistantId, {
                 isStreaming: false,
                 meta: {

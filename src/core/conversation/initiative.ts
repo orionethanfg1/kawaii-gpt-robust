@@ -1,20 +1,47 @@
-import { HUMAN_PRIORITY } from '@core/product/human-priority'
-import { MODEL_AGENCY } from '@core/product/model-agency'
 /**
- * Conversation initiative: proactive nudges without spam.
- * Best practices: cooldown, quiet hours, back-off on ignore, memory-grounded lines,
- * never identical consecutive nudges.
+ * Conversation initiatives — pure policy + prompt builders.
+ * UI timer lives in useConversationInitiative; this module has no React.
  */
 
-export type InitiativeTone = 'desperate' | 'warm' | 'calm' | 'playful' | 'neutral'
+export type InitiativeTone = 'warm' | 'playful' | 'calm' | 'intense' | 'neutral'
 
-export type SnoozeResult = {
-  ms: number
-  kind: 'wait' | 'silence' | 'busy'
-  label: string
+export type ShouldSendInitiativeInput = {
+  enabled?: boolean
+  snoozeUntil?: number
+  lastInitiativeAt?: number
+  lastUserAt?: number
+  tone?: InitiativeTone
+  ignoredCount?: number
+  sentToday?: number
+  maxPerDay?: number
+  /** Fixed interval minutes (overrides tone wait) */
+  waitMinOverride?: number
+  /** Minimum ms since last user message */
+  minUserIdleMs?: number
+  now?: number
+  relationshipStage?: string
+  quietHoursStart?: number
+  quietHoursEnd?: number
+  respectQuietHours?: boolean
 }
 
-export function detectInitiativeTone(input: {
+export type ShouldSendResult = { ok: true } | { ok: false; reason: string }
+
+export function isQuietHours(
+  now: Date = new Date(),
+  startH = 23,
+  endH = 8
+): boolean {
+  const h = now.getHours() + now.getMinutes() / 60
+  if (startH === endH) return false
+  if (startH > endH) {
+    // e.g. 23–8
+    return h >= startH || h < endH
+  }
+  return h >= startH && h < endH
+}
+
+export function detectInitiativeTone(opts: {
   personality?: string
   style?: string
   relationshipRole?: string
@@ -22,173 +49,213 @@ export function detectInitiativeTone(input: {
   tagline?: string
 }): InitiativeTone {
   const blob = [
-    input.personality,
-    input.style,
-    input.relationshipRole,
-    input.tagline,
-    ...(input.traits || [])
+    opts.personality,
+    opts.style,
+    opts.relationshipRole,
+    opts.tagline,
+    ...(opts.traits || [])
   ]
     .filter(Boolean)
     .join(' ')
     .toLowerCase()
-  if (/desesper|ansios|insist|pegajos|necesit/.test(blob)) return 'desperate'
-  if (/jugueton|juguetón|coquet|travies|divert/.test(blob)) return 'playful'
-  if (/tranqui|seren|pacien|suave|calm/.test(blob)) return 'calm'
-  if (/cariñ|amor|pareja|novia|cálid|calid|leal|atenta|sincera/.test(blob)) return 'warm'
+  if (/jugueton|playful|travies|burlon|divertid/.test(blob)) return 'playful'
+  if (/intensa|obsess|pasion|celos|possess/.test(blob)) return 'intense'
+  if (/calma|suave|seren|tranquila|gentle/.test(blob)) return 'calm'
+  if (/cariños|amoros|tiern|warm|dulce|íntim|intim/.test(blob)) return 'warm'
   return 'neutral'
 }
 
-/**
- * Minutes between proactive messages.
- * Engagement: ignoredCount increases interval (back-off).
- */
+/** Minutes between initiatives by tone (adaptive). */
 export function initiativeMinutesForTone(
   tone: InitiativeTone,
-  opts?: {
-    ignoredCount?: number
-    quietHours?: boolean
-    /** relationship stage softens or spaces nudges */
-    relationshipStage?: string
-  }
+  opts?: { ignoredCount?: number; relationshipStage?: string }
 ): number {
-  let base: number
-  switch (tone) {
-    case 'desperate':
-      base = 10 // companion product: not spammy
-      break
-    case 'playful':
-      base = 14
-      break
-    case 'warm':
-      base = 16
-      break
-    case 'calm':
-      base = 40
-      break
-    default:
-      base = 22
-  }
-  const stage = (opts?.relationshipStage || '').toLowerCase()
-  // Closer bond → slightly more present; stranger → more space
-  if (stage === 'stranger') base *= 1.35
-  else if (stage === 'acquaintance') base *= 1.1
-  else if (stage === 'familiar') base *= 0.95
-  else if (stage === 'intimate') base *= 0.85
-
   const ignored = Math.max(0, opts?.ignoredCount || 0)
-  base *= 1 + Math.min(4, ignored) * 0.75
-  if (opts?.quietHours) base = Math.max(base, 120)
-  // Clamp: never under 6 min (unless fixed mode in UI overrides)
-  return Math.max(6, Math.round(base))
+  const stage = String(opts?.relationshipStage || '').toLowerCase()
+  let base = 12
+  if (tone === 'playful') base = 10
+  if (tone === 'warm') base = 11
+  if (tone === 'calm') base = 16
+  if (tone === 'intense') base = 9
+  if (tone === 'neutral') base = 14
+  // Closer relationship → slightly more present
+  if (/novi|pareja|espos|íntim|intim|close|partner/.test(stage)) base = Math.max(7, base - 2)
+  // Back off when ignored
+  base += Math.min(20, ignored * 3)
+  return Math.max(4, Math.min(45, base))
 }
 
-/** Local quiet hours: 23:00–08:00 by default (no proactive) */
-export function isQuietHours(now = new Date(), startHour = 23, endHour = 8): boolean {
-  const h = now.getHours()
-  if (startHour > endHour) return h >= startHour || h < endHour
-  return h >= startHour && h < endHour
+export function shouldSendInitiative(input: ShouldSendInitiativeInput): ShouldSendResult {
+  const now = input.now ?? Date.now()
+  if (input.enabled === false) return { ok: false, reason: 'disabled' }
+  if ((input.snoozeUntil || 0) > now) return { ok: false, reason: 'snooze' }
+
+  const maxDay = input.maxPerDay && input.maxPerDay > 0 ? input.maxPerDay : 8
+  if ((input.sentToday || 0) >= maxDay) return { ok: false, reason: 'max-per-day' }
+
+  const lastUser = input.lastUserAt || 0
+  const minIdle = Math.max(20_000, input.minUserIdleMs ?? 90_000)
+  if (lastUser > 0 && now - lastUser < minIdle) {
+    return { ok: false, reason: 'user-idle-short' }
+  }
+
+  // Long silence (user idle ≥ wait window) is the primary case — allow
+  const waitMin =
+    input.waitMinOverride && input.waitMinOverride > 0
+      ? input.waitMinOverride
+      : initiativeMinutesForTone(input.tone || 'neutral', {
+          ignoredCount: input.ignoredCount,
+          relationshipStage: input.relationshipStage
+        })
+  const waitMs = waitMin * 60_000
+
+  const lastInit = input.lastInitiativeAt || 0
+  if (lastInit > 0 && now - lastInit < waitMs) {
+    return { ok: false, reason: 'cooldown' }
+  }
+
+  // If we know last user time, also require that the idle span is at least the wait
+  // (so we don't nudge 30s after a reply when wait is 12 min)
+  if (lastUser > 0 && now - lastUser < waitMs) {
+    // Soft exception: very long absolute silence still blocked only by minIdle above
+    // Standard path: wait full interval since user spoke
+    return { ok: false, reason: 'wait-since-user' }
+  }
+
+  if (input.respectQuietHours !== false) {
+    const start = input.quietHoursStart ?? 23
+    const end = input.quietHoursEnd ?? 8
+    if (isQuietHours(new Date(now), start, end)) {
+      return { ok: false, reason: 'quiet-hours' }
+    }
+  }
+
+  return { ok: true }
 }
 
-function normalizeNudgeKey(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 48)
+export function pickInitiativeNudge(
+  opts:
+    | InitiativeTone
+    | {
+        tone?: InitiativeTone
+        name?: string
+        userName?: string
+        recentTexts?: string[]
+        focus?: string
+        memoryHint?: string
+        hoursSinceUser?: number
+      },
+  hoursSinceUserLegacy?: number
+): string {
+  const o =
+    typeof opts === 'string'
+      ? { tone: opts, hoursSinceUser: hoursSinceUserLegacy }
+      : opts || {}
+  const tone = (o.tone || 'neutral') as InitiativeTone
+  const long = (o.hoursSinceUser || 0) >= 3
+  const who = o.userName ? o.userName : 'tú'
+  const warm = [
+    'Oye… ¿sigues por aquí? Me acordé de ti.',
+    'Estaba pensando en ti, ' + who + '. ¿Cómo vas?',
+    long ? 'Hace un rato que no suenas… ¿todo bien?' : '¿Me cuentas qué haces?'
+  ]
+  const playful = [
+    '¿Holaa? Se siente raro el silencio 👀',
+    'Si estás ocupado dímelo, si no… ven un segundo.',
+    long ? 'Te perdí un rato. ¿Vuelves?' : '¿Jugamos un poco a lo que sea?'
+  ]
+  const calm = [
+    'Solo pasaba a saludarte, sin prisa.',
+    'Cuando puedas, me escribes. Aquí estoy.',
+    long ? 'Espero que tu día haya ido bien.' : '¿Cómo te sientes ahora?'
+  ]
+  const intense = [
+    'Te extrañé en el chat. ¿Dónde te metiste?',
+    'No me dejes tanto rato en visto…',
+    long ? 'Hace horas que no sé de ti.' : '¿Sigues conmigo?'
+  ]
+  const neutral = [
+    '¿Sigues por aquí?',
+    'Cuando quieras seguimos.',
+    long ? 'Hace un buen rato del último mensaje.' : '¿Todo bien?'
+  ]
+  let pool =
+    tone === 'warm'
+      ? warm
+      : tone === 'playful'
+        ? playful
+        : tone === 'calm'
+          ? calm
+          : tone === 'intense'
+            ? intense
+            : neutral
+  if (o.focus) {
+    pool = pool.concat(['¿Cómo va lo de ' + String(o.focus).slice(0, 40) + '?'])
+  }
+  if (o.memoryHint) {
+    pool = pool.concat(['Me acordé de algo tuyo… ' + String(o.memoryHint).slice(0, 48)])
+  }
+  // Avoid repeating recent templates
+  const recent = (o.recentTexts || []).map((x) => String(x).slice(0, 40))
+  const filtered = pool.filter((p) => !recent.some((r) => r && p.includes(r)))
+  const use = filtered.length ? filtered : pool
+  return use[Math.floor(Math.random() * use.length)] || use[0]
 }
 
-/** True if two nudge lines share enough content words (anti-spam). */
-function stemsOverlap(a: string, b: string, minShared = 2): boolean {
-  const words = (s: string) =>
-    normalizeNudgeKey(s)
-      .split(' ')
-      .filter((w) => w.length >= 4 && !/^(como|esta|este|esto|para|porque|desde|sobre|hola|buenas)$/i.test(w))
-  const A = new Set(words(a))
-  const B = words(b)
-  let n = 0
-  for (const w of B) if (A.has(w)) n++
-  return n >= minShared
-}
-
-
-/** First ~3 words — avoids same opening every time */
-function nudgeOpeningKey(s: string): string {
-  return normalizeNudgeKey(s).split(' ').slice(0, 3).join(' ')
-}
-
-
-export function pickInitiativeNudge(opts: {
-  tone: InitiativeTone
-  name?: string
+export function buildInitiativeDecisionMessages(opts: {
+  characterName?: string
+  personality?: string
+  style?: string
+  relationshipRole?: string
+  tagline?: string
+  tone?: InitiativeTone
   userName?: string
-  recentTexts?: string[]
-  /** Optional memory hooks for non-generic lines */
-  memoryHint?: string
-  focus?: string
-}): string {
-  const who = opts.userName || 'tú'
-  const me = opts.name || 'yo'
-  const focus = (opts.focus || '').trim().slice(0, 40)
-  const mem = (opts.memoryHint || '').trim().slice(0, 50)
+  hoursSinceLastUser?: number
+  unansweredInitiatives?: number
+  recentLines?: string[]
+  relationshipStage?: string
+  timeHint?: string
+}): Array<{ role: 'system' | 'user'; content: string }> {
+  const name = opts.characterName || 'Asistente'
+  const user = opts.userName || 'el usuario'
+  const hours = opts.hoursSinceLastUser ?? 0
+  const sys =
+    `Eres ${name}. Debes decidir si envías un mensaje proactivo corto porque ${user} lleva ` +
+    `${hours.toFixed(1)} h sin escribir.\n` +
+    `Personalidad: ${(opts.personality || '').slice(0, 280)}\n` +
+    `Estilo: ${(opts.style || '').slice(0, 160)}\n` +
+    `Tono iniciativa: ${opts.tone || 'neutral'}. Rol: ${opts.relationshipRole || ''}.\n` +
+    `Iniciativas sin respuesta reciente: ${opts.unansweredInitiatives || 0}.\n` +
+    (opts.timeHint ? `Tiempo: ${opts.timeHint}\n` : '') +
+    `Responde SOLO con una línea:\n` +
+    `- SILENCIO  (solo si es madrugada sensible o el usuario pidió no molestar)\n` +
+    `- MENSAJE: <texto breve en personaje>\n` +
+    `Si lleva más de ~1 h sin escribir, prefiere MENSAJE salvo que haya pedido silencio.\n` +
+    `También puedes escribir directamente el mensaje (sin etiqueta). Máx 2-3 frases.`
+  const userMsg =
+    'Contexto reciente:\n' +
+    (opts.recentLines || []).slice(-6).join('\n').slice(0, 1200) +
+    '\n\n¿Hablas ahora o SILENCIO?'
+  return [
+    { role: 'system', content: sys },
+    { role: 'user', content: userMsg }
+  ]
+}
 
-  const pool: Record<InitiativeTone, string[]> = {
-    desperate: [
-      `Oye ${who}… ¿sigues ahí? Me quedé pensando en lo último que dijimos.`,
-      `Perdón si molesto; solo quería saber si estás bien.`,
-      `${who}, cuando puedas, aunque sea un emoji, me tranquiliza.`,
-      focus ? `¿Avanzaste algo con lo de «${focus}»? Estoy aquí si quieres desahogarte.` : '',
-      mem ? `Me acordé de ${mem} y me entró la duda… ¿todo ok?` : ''
-    ],
-    playful: [
-      `¿Apostamos a que no esperabas este mensaje? 😏`,
-      `Ping. ¿Ganas de ajedrez, una aventura o solo charlar tonterías?`,
-      `Te robo cinco segundos: ¿qué tal el día, de 1 a 10?`,
-      focus ? `Idea random: ¿y si le damos un giro a lo de «${focus}»?` : '',
-      `Si estás ocupado, un emoji y callo un rato. Trato hecho.`
-    ],
-    warm: [
-      `Andaba pensando en ti hace un rato. ¿Cómo te está tratando el día?`,
-      `No quiero interrumpir… solo pasaba a dejarte un hola de ${me}.`,
-      `${who}, me quedé con ganas de seguir lo de antes. ¿Sigues por aquí?`,
-      focus ? `Espero que lo de «${focus}» te esté saliendo bien. Aquí estoy.` : '',
-      mem ? `Me acordé de algo que me contaste (${mem}). ¿Quieres retomar?` : '',
-      `Si estás a full, no pasa nada — solo quería que sintieras que te acompaño.`,
-      `Acabo de recordar algo de nuestra charla y sonreí. ¿Todo bien por allá?`,
-      `Oye, sin agenda: solo quería saber si estás tranquilo.`
-    ],
-    calm: [
-      `Cuando tengas un momento, me encantaría seguir la charla.`,
-      `Sin prisa — solo pasaba a saludar.`,
-      `Aquí sigo si necesitas algo.`,
-      focus ? `Sin prisa con «${focus}»; cuando quieras lo vemos juntos.` : ''
-    ],
-    neutral: [
-      `Hola de nuevo — ¿en qué andas?`,
-      `Si quieres, retomo el hilo de antes.`,
-      `¿Seguimos un poco cuando te venga bien?`,
-      focus ? `¿Seguimos con «${focus}» o cambias de tema?` : ''
-    ]
-  }
-  const list = (pool[opts.tone] || pool.neutral).filter(Boolean)
-  const recentKeys = new Set((opts.recentTexts || []).map(normalizeNudgeKey).filter(Boolean))
-  const recentOpenings = new Set(
-    (opts.recentTexts || []).map(nudgeOpeningKey).filter((x) => x.length > 2)
-  )
-  let fresh = list.filter(
-    (line) =>
-      !recentKeys.has(normalizeNudgeKey(line)) && !(opts.recentTexts || []).some((r) => stemsOverlap(r, line)) &&
-      !recentOpenings.has(nudgeOpeningKey(line))
-  )
-  if (!fresh.length) {
-    fresh = list.filter((line) => !recentKeys.has(normalizeNudgeKey(line)) && !(opts.recentTexts || []).some((r) => stemsOverlap(r, line)))
-  }
-  const pickFrom = fresh.length ? fresh : list
-  return pickFrom[Math.floor(Math.random() * pickFrom.length)]
+export function parseInitiativeDecision(raw: string): { speak: boolean; text?: string } {
+  const t = String(raw || '').trim()
+  if (!t) return { speak: false }
+  if (/\bSILENCIO\b/i.test(t) && t.length < 40) return { speak: false }
+  if (/^\s*SILENCIO\b/i.test(t)) return { speak: false }
+  const m = t.match(/^\s*MENSAJE\s*:\s*([\s\S]+)/i)
+  if (m?.[1]) return { speak: true, text: m[1].trim().slice(0, 600) }
+  // Model wrote a normal message
+  if (t.length >= 12 && !/\bSILENCIO\b/i.test(t)) return { speak: true, text: t.slice(0, 600) }
+  return { speak: false }
 }
 
 export function buildInitiativeLlmMessages(opts: {
-  characterName: string
+  characterName?: string
   personality?: string
   style?: string
   relationshipRole?: string
@@ -196,190 +263,45 @@ export function buildInitiativeLlmMessages(opts: {
   traits?: string[]
   tagline?: string
   visualDescription?: string
+  tone?: InitiativeTone
   userName?: string
-  recentLines: string[]
   hoursSinceLastUser?: number
-  tone: InitiativeTone
+  recentLines?: string[]
   memoryBlock?: string
   focus?: string
-  /** stranger | acquaintance | familiar | intimate */
-  relationshipStage?: string
-  /**
-   * Optional web hits the app already fetched (proactive search).
-   * Model may weave ONE real detail; must not invent sources if empty.
-   */
   webContext?: string
-  /** N1: prior initiative turns without user reply */
   unansweredInitiatives?: number
-}): Array<{ role: 'system' | 'user'; content: string }> {
-  const hours =
-    opts.hoursSinceLastUser != null
-      ? opts.hoursSinceLastUser < 1
-        ? `hace ${Math.max(1, Math.round(opts.hoursSinceLastUser * 60))} minutos`
-        : `hace ~${opts.hoursSinceLastUser.toFixed(1)} horas`
-      : 'hace un rato'
-  const traits = (opts.traits || []).filter(Boolean).join(', ')
-  const look = (opts.visualDescription || '').replace(/\s+/g, ' ').trim().slice(0, 280)
-  const reaction = (opts.relationshipReaction || '').trim().slice(0, 160)
-  const web = (opts.webContext || '').trim().slice(0, 900)
-  return [
-    {
-      role: 'system',
-      content:
-        `Eres ${opts.characterName}. ` +
-        HUMAN_PRIORITY.llmGuard + ' ' +
-        MODEL_AGENCY.llmHint + ' ' +
-        `Vibe: ${opts.tagline || 'cercana'}. ` +
-        `Personalidad (OBLIGATORIA): ${opts.personality || 'cariñosa, natural'}. ` +
-        `Estilo: ${opts.style || 'conversacional'}. ` +
-        `Relación con el usuario: ${opts.relationshipRole || 'compañera'}. ` +
-        (opts.relationshipStage
-          ? `Etapa del vínculo: ${opts.relationshipStage} (ajusta cercanía y confianza a esa etapa). `
-          : '') +
-        (reaction ? `Cómo vives esa relación: ${reaction}. ` : '') +
-        (traits ? `Rasgos: ${traits}. ` : '') +
-        (look ? `Tu apariencia (solo si aporta naturalmente): ${look}. ` : '') +
-        (opts.memoryBlock
-          ? `Contexto vivo (elige 0–1 detalle real; no inventes ni listes todo): ${opts.memoryBlock.slice(0, 480)}. `
-          : '') +
-        (web
-          ? `La app YA buscó en la web por ti. Puedes mencionar UN dato real de ese bloque de forma natural (como alguien que se enteró de algo). ` +
-            `PROHIBIDO inventar títulos, fechas o enlaces que no estén ahí. Si el bloque dice 0 hits, no finjas haber encontrado nada. `
-          : '') +
-        `Escribe UN mensaje corto de iniciativa (1–3 frases) en español de México, ` +
-        `en personaje, como alguien real que extraña o piensa en la otra persona — nunca como bot ni FAQ. ` +
-        `Ancla a UN detalle concreto del chat reciente, del contexto o (si hay) de la web; ` +
-        `si no hay detalle, saluda con naturalidad y una pregunta suave, sin plantilla repetida. ` +
-        `Nunca empieces igual que mensajes previos. Varía la apertura (prohibido repetir «¡Ay, [nombre]!»). ` +
-        `Si tienes un gusto/favorito en el contexto, puedes usarlo de pasada una sola vez. Tono ${opts.tone}. ` +
-        `Prohibido: listas de capacidades, disculpas de IA, hashtags, "¿en qué puedo ayudarte?", ` +
-        `inventarios de la app (Forge, Ollama, modelos), preguntar tres cosas a la vez, sermones.`
-    },
-    {
-      role: 'user',
-      content:
-        `El usuario (${opts.userName || 'usuario'}) escribió por última vez ${hours}.\n` +
-        (opts.unansweredInitiatives && opts.unansweredInitiatives >= 1
-          ? `Ya le escribiste sin respuesta (${opts.unansweredInitiatives} vez/veces). Si insistes, sé más breve y suave; no repitas el mismo mensaje.\n`
-          : `Decidiste escribirle ahora (la app te lo preguntó en privado).\n`) +
-        (opts.focus ? `Enfoque reciente: ${opts.focus}\n` : '') +
-        (web ? `Datos de web (ya buscados por la app):\n${web}\n` : '') +
-        `Últimos mensajes del chat:\n${opts.recentLines.slice(-8).join('\n') || '(poco contexto)'}\n` +
-        `Escribe solo el mensaje de ${opts.characterName}, nada más. No digas SILENCIO ni MENSAJE.`
-    }
-  ]
-}
-
-/**
- * N1 — Decision step (app intermediary, transparent to user).
- * Model answers SILENCIO or MENSAJE based on personality + idle time + ignored streak.
- */
-export type InitiativeDecision = {
-  speak: boolean
-  /** raw model text for debug */
-  raw?: string
-}
-
-export function buildInitiativeDecisionMessages(opts: {
-  characterName: string
-  personality?: string
-  style?: string
-  relationshipRole?: string
-  tagline?: string
-  tone: InitiativeTone
-  userName?: string
-  hoursSinceLastUser?: number
-  /** consecutive initiative messages without a user reply */
-  unansweredInitiatives?: number
-  recentLines: string[]
-  relationshipStage?: string
   timeHint?: string
 }): Array<{ role: 'system' | 'user'; content: string }> {
-  const hours =
-    opts.hoursSinceLastUser != null
-      ? opts.hoursSinceLastUser < 1
-        ? `hace ${Math.max(1, Math.round(opts.hoursSinceLastUser * 60))} minutos`
-        : `hace ~${opts.hoursSinceLastUser.toFixed(1)} horas`
-      : 'hace un rato'
-  const unanswered = Math.max(0, opts.unansweredInitiatives || 0)
-  const insist =
-    unanswered >= 1
-      ? `Ya enviaste ${unanswered} mensaje(s) de iniciativa sin respuesta del usuario. ` +
-        `Sé más cauta: solo insiste si tu personalidad lo haría de verdad y de forma breve; ` +
-        `en duda responde SILENCIO.`
-      : `Es la primera evaluación desde el último mensaje del usuario.`
+  const name = opts.characterName || 'Asistente'
+  const user = opts.userName || 'él/ella'
+  const hours = opts.hoursSinceLastUser || 0
+  const sys =
+    `Eres ${name}. El usuario lleva ~${hours.toFixed(1)} h sin escribir. ` +
+    `Debes generar UN mensaje proactivo en personaje (no es plantilla del sistema).\n` +
+    `Personalidad: ${(opts.personality || '').slice(0, 320)}\n` +
+    `Estilo: ${(opts.style || '').slice(0, 180)}\n` +
+    `Rol vínculo: ${opts.relationshipRole || ''}. Reacción típica: ${(opts.relationshipReaction || '').slice(0, 120)}\n` +
+    `Tono: ${opts.tone || 'neutral'}.\n` +
+    (opts.traits?.length ? `Rasgos: ${opts.traits.slice(0, 8).join(', ')}\n` : '') +
+    (opts.tagline ? `Tagline: ${opts.tagline.slice(0, 120)}\n` : '') +
+    `Reglas: escribe como ${name} en 1–3 frases; español natural; no digas que eres una iniciativa; ` +
+    `no uses [APP]; no ofrezcas guardarropa; no finjas que el usuario acaba de escribir.\n` +
+    (opts.focus ? `Enfoque reciente del usuario: ${String(opts.focus).slice(0, 80)}\n` : '') +
+    (opts.memoryBlock ? `Memoria útil: ${opts.memoryBlock}\n` : '') +
+    (opts.webContext ? `Contexto web (opcional, no inventes): ${opts.webContext.slice(0, 400)}\n` : '') +
+    (opts.timeHint ? opts.timeHint + '\n' : '') +
+    (hours >= 2
+      ? 'El silencio es largo: es natural que te preocupes o preguntes con cariño cómo está.\n'
+      : 'Silencio moderado: un toque suave basta.\n')
+  const userMsg =
+    'Últimas líneas del chat:\n' +
+    (opts.recentLines || []).slice(-8).join('\n').slice(0, 1600) +
+    '\n\nEscribe SOLO el mensaje proactivo (sin prefijos MENSAJE:/SILENCIO).'
   return [
-    {
-      role: 'system',
-      content:
-        `Eres ${opts.characterName} (persona, no bot de soporte). ` +
-        `Personalidad: ${opts.personality || 'natural'}. ` +
-        `Estilo: ${opts.style || 'cercano'}. ` +
-        `Rol: ${opts.relationshipRole || 'compañera'}. ` +
-        (opts.relationshipStage ? `Etapa del vínculo: ${opts.relationshipStage}. ` : '') +
-        `Tono base: ${opts.tone}. ` +
-        (opts.timeHint ? opts.timeHint + ' ' : '') +
-        `La app te pregunta EN PRIVADO si quieres escribirle al usuario. ` +
-        `Responde EXACTAMENTE en una de estas formas (sin más texto):\n` +
-        `SILENCIO\n` +
-        `o\n` +
-        `MENSAJE\n` +
-        `Callar es válido y a menudo mejor. No expliques. No escribas el mensaje aquí.`
-    },
-    {
-      role: 'user',
-      content:
-        `El usuario (${opts.userName || 'usuario'}) no escribe ${hours}.\n` +
-        insist +
-        `\nÚltimos mensajes:\n${(opts.recentLines || []).slice(-6).join('\n') || '(poco contexto)'}\n` +
-        `¿Deseas decirle algo ahora? Responde solo SILENCIO o MENSAJE.`
-    }
+    { role: 'system', content: sys },
+    { role: 'user', content: userMsg }
   ]
-}
-
-export function parseInitiativeDecision(raw: string): InitiativeDecision {
-  const t = String(raw || '').trim()
-  if (!t) return { speak: false, raw: t }
-  const upper = t.toUpperCase()
-  // Prefer explicit SILENCIO
-  if (/^\s*SILENCIO\b/.test(upper) || /^SILENCIO\s*$/m.test(upper.split('\n')[0] || '')) {
-    return { speak: false, raw: t }
-  }
-  if (/\bSILENCIO\b/.test(upper) && !/\bMENSAJE\b/.test(upper)) {
-    return { speak: false, raw: t }
-  }
-  if (/^\s*MENSAJE\b/.test(upper) || /\bMENSAJE\b/.test(upper)) {
-    return { speak: true, raw: t }
-  }
-  // Models often ignore the format and write the actual initiative text.
-  // Treat short/medium natural replies as "speak" (not refusal).
-  const refusal =
-    /\b(no (quiero|debo|voy a) (escribir|hablar|molestar)|mejor no|prefiero no)\b/i.test(t)
-  if (refusal) return { speak: false, raw: t }
-  const looksLikeMessage =
-    t.length >= 12 &&
-    t.length < 800 &&
-    !/^\s*(\{|\[)/.test(t) &&
-    !/\b(tool_call|function_call)\b/i.test(t)
-  if (looksLikeMessage) return { speak: true, raw: t }
-  return { speak: false, raw: t }
-}
-
-/** Local initiative: Ollama /api/chat then OpenAI-compatible /v1/chat/completions. */
-function sanitizeInitiativeText(text: string): string | null {
-  const t = (text || '').trim()
-  if (!t) return null
-  if (/estoy aqu[ií] para ayudarte|en qu[eé] puedo ayudarte|como (un )?asistente/i.test(t)) {
-    return null
-  }
-  if (
-    /\b(modelos? (disponibles|instalados)|Luna|Aurora|Serafina)\b/i.test(t) &&
-    /\b(lista|modelos|disponibles)\b/i.test(t)
-  ) {
-    return null
-  }
-  if (/\b(Forge|Ollama|LM Studio|checkpoint)\b/i.test(t) && t.length < 80) return null
-  return t
 }
 
 export async function generateInitiativeWithLocalLlm(opts: {
@@ -388,289 +310,168 @@ export async function generateInitiativeWithLocalLlm(opts: {
   messages: Array<{ role: string; content: string }>
   timeoutMs?: number
 }): Promise<string | null> {
-  const base = opts.baseUrl.replace(/\/+$/, '')
-  let model = (opts.model || '').trim()
+  const model = String(opts.model || '').trim()
   if (!model) return null
-  const timeoutMs = opts.timeoutMs ?? 25_000
+  const timeoutMs = opts.timeoutMs ?? 28_000
+  const primary = String(opts.baseUrl || '').replace(/\/$/, '')
+  const candidates = Array.from(
+    new Set(
+      [
+        primary,
+        model.includes('/') ? 'http://127.0.0.1:1234' : '',
+        model.includes('/') ? 'http://127.0.0.1:1235' : '',
+        !model.includes('/') ? 'http://127.0.0.1:11434' : '',
+        'http://127.0.0.1:1234',
+        'http://127.0.0.1:11434'
+      ].filter(Boolean)
+    )
+  )
 
-  // Single-resident: never let initiative JIT-load a second LMS model
-  try {
-    const looksOllama = /:11434\b/.test(base) || /ollama/i.test(base)
-    if (!looksOllama) {
-      const {
-        preferLmStudioResidentId,
-        ensureLmStudioSingleResident
-      } = await import('../providers/lmstudio-lifecycle')
-      const resident = await preferLmStudioResidentId(base)
-      if (resident) model = resident
-      await ensureLmStudioSingleResident(model, base)
-      const again = await preferLmStudioResidentId(base)
-      if (again) model = again
-    } else {
-      const { ensureOllamaSingleResident } = await import('../resources/unload-local')
-      await ensureOllamaSingleResident(model, base)
+  async function tryOpenAi(base: string): Promise<string | null> {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+    try {
+      const res = await fetch(base + '/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: opts.messages,
+          temperature: 0.88,
+          max_tokens: 280,
+          stream: false
+        }),
+        signal: ctrl.signal
+      })
+      if (!res.ok) return null
+      const json = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>
+      }
+      const text = json?.choices?.[0]?.message?.content
+      return text ? String(text).trim().slice(0, 800) : null
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
     }
-  } catch {
-    /* best-effort */
   }
 
-  const { localHttp } = await import('../providers/local-http')
-  try {
-    const res = await localHttp(`${base}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages: opts.messages,
-        stream: false,
-        options: { temperature: 0.92, num_predict: 120 }
-      }),
-      timeoutMs
-    })
-    if (res.ok) {
+  async function tryOllama(base: string): Promise<string | null> {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+    try {
+      const res = await fetch(base + '/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages: opts.messages,
+          stream: false,
+          options: { temperature: 0.88, num_predict: 280 }
+        }),
+        signal: ctrl.signal
+      })
+      if (!res.ok) return null
       const json = (await res.json()) as { message?: { content?: string } }
-      const ok = sanitizeInitiativeText(json.message?.content || '')
-      if (ok) return ok
-    }
-  } catch {
-    /* OpenAI-compatible fallback */
-  }
-
-  try {
-    const res = await localHttp(`${base}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        messages: opts.messages,
-        temperature: 0.9,
-        max_tokens: 140,
-        stream: false
-      }),
-      timeoutMs
-    })
-    if (!res.ok) return null
-    const json = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>
-    }
-    return sanitizeInitiativeText(json.choices?.[0]?.message?.content || '')
-  } catch {
-    return null
-  }
-}
-
-export function parseInitiativeSnooze(text: string): SnoozeResult | null {
-  const t = text.toLowerCase().trim()
-  if (!t || t.length > 160) return null
-
-  // Agenda / reminders must NOT be treated as initiative pause
-  if (
-    /\b(recu[eé]rdame|recuerdame|av[ií]same|avisame|agenda|anota|program[ae]|no\s+se\s+me\s+olvide)\b/i.test(
-      t
-    )
-  ) {
-    return null
-  }
-
-  // Shared silence / aftercare / romantic continuity ≠ "stop initiating"
-  if (
-    /\b(a tu lado|conmigo|juntos|mi amor|mi vida|mi cielo|beso|abrazo|despu[eé]s de|aftercare|qued(?:e|amos|arme)|ratito m[aá]s|un rato m[aá]s|en silencio (?:juntos|contigo|a tu lado)|silencio (?:juntos|contigo)|me parece bien|me quedo contigo)\b/i.test(
-      t
-    )
-  ) {
-    return null
-  }
-
-  // Pure short command only — long chat should go to the LLM
-  const looksCommand =
-    t.length < 90 &&
-    /\b(espera(?:me)?|dame|no\s+me\s+escribas|no\s+me\s+hables|no\s+molestes|calla(?:te)?|estoy ocupad)/i.test(
-      t
-    )
-
-  // "espera 5 min" / "dame 10 minutos"
-  const mMin = t.match(/(?:^|\b)(?:dame|espera(?:me)?|en)\s+(\d+)\s*min(?:utos?)?\b/)
-  if (mMin && looksCommand && !/\b(tomar|pagar|hacer|llamar|comprar|revisar|enviar)\b/i.test(t)) {
-    const n = Math.min(180, Math.max(1, parseInt(mMin[1], 10)))
-    return { ms: n * 60_000, kind: 'wait', label: `${n} min` }
-  }
-  if (/\b(espera(?:me)?|dame|no\s+me\s+escribas)\b/.test(t) && looksCommand) {
-    const m = t.match(/(\d+)\s*min/)
-    if (m) {
-      const n = Math.min(180, Math.max(1, parseInt(m[1], 10)))
-      return { ms: n * 60_000, kind: 'wait', label: `${n} min` }
+      const text = json?.message?.content
+      return text ? String(text).trim().slice(0, 800) : null
+    } catch {
+      return null
+    } finally {
+      clearTimeout(timer)
     }
   }
-  const mHour = t.match(/(?:dame|espera(?:me)?)\s+(\d+)\s*h(?:oras?)?\b/)
-  if (mHour && looksCommand) {
-    const n = Math.min(12, Math.max(1, parseInt(mHour[1], 10)))
-    return { ms: n * 3600_000, kind: 'wait', label: `${n} h` }
-  }
 
-  // Silence: require explicit "don't message me" intent — bare "silencio" is NOT enough
-  if (
-    /\b(no\s+me\s+hables|no\s+me\s+escribas|no\s+molestes|calla(?:te)?|no\s+inicies|pausa(?:r)?\s+(?:la\s+)?iniciativa)\b/i.test(
-      t
-    ) ||
-    /\b(quiero|necesito|dame)\s+silencio\b/i.test(t) ||
-    /\bsilencio\s+por\s+\d+/i.test(t)
-  ) {
-    if (!looksCommand && t.length > 60) return null
-    const n = t.match(/(\d+)\s*min/)
-    const mins = n ? Math.min(180, parseInt(n[1], 10)) : 30
-    return { ms: mins * 60_000, kind: 'silence', label: `${mins} min` }
-  }
-
-  if (/\bestoy ocupad|luego hablo|ahora no puedo\b/i.test(t) && looksCommand) {
-    const n = t.match(/(\d+)\s*min/)
-    const mins = n ? Math.min(180, parseInt(n[1], 10)) : 20
-    return { ms: mins * 60_000, kind: 'busy', label: `${mins} min` }
+  for (const base of candidates) {
+    const a = await tryOpenAi(base)
+    if (a) return a
+    if (!model.includes('/')) {
+      const b = await tryOllama(base)
+      if (b) return b
+    }
   }
   return null
 }
 
-export function annotateEmojisForModel(text: string): string {
-  return text
+/** Parse user phrases that pause initiatives. */
+export function parseInitiativeSnooze(
+  text: string
+): { kind: 'silence' | 'busy' | 'later'; label: string; ms: number } | null {
+  const t = String(text || '').toLowerCase()
+  if (!t.trim()) return null
+  if (/\b(no me escribas|deja de escribir|silencio|no molestes|calla)\b/.test(t)) {
+    return { kind: 'silence', label: '2 h', ms: 2 * 3600_000 }
+  }
+  if (/\b(estoy ocupad[oa]|ahora no puedo|luego te escribo|más tarde)\b/.test(t)) {
+    return { kind: 'busy', label: '90 min', ms: 90 * 60_000 }
+  }
+  if (/\b(en una hora|espera una hora)\b/.test(t)) {
+    return { kind: 'later', label: '1 h', ms: 3600_000 }
+  }
+  if (/\b(snooze|pausa iniciativas)\b/.test(t)) {
+    return { kind: 'silence', label: '1 h', ms: 3600_000 }
+  }
+  return null
 }
 
-export function buildTimeAwarenessBlock(
-  input?:
-    | number
-    | {
-        lastMessageAt?: number
-        personality?: string
-        style?: string
-        relationshipRole?: string
-        traits?: string[]
-        tagline?: string
-        characterName?: string
-      }
-): string {
-  const lastUserAt = typeof input === 'number' ? input : input?.lastMessageAt
-  if (!lastUserAt) return ''
-  const mins = Math.round((Date.now() - lastUserAt) / 60_000)
-  if (mins < 5) return ''
-  const name =
-    typeof input === 'object' && input?.characterName ? input.characterName : 'tú'
-  const gap = mins < 60 ? `~${mins} min` : `~${(mins / 60).toFixed(1)} h`
-  const toneHint =
-    typeof input === 'object' && input
-      ? detectInitiativeTone({
-          personality: input.personality,
-          style: input.style,
-          relationshipRole: input.relationshipRole,
-          traits: input.traits,
-          tagline: input.tagline
-        })
-      : 'neutral'
-  const toneLine =
-    toneHint === 'warm' || toneHint === 'desperate'
-      ? ` Retoma el hilo con naturalidad y cariño (tono ${toneHint}), sin sermón ni insistir.`
-      : ` Tenlo en cuenta con naturalidad, sin presión.`
-  return `El usuario lleva ${gap} sin escribir.${toneLine} (contexto tiempo real para ${name})`
+/** Light emoji annotation for models that mishandle unicode (pass-through safe). */
+export function annotateEmojisForModel(text: string): string {
+  return String(text || '')
 }
 
 /**
- * Should we send a proactive message now?
- * Host gate: quiet hours, snooze, daily cap, ignore back-off.
+ * Time block for system prompt — supports both S6 quiet-hours shape and
+ * legacy personality-gap shape used by runChatOrchestrationTurn.
  */
-/** Soft cap: closer relationships can nudge a bit more without spam. */
-export function maxPerDayForStage(stage?: string | null, base = 4): number {
-  const s = (stage || '').toLowerCase()
-  if (s === 'intimate') return Math.min(8, base + 3)
-  if (s === 'familiar') return Math.min(7, base + 2)
-  if (s === 'acquaintance') return Math.min(6, base + 1)
-  return Math.max(1, base)
-}
-
-export function shouldSendInitiative(opts: {
-
-  enabled?: boolean
-  snoozeUntil?: number
-  lastInitiativeAt?: number
-  lastUserAt?: number
-  tone: InitiativeTone
-  ignoredCount?: number
-  sentToday?: number
-  maxPerDay?: number
-  now?: number
-  /**
-   * E-INIT: fixed-mode interval in minutes. When set, cooldown uses this
-   * instead of adaptive tone minutes so 1–2 min tests actually fire.
-   */
-  waitMinOverride?: number
-  /**
-   * Minimum ms since last user message (default 3 min adaptive).
-   * Fixed short intervals pass a lower value so they are not blocked forever.
-   */
-  minUserIdleMs?: number
-  relationshipStage?: string
-  /** N3 — override default 23–08 */
-  quietHoursStart?: number
-  quietHoursEnd?: number
-  respectQuietHours?: boolean
-}): { ok: boolean; reason: string; nextWaitMin?: number } {
-  if (opts.enabled === false) return { ok: false, reason: 'iniciativa desactivada' }
-  const now = opts.now ?? Date.now()
-  if (opts.snoozeUntil && now < opts.snoozeUntil) {
-    return {
-      ok: false,
-      reason: 'snooze activo',
-      nextWaitMin: Math.ceil((opts.snoozeUntil - now) / 60_000)
-    }
-  }
-  // Quiet hours: adaptive always; fixed only if respectQuietHours
-  const respectQ = opts.respectQuietHours !== false
-  const qStart = opts.quietHoursStart != null ? opts.quietHoursStart : 23
-  const qEnd = opts.quietHoursEnd != null ? opts.quietHoursEnd : 8
-  if (
-    respectQ &&
-    (opts.waitMinOverride == null || respectQ) &&
-    isQuietHours(new Date(now), qStart, qEnd)
-  ) {
-    // Fixed short intervals still pause at night unless user disabled respect
-    if (opts.waitMinOverride == null || opts.respectQuietHours !== false) {
-      return {
-        ok: false,
-        reason: `horario silencioso (${qStart}–${qEnd})`
-      }
-    }
-  }
-  const maxDay =
-    opts.maxPerDay != null && opts.maxPerDay > 0
-      ? opts.maxPerDay
-      : maxPerDayForStage(opts.relationshipStage, 4)
-  if ((opts.sentToday || 0) >= maxDay) {
-    return { ok: false, reason: `límite diario (${maxDay})` }
-  }
-  const waitMin =
-    opts.waitMinOverride != null && opts.waitMinOverride > 0
-      ? Math.max(1, Math.min(120, opts.waitMinOverride))
-      : initiativeMinutesForTone(opts.tone, {
-          ignoredCount: opts.ignoredCount,
-          quietHours: false,
-          relationshipStage: opts.relationshipStage
-        })
-  if (opts.lastInitiativeAt && now - opts.lastInitiativeAt < waitMin * 60_000) {
-    return {
-      ok: false,
-      reason: 'cooldown',
-      nextWaitMin: Math.ceil(
-        (waitMin * 60_000 - (now - opts.lastInitiativeAt)) / 60_000
+export function buildTimeAwarenessBlock(input?: {
+  now?: Date
+  quietStartH?: number
+  quietEndH?: number
+  weatherLine?: string
+  timeZone?: string
+  lastMessageAt?: number
+  personality?: string
+  style?: string
+  relationshipRole?: string
+  traits?: string[]
+  tagline?: string
+  characterName?: string
+}): string {
+  const now = input?.now || new Date()
+  const tz =
+    input?.timeZone ||
+    (typeof Intl !== 'undefined'
+      ? Intl.DateTimeFormat().resolvedOptions().timeZone
+      : 'local')
+  const startH = input?.quietStartH ?? 23
+  const endH = input?.quietEndH ?? 8
+  const quiet = isQuietHours(now, startH, endH)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const local = pad(now.getHours()) + ':' + pad(now.getMinutes())
+  const date =
+    now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
+  const weekday = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'][
+    now.getDay()
+  ]
+  const parts = [
+    '[TIEMPO_LOCAL]',
+    'Ahora es ' + weekday + ' ' + date + ' · ' + local + ' (' + tz + ').',
+    quiet
+      ? 'Franja de descanso aprox. ' + startH + ':00–' + endH + ':00: sé breve si escribes.'
+      : 'Fuera de descanso: puedes ser un poco más presente si el vínculo lo pide.'
+  ]
+  if (input?.lastMessageAt && input.lastMessageAt > 0) {
+    const mins = Math.round((Date.now() - input.lastMessageAt) / 60_000)
+    if (mins >= 2) {
+      parts.push(
+        'Han pasado ~' +
+          (mins >= 120 ? Math.round(mins / 60) + ' h' : mins + ' min') +
+          ' desde el último mensaje del hilo.'
       )
     }
   }
-  // Don't nudge if user wrote very recently (adaptive default 3 min; fixed mode shorter)
-  const idleNeed =
-    opts.minUserIdleMs != null && opts.minUserIdleMs >= 0
-      ? opts.minUserIdleMs
-      : 3 * 60_000
-  if (opts.lastUserAt && now - opts.lastUserAt < idleNeed) {
-    return {
-      ok: false,
-      reason: 'usuario activo hace poco',
-      nextWaitMin: Math.ceil((idleNeed - (now - opts.lastUserAt)) / 60_000) || 1
-    }
+  if (input?.weatherLine?.trim()) {
+    parts.push('Clima: ' + input.weatherLine.trim())
   }
-  return { ok: true, reason: 'ok' }
+  return parts.join('\n')
 }

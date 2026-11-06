@@ -39,6 +39,13 @@ export type DocReadingState = {
    */
   sourceFingerprint?: string
   sourcePath?: string
+  /**
+   * When true, progressive progress is kept but «Continuar lectura» is hidden
+   * (user moved to pure chat). Cleared on explicit read / APP continue / re-attach.
+   */
+  uiSuspended?: boolean
+  /** Last time a document turn advanced or opened this state */
+  lastDocTurnAt?: number
 }
 
 export function makeDocReadingKey(convId: string, fileName: string, totalChars: number): string {
@@ -46,23 +53,49 @@ export function makeDocReadingKey(convId: string, fileName: string, totalChars: 
   return `${convId}::${name}::${totalChars}`
 }
 
-/** size:mtimeMs — cheap change detector without hashing whole book */
+/** size:mtimeMs — cheap change detector without hashing whole book (legacy / disk meta). */
 export function makeSourceFingerprint(size: number, mtimeMs: number): string {
   return `${Math.max(0, Math.floor(size))}:${Math.max(0, Math.floor(mtimeMs))}`
 }
 
 /**
- * True if the on-disk file no longer matches the fingerprint stored when we ingested.
- * Call when the user re-attaches or the app notices a new extract path.
+ * Content fingerprint: length + FNV-1a over head/mid/tail samples.
+ * Detects re-upload of a revised document even when length stays the same.
+ */
+export function makeContentFingerprint(text: string): string {
+  const t = String(text || '')
+  const len = t.length
+  const head = t.slice(0, 1200)
+  const midStart = Math.max(0, Math.floor(len / 2) - 600)
+  const mid = t.slice(midStart, midStart + 1200)
+  const tail = t.slice(-1200)
+  let h = 2166136261
+  const sample = head + '\0' + mid + '\0' + tail
+  for (let i = 0; i < sample.length; i++) {
+    h ^= sample.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return len + ':' + (h >>> 0).toString(16)
+}
+
+/**
+ * True if the source no longer matches the fingerprint stored at ingest.
+ * Prefer passing full extracted text (string); number+mtime remains for legacy callers.
  */
 export function documentSourceChanged(
   state: DocReadingState | null | undefined,
-  size: number,
-  mtimeMs: number
+  sizeOrText: number | string,
+  mtimeMs = 0
 ): boolean {
   if (!state?.sourceFingerprint) return false
-  const next = makeSourceFingerprint(size, mtimeMs)
-  return next !== state.sourceFingerprint
+  const next =
+    typeof sizeOrText === 'string'
+      ? makeContentFingerprint(sizeOrText)
+      : makeSourceFingerprint(sizeOrText, mtimeMs)
+  if (next === state.sourceFingerprint) return false
+  // Legacy fingerprints were "len:0" — any real content hash at same length counts as change
+  // when the second half is not "0", so revised same-size docs are detected.
+  return true
 }
 
 
@@ -271,16 +304,27 @@ export function findLatestDocText(
 }
 
 
-/** True when cursor is past or at last chapter and at least one slice was read. */
+/**
+ * True when progressive reading has consumed the extract.
+ * Single rule shared with isDocReadingPending / UI «Continuar lectura».
+ */
 export function isDocReadingComplete(state: DocReadingState | null | undefined): boolean {
   if (!state) return false
-  const count = Math.max(1, state.chapterCount || 1)
+  const rem = state as DocReadingState & { mode?: string; ingestComplete?: boolean }
+  if (rem.mode === 'read_and_remember') return Boolean(rem.ingestComplete)
+  const count = Math.max(1, Number(state.chapterCount) || 1)
   const off = Number(state.streamOffset || 0)
   const total = Number(state.totalChars || 0)
-  if (total > 2000 && off > 0 && off < total * 0.98) return false
-  if (!state.readTitles?.length && !state.rollingSummary?.trim() && off <= 0) return false
-  if (total > 0 && off >= total) return true
-  return state.chapterIndex >= count
+  const idx = Number(state.chapterIndex || 0)
+  // Never started
+  if (!state.readTitles?.length && !state.rollingSummary?.trim() && off <= 0 && idx <= 0) {
+    return false
+  }
+  // Byte cursor past ~end of extract
+  if (total > 0 && off >= Math.floor(total * 0.98)) return true
+  // Chapter cursor past last chapter
+  if (idx >= count) return true
+  return false
 }
 
 /** Human progress label e.g. "3/12". */
@@ -331,22 +375,9 @@ export function essentialsFromDocState(state: DocReadingState, maxChars = 900): 
   return bits.join(' | ').slice(0, maxChars + 120)
 }
 
-/** True if progressive mid-book or offline ingest not finished. Safe for boot/pre-update checks. */
+/** Inverse of isDocReadingComplete for progressive / remember modes. */
 export function isDocReadingPending(state: DocReadingState | null | undefined): boolean {
-  if (!state || !state.chapterCount) return false
-  const rem = state as DocReadingState & {
-    mode?: string
-    ingestComplete?: boolean
-  }
-  if (rem.mode === 'read_and_remember') {
-    return !rem.ingestComplete
-  }
-  const off = Number(state.streamOffset || 0)
-  if (state.totalChars > 2000 && off > 0 && off < state.totalChars * 0.98) {
-    return true
-  }
-  return (
-    state.chapterIndex < state.chapterCount &&
-    (state.totalChars > 800 || state.chapterCount > 1)
-  )
+  if (!state) return false
+  if (!state.chapterCount && !(state.totalChars > 0)) return false
+  return !isDocReadingComplete(state)
 }

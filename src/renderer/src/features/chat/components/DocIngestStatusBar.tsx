@@ -32,18 +32,23 @@ export function DocIngestStatusBar() {
       setJob(null)
       return
     }
-    // Hydrate from reading store
+    // Progressive «MAP 2/11» is reading progress, not a stuck ingest job — do not pin it on chat UI.
     try {
       const states = getDocReadingStatesForConv(activeId)
-      if (states.length) {
-        const st = states.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0]
+      const st = states
+        .filter((s) => !s.uiSuspended)
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0]
+      const rem = st as { mode?: string; ingestComplete?: boolean } | undefined
+      if (st && rem?.mode === 'read_and_remember' && !rem.ingestComplete) {
         setJob(phaseFromDocState(st as never))
+      } else {
+        setJob(null)
       }
     } catch {
-      /* */
+      setJob(null)
     }
     const live = getLatestDocIngestJob(activeId)
-    if (live) setJob(live)
+    if (live && live.phase !== 'ready' && live.phase !== 'idle') setJob(live)
 
     const unsub = subscribeDocIngest((j) => {
       if (!j) return
@@ -57,13 +62,27 @@ export function DocIngestStatusBar() {
     const STUCK_MS = 3 * 60 * 1000
     const tick = window.setInterval(() => {
       try {
-        const states = getDocReadingStatesForConv(activeId)
-        if (!states.length) return
+        const states = getDocReadingStatesForConv(activeId).filter((s) => !s.uiSuspended)
+        if (!states.length) {
+          setJob((prev) => (prev && prev.phase !== 'ready' && prev.phase !== 'idle' ? null : prev))
+          return
+        }
         const st = states.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0]
+        const rem = st as { mode?: string; ingestComplete?: boolean }
+        // Progressive reading must not keep MAP bar during romance / pure chat
+        if (rem.mode !== 'read_and_remember' || rem.ingestComplete) {
+          setJob((prev) => {
+            if (prev && (prev.phase === 'map' || prev.phase === 'reduce') && !prev.key?.includes('remember')) {
+              return null
+            }
+            if (prev?.phase === 'ready') return prev
+            return prev
+          })
+          return
+        }
         const derived = phaseFromDocState(st as never)
         setJob((prev) => {
           if (prev?.phase === 'ready') return prev
-          // Stuck REDUCE/seed while model is busy on chat → surface ready with heuristic
           if (
             prev &&
             (prev.phase === 'reduce' || prev.phase === 'seed' || prev.phase === 'map') &&
@@ -114,6 +133,14 @@ export function DocIngestStatusBar() {
       className="mx-4 mb-1 rounded-lg border border-violet-200/80 bg-violet-50/70 px-3 py-1.5 text-[11px] text-violet-950 flex items-center gap-2"
       title="Pipeline de ingesta de documentos (Extract → MAP → REDUCE → índice LLM)"
     >
+      <button
+        type="button"
+        className="order-last text-[10px] text-violet-700/80 hover:text-violet-950 px-1 shrink-0"
+        title="Ocultar"
+        onClick={() => setJob(null)}
+      >
+        ✕
+      </button>
       <Icon className={'w-3.5 h-3.5 shrink-0 ' + (busy ? 'animate-spin' : '')} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">

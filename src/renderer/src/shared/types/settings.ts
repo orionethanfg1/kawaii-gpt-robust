@@ -282,15 +282,20 @@ export const SettingsSchema = z.object({
           z.object({
             id: z.string(),
             at: z.number(),
+            day: z.string().optional(),
+            approxTime: z.string().optional(),
             summary: z.string().max(320),
             tags: z.array(z.string()).max(8).default([]),
+            people: z.array(z.string()).max(6).optional(),
             conversationId: z.string().optional(),
-            conversationTitle: z.string().optional()
+            conversationTitle: z.string().optional(),
+            source: z.enum(['live', 'migrated', 'manual', 'system']).optional()
           })
         )
         .max(40)
         .default([]),
-      updatedAt: z.number().optional()
+      updatedAt: z.number().optional(),
+      migratedFromLegacyAt: z.number().optional()
     })
     .optional(),
 
