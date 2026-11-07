@@ -984,6 +984,7 @@ ipcMain.handle(
     payload?: {
       visualDescription?: string
       visualFromAvatar?: boolean
+      visualCleared?: boolean
       name?: string
       personality?: string
       style?: string
@@ -998,9 +999,11 @@ ipcMain.handle(
       const dir = join(app.getPath('userData'), 'identity')
       await mkdir(dir, { recursive: true })
       const filePath = join(dir, 'character-visual.json')
+      const desc = String(payload?.visualDescription || '')
       const body = {
-        visualDescription: String(payload?.visualDescription || ''),
+        visualDescription: desc,
         visualFromAvatar: payload?.visualFromAvatar === true,
+        visualCleared: payload?.visualCleared === true || !desc.trim(),
         name: String(payload?.name || ''),
         personality: String(payload?.personality || ''),
         style: String(payload?.style || ''),
@@ -1026,6 +1029,7 @@ ipcMain.handle('files:loadCharacterIdentity', async () => {
     const json = JSON.parse(raw) as {
       visualDescription?: string
       visualFromAvatar?: boolean
+      visualCleared?: boolean
       name?: string
       personality?: string
       style?: string
@@ -1037,6 +1041,7 @@ ipcMain.handle('files:loadCharacterIdentity', async () => {
       ok: true,
       visualDescription: String(json.visualDescription || ''),
       visualFromAvatar: json.visualFromAvatar === true,
+      visualCleared: json.visualCleared === true,
       name: String(json.name || ''),
       personality: String(json.personality || ''),
       style: String(json.style || ''),

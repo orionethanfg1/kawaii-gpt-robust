@@ -1,0 +1,56 @@
+import { describe, expect, it } from 'vitest'
+import {
+  shouldSendInitiative,
+  detectInitiativeTone,
+  initiativeMinutesForTone,
+  parseInitiativeDecision,
+  parseInitiativeSnooze,
+  isQuietHours
+} from './initiative'
+
+describe('initiative core', () => {
+  it('allows send after long user silence', () => {
+    const now = Date.now()
+    const r = shouldSendInitiative({
+      enabled: true,
+      lastUserAt: now - 20 * 60_000,
+      lastInitiativeAt: now - 30 * 60_000,
+      minUserIdleMs: 45_000,
+      waitMinOverride: 12,
+      now,
+      respectQuietHours: false
+    })
+    expect(r.ok).toBe(true)
+  })
+
+  it('blocks when user just wrote', () => {
+    const now = Date.now()
+    const r = shouldSendInitiative({
+      enabled: true,
+      lastUserAt: now - 10_000,
+      minUserIdleMs: 45_000,
+      waitMinOverride: 12,
+      now,
+      respectQuietHours: false
+    })
+    expect(r.ok).toBe(false)
+  })
+
+  it('parses decision and snooze', () => {
+    expect(parseInitiativeDecision('SILENCIO').speak).toBe(false)
+    expect(parseInitiativeDecision('MENSAJE: Hola, ¿sigues ahí?').speak).toBe(true)
+    expect(parseInitiativeSnooze('estoy ocupado ahora')).toBeTruthy()
+  })
+
+  it('tone minutes increase when ignored', () => {
+    const a = initiativeMinutesForTone('warm', { ignoredCount: 0 })
+    const b = initiativeMinutesForTone('warm', { ignoredCount: 3 })
+    expect(b).toBeGreaterThan(a)
+  })
+
+  it('detects warm tone', () => {
+    expect(
+      detectInitiativeTone({ personality: 'cariñosa y dulce con él' })
+    ).toBe('warm')
+  })
+})

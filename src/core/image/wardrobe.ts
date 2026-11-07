@@ -280,6 +280,16 @@ function scoreStyleMatch(item: WardrobeItem, toks: string[], framing?: string): 
  * Pick FaceID face anchor + optional style/outfit gallery refs from wardrobe tags.
  * Falls back to primary URL if gallery empty.
  */
+function isUsableWardrobeRef(url?: string | null): boolean {
+  const u = (url || '').trim()
+  return (
+    u.startsWith('data:image/') ||
+    u.startsWith('file:') ||
+    u.startsWith('kawaii-file:') ||
+    (/^[a-zA-Z]:[\\/]/.test(u) && /\.(png|jpe?g|webp)$/i.test(u))
+  )
+}
+
 export function pickWardrobeRefs(opts: {
   character?: CharacterWardrobeSource | null
   promptHint?: string
@@ -311,20 +321,23 @@ export function pickWardrobeRefs(opts: {
         it.role === 'face' ||
         it.tags.some((t) => /framing:face|portrait/.test(t))
     )
+  // Canonical face: facePrimaryUrl wins (data, file, or kawaii-file). Never style/outfit as face.
   let faceUrl =
-    (facePrimary.startsWith('data:image/') ? facePrimary : undefined) ||
-    faceCandidates.find((it) => it.dataUrl === facePrimary)?.dataUrl ||
+    (isUsableWardrobeRef(facePrimary) ? facePrimary : undefined) ||
+    faceCandidates.find((it) => it.dataUrl === facePrimary || it.filePath === facePrimary)?.dataUrl ||
+    faceCandidates.find((it) => it.identityAnchor)?.dataUrl ||
+    faceCandidates.find((it) => it.role === 'face')?.dataUrl ||
     faceCandidates.find((it) => it.dataUrl === primary)?.dataUrl ||
-    faceCandidates[0]?.dataUrl ||
-    (primary.startsWith('data:image/') ? primary : undefined) ||
-    items.find((it) => it.role === 'face')?.dataUrl ||
-    items[0]?.dataUrl
+    (isUsableWardrobeRef(primary) ? primary : undefined) ||
+    faceCandidates[0]?.dataUrl
 
   const toks = tokens(opts.promptHint || '')
   const stylePool = items.filter(
     (it) =>
       it.intimacy <= maxInt &&
       it.dataUrl !== faceUrl &&
+      !it.identityAnchor &&
+      it.role !== 'face' &&
       (it.role === 'outfit' ||
         it.role === 'scene' ||
         it.role === 'full' ||
@@ -360,9 +373,14 @@ export function pickWardrobeRefs(opts: {
     }
   }
 
+  // FaceID primary is face only; style refs are separate (low-weight adapters)
   const referenceUrls: string[] = []
   const seen = new Set<string>()
-  for (const u of [faceUrl, ...styleUrls]) {
+  if (faceUrl && !seen.has(faceUrl)) {
+    seen.add(faceUrl)
+    referenceUrls.push(faceUrl)
+  }
+  for (const u of styleUrls) {
     if (!u || seen.has(u)) continue
     seen.add(u)
     referenceUrls.push(u)

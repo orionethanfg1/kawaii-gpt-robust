@@ -598,9 +598,24 @@ export async function sendChatMessage(options: {
     systemMessages.push({ role: 'system', content: userMemPrompt })
   }
   try {
-    const { buildUserVisualPrompt } = await import('@core/conversation/user-visual')
+    const {
+      buildUserVisualPrompt,
+      wantsUserAppearanceVision,
+      buildUserAppearanceVisionTurnHint,
+      countUserVisualRefs
+    } = await import('@core/conversation/user-visual')
     const uVis = buildUserVisualPrompt(settings.userMemory as never)
     if (uVis) systemMessages.push({ role: 'system', content: uVis })
+    const ut = typeof userContent === 'string' ? userContent : ''
+    if (wantsUserAppearanceVision(ut) && countUserVisualRefs(settings.userMemory as never) > 0) {
+      const hasNotes = Boolean(
+        (settings.userMemory as { appearanceNotes?: string } | undefined)?.appearanceNotes?.trim()
+      )
+      systemMessages.push({
+        role: 'system',
+        content: buildUserAppearanceVisionTurnHint(hasNotes)
+      })
+    }
   } catch {
     /* user visual optional */
   }

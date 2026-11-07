@@ -12,6 +12,7 @@ import {
   rivalIdentityNegatives,
   type IdentityProfile
 } from './identity-profile'
+import { assertIdentityPromptConsistency } from './assert-identity-prompt'
 
 export type CraftFraming = 'close' | 'half' | 'full' | 'wide'
 
@@ -241,8 +242,22 @@ export function mergeCraftedWithIdentity(
     return out.join(', ')
   }
 
+  let positive = dedupe(posParts.join(', '))
+  if (opts.isSelf) {
+    const appearance = [
+      opts.identity?.appearanceSummary || opts.appearanceSummary || '',
+      opts.identity?.hairNotes || '',
+      opts.identity?.eyesNotes || ''
+    ]
+      .filter(Boolean)
+      .join(', ')
+    const hair = opts.identity?.hairNotes || ''
+    const gate = assertIdentityPromptConsistency(positive, appearance, hair)
+    positive = dedupe(gate.positive)
+  }
+
   return {
-    positive: dedupe(posParts.join(', ')),
+    positive,
     negative: dedupe(negParts.join(', ')),
     framing: crafted.framing,
     style: crafted.style,

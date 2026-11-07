@@ -132,6 +132,27 @@ export function useAppBoot(): {
           /* identity disk optional */
         }
         if (cancelled) return
+        // E3 — one-shot: classify existing memory into dated episodes (backup-first)
+        try {
+          const { migrateLegacyMemoryToEpisodes } = await import(
+            '@core/conversation/memory-episodes-migrate'
+          )
+          const stEp = useSettingsStore.getState().settings
+          const mig = migrateLegacyMemoryToEpisodes(
+            stEp.userMemory,
+            (stEp as { memoryEpisodes?: import('@core/conversation/memory-episodes').EpisodeStore }).memoryEpisodes
+          )
+          if (!mig.alreadyMigrated) {
+            useSettingsStore.getState().update({
+              memoryEpisodes: mig.store
+            } as never)
+            if (typeof console !== 'undefined' && console.info) {
+              console.info('[episodes] migration', { added: mig.added, skipped: mig.skipped })
+            }
+          }
+        } catch (e) {
+          console.warn('[episodes] migration skipped', e)
+        }
         setSteps((s) =>
           setStep(s, 'settings', {
             status: 'done',

@@ -812,34 +812,52 @@ export function useChat() {
       } catch {
         continuationTailFn = (p, n = 480) => p.slice(-(n || 480))
       }
-      const tail = continuationTailFn(priorFull, 700)
+      const tail = continuationTailFn(priorFull, 900)
       const lastLine = priorFull.split(/\n/).filter(Boolean).slice(-1)[0] || priorFull.slice(-160)
+      // Burbuja SEPARADA: más coherente que coser en el mismo mensaje
       const instruction =
-        '[APP] Continúa SOLO el texto del asistente que se cortó por límite de tokens.\n' +
-        'Escribe únicamente el fragmento NUEVO que va justo después del final siguiente.\n' +
-        'La unión con ese final debe ser coherente en español (misma frase si quedó abierta).\n' +
-        'Prohibido: repetir lo ya escrito; saltar palabras; empezar un pensamiento que no enlaza con la última línea.\n' +
-        'Misma voz, tono, persona y escena.\n\n' +
-        '--- ÚLTIMA LÍNEA (completa esta idea si está abierta) ---\n' +
+        '[APP] Continúa la respuesta del asistente que se cortó.\n' +
+        'Escribe el siguiente tramo en la misma voz, tono y persona.\n' +
+        'No repitas párrafos ya escritos. No resumas todo el chat.\n' +
+        'Si la última frase quedó a medias, termínala y sigue 2–6 frases más.\n' +
+        'Español de México. No digas que eres una continuación ni cites estas instrucciones.\n\n' +
+        '--- Última línea ---\n' +
         lastLine +
-        '\n\n--- FINAL YA ESCRITO (contexto; no lo repitas) ---\n' +
+        '\n\n--- Final ya escrito (solo contexto) ---\n' +
         tail
 
       const convId = conv.id
-      // Keep the SAME bubble — never create a temp message that gets deleted
+      // Marca el mensaje cortado como ya “continuado” para ocultar el botón ahí
       updateMessage(convId, assistantMsgId, {
-        content: priorFull,
-        isStreaming: true,
+        isStreaming: false,
         meta: {
           ...((prev.meta as object) || {}),
-          continuing: true
+          limited: false,
+          continueResolved: true,
+          continuing: false
         }
       })
 
       const userInstrId = addMessage(convId, {
         role: 'user',
         content: instruction,
-        meta: { kind: 'app-continue', uiLabel: 'Continuando la respuesta…', hideFromUi: true }
+        meta: {
+          kind: 'app-continue',
+          uiLabel: 'Continuando la respuesta…',
+          hideFromUi: true,
+          continueOf: assistantMsgId
+        }
+      })
+
+      const newAssistantId = addMessage(convId, {
+        role: 'assistant',
+        content: '',
+        isStreaming: true,
+        meta: {
+          kind: 'app-continue',
+          continueOf: assistantMsgId,
+          model: (prev.meta as { model?: string } | undefined)?.model
+        }
       })
 
       armLoading()
@@ -850,8 +868,9 @@ export function useChat() {
           settings.localModel
         await runChatOrchestrationTurn({
           convId,
-          assistantId: assistantMsgId,
-          streamPrefix: priorFull,
+          assistantId: newAssistantId,
+          // Sin streamPrefix: burbuja nueva, no stitch en la anterior
+          streamPrefix: '',
           trimmed: instruction,
           hasAtt: false,
           attachments: undefined,
@@ -861,11 +880,7 @@ export function useChat() {
             ...settings,
             localModel: stickyModel || settings.localModel,
             providerMode: 'local' as const,
-            // Continuation needs room to finish the open clause + a few more sentences
-            localMaxTokens: Math.max(
-              Number(settings.localMaxTokens) || 0,
-              2048
-            )
+            localMaxTokens: Math.max(Number(settings.localMaxTokens) || 0, 2048)
           },
           abortRef,
           triedRef,
@@ -881,20 +896,18 @@ export function useChat() {
           deleteMessage,
           setRollingSummary
         })
-        // Belt and suspenders via modular continue API
         try {
-          const after = getActive()?.messages.find((m) => m.id === assistantMsgId)
+          const after = getActive()?.messages.find((m) => m.id === newAssistantId)
           const final = String(after?.content || '').trim()
-          const { recoverContinuedBubble } = await import('@core/chat/stitch-continuation')
-          const { content, continuedOk } = recoverContinuedBubble(priorFull, final)
-          updateMessage(convId, assistantMsgId, {
-            content,
+          updateMessage(convId, newAssistantId, {
+            content: final,
             isStreaming: false,
             meta: {
               ...((after?.meta as object) || {}),
+              kind: 'app-continue',
+              continueOf: assistantMsgId,
               continuing: false,
-              continuedAt: Date.now(),
-              continuedOk
+              continuedAt: Date.now()
             }
           })
         } catch {
@@ -904,10 +917,9 @@ export function useChat() {
         console.warn('[continueWriting] failed', e)
         setError(e instanceof Error ? e.message : String(e))
         try {
-          updateMessage(convId, assistantMsgId, {
-            content: priorFull,
-            isStreaming: false,
-            meta: { ...((prev.meta as object) || {}), continuing: false }
+          updateMessage(convId, newAssistantId, {
+            content: '(No se pudo continuar. Prueba de nuevo.)',
+            isStreaming: false
           })
         } catch {
           /* */

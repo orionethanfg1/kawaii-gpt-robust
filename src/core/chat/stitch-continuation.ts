@@ -5,14 +5,41 @@
 export function looksIncompleteAssistantText(text: string): boolean {
   const t = String(text || '').trim()
   if (!t) return false
-  if (/\.{2,}$|…$|—$|-$/.test(t)) return true
-  if (/[,:;]$/.test(t)) return true
-  // Unclosed quotes → mid-dialogue cut (e.g. ser "la más linda…)
-  if (((t.slice(-400).match(/"/g) || []).length % 2) === 1) return true
+  // Judge only the ending (last non-empty line) — mid-message «…» is stylistic, not a cut.
+  const lastLine = (t.split(/\n/).filter((x) => x.trim()).pop() || t).trim()
+  // Strip trailing emoji-ish / spaces without Unicode property escapes
+  let core = lastLine.replace(/\s+$/u, '')
+  while (core.length) {
+    const cp = core.codePointAt(core.length - 1)!
+    // emoji blocks + variation selectors
+    if (
+      cp === 0xfe0f ||
+      cp === 0x200d ||
+      (cp >= 0x1f300 && cp <= 0x1faff) ||
+      (cp >= 0x2600 && cp <= 0x27bf) ||
+      (cp >= 0x1f600 && cp <= 0x1f64f)
+    ) {
+      core = core.slice(0, cp > 0xffff ? -2 : -1)
+      continue
+    }
+    if (/\s/u.test(core.slice(-1))) {
+      core = core.slice(0, -1)
+      continue
+    }
+    break
+  }
+  core = core.trim()
+  // Trailing ellipsis / dash = cut mid-thought (must run BEFORE «complete sentence»)
+  if (/\.{2,}$|…$|—$|-$/u.test(core)) return true
+  if (/[,:;]$/u.test(core)) return true
+  // Complete sentence (period/question/exclaim only — NOT ellipsis)
+  if (/[.!?]["'»”’)\]]*$/u.test(core)) return false
+  const tail = t.slice(-400)
+  if (((tail.match(/"/g) || []).length % 2) === 1) return true
   if ((t.match(/«/g) || []).length > (t.match(/»/g) || []).length) return true
-  if (/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]$/.test(t) && !/[.!?…»"')\]]$/.test(t)) {
-    const last = t.split(/\s+/).pop() || ''
-    if (last.length > 0 && last.length < 12 && !/[.!?]$/.test(last)) return true
+  if (/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]$/u.test(core) && !/[.!?…»"')\]]$/u.test(core)) {
+    const last = core.split(/\s+/).pop() || ''
+    if (last.length > 0 && last.length < 14 && !/[.!?]$/u.test(last)) return true
   }
   return false
 }

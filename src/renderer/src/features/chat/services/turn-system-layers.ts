@@ -38,17 +38,29 @@ async function buildTimeLayer(userText: string): Promise<string> {
       weatherFetchedAt?: number
       character?: { name?: string }
     }
-    const weatherFresh =
-      st.weatherEnabled &&
-      st.weatherSummary &&
-      st.weatherFetchedAt &&
-      Date.now() - st.weatherFetchedAt < 3 * 60 * 60 * 1000 &&
-      /\b(clima|tiempo|llueve|fr[ií]o|calor)\b/i.test(t)
-        ? st.weatherSummary
-        : null
+    let weatherLine: string | null = null
+    if (st.weatherEnabled && /\b(clima|tiempo|llueve|fr[ií]o|calor|outfit|ropa)\b/i.test(t)) {
+      try {
+        const { ensureWeatherFresh } = await import('./ensureWeatherFresh')
+        await ensureWeatherFresh()
+      } catch {
+        /* */
+      }
+      const st2 = useSettingsStore.getState().settings as {
+        weatherSummary?: string
+        weatherFetchedAt?: number
+      }
+      if (
+        st2.weatherSummary &&
+        st2.weatherFetchedAt &&
+        Date.now() - st2.weatherFetchedAt < 3 * 60 * 60 * 1000
+      ) {
+        weatherLine = st2.weatherSummary
+      }
+    }
     return buildLocalTimeContextBlock({
       characterName: st.character?.name,
-      weatherLine: weatherFresh
+      weatherLine
     })
   } catch {
     return ''
@@ -167,6 +179,29 @@ export async function buildTurnSystemLayers(input: TurnSystemLayersInput): Promi
   }
   const lib = await buildLibraryLayer(input.decisionPacket)
   extra = appendBlock(extra, lib)
+  // Natural conversation mode (not "juego de rol") — every turn
+  try {
+    const { classifyConversationMode, buildConversationModePromptRules } = await import(
+      '@core/conversation/conversation-mode'
+    )
+    const st = useSettingsStore.getState().settings as {
+      character?: { name?: string }
+      relationshipState?: { scenePhase?: string }
+    }
+    const modeRes = classifyConversationMode({
+      userText: input.trimmed,
+      priorPhase: st.relationshipState?.scenePhase
+    })
+    extra = appendBlock(
+      extra,
+      buildConversationModePromptRules({
+        mode: modeRes.mode,
+        characterName: st.character?.name
+      })
+    )
+  } catch {
+    /* optional */
+  }
   // X6 — file NL protocol when packet wants files (tools still gated post-reply)
   // X8 intimacy only when packet asks
   try {

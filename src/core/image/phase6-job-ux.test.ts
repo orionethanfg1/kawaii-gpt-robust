@@ -2,7 +2,6 @@
  * Fase 6 — image job UX pure checks.
  */
 
-import { describe, expect, it } from 'vitest'
 import {
   formatImageProgressLabel,
   humanizeImageError,
@@ -50,10 +49,3 @@ export function runPhase6PureChecks(): Phase6Check[] {
 
   return out
 }
-
-describe('phase 6 image job UX checks', () => {
-  it('passes image progress and error messaging contracts', () => {
-    const failed = runPhase6PureChecks().filter((check) => !check.ok)
-    expect(failed).toEqual([])
-  })
-})

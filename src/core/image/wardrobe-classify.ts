@@ -349,7 +349,37 @@ Reglas:
 Una sola kind. confidence 0-1.`
 
 /** C3 — gift / "for you" intent from user text */
-/** User shared a photo meant to *be* the character (avatar update). */
+/** Photo is clearly about someone else (book OC, friend, third party). */
+export function detectThirdPartyPhotoIntent(
+  userText: string,
+  characterName?: string
+): boolean {
+  const t = (userText || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  const cn = (characterName || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+  if (
+    /\b(ella\s+es|el\s+es|se\s+llama|mi\s+personaje|del\s+libro|en\s+la\s+historia|protagonista|\boc\b|original\s+character|no\s+eres\s+tu|no\s+eres\s+tuya|otra\s+persona|una\s+amiga|un\s+amigo)\b/i.test(
+      t
+    )
+  ) {
+    return true
+  }
+  const m = t.match(/\b(?:ella|el)\s+es\s+([a-záéíóúüñ][\wáéíóúüñ'-]{1,24})/i)
+  if (m?.[1]) {
+    const who = m[1].toLowerCase()
+    if (cn && who !== cn && !cn.includes(who) && !who.includes(cn)) return true
+    if (!cn) return true
+  }
+  return false
+}
+
+/** User shared a photo meant to *be* the character (avatar / wardrobe update). */
 export function detectCharacterPhotoIntent(userText: string): {
   isCharacterPhoto: boolean
   score: number
@@ -358,26 +388,25 @@ export function detectCharacterPhotoIntent(userText: string): {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+  if (detectThirdPartyPhotoIntent(userText)) {
+    return { isCharacterPhoto: false, score: 0 }
+  }
   let score = 0
   if (
-    /nueva\s+foto\s+de\s+ti|foto\s+(nueva\s+)?(de\s+)?ti\b|esta\s+eres\s+tu|eres\s+tu\s+(en\s+)?(esta|la)\s+foto|tu\s+nueva\s+foto|actualiza\s+tu\s+(foto|avatar|imagen)|foto\s+principal|esta\s+es\s+(tu\s+)?(nueva\s+)?foto|foto\s+tuya|de\s+ti\s+mism[oa]|asi\s+te\s+ves|como\s+te\s+ves\s+(aqui|ahi)|te\s+cambie\s+la\s+foto|te\s+puse\s+esta\s+foto|nueva\s+imagen\s+de\s+ti/i.test(
+    /nueva\s+foto\s+de\s+ti|foto\s+(nueva\s+)?(de\s+)?ti\b|esta\s+eres\s+tu|eres\s+tu\s+(en\s+)?(esta|la)\s+foto|tu\s+nueva\s+foto|actualiza\s+tu\s+(foto|avatar|imagen)|foto\s+principal|esta\s+es\s+(tu\s+)?(nueva\s+)?foto|foto\s+tuya|de\s+ti\s+mism[oa]|asi\s+te\s+ves|como\s+te\s+ves\s+(aqui|ahi)|te\s+cambie\s+la\s+foto|te\s+puse\s+esta\s+foto|nueva\s+imagen\s+de\s+ti|para\s+tu\s+guardarropa|guarda(?:la|rla)?\s+en\s+tu\s+guardarropa/i.test(
       t
     )
   ) {
     score += 0.78
   }
-  if (/guardarropa|avatar|principal/.test(t) && /foto|imagen|mira|ve\b/.test(t)) score += 0.15
-  if (/mira\s+mi\s+amor/.test(t) && /foto/.test(t)) score += 0.1
-  // Soft: "mira esto" / "qué te parece" with an attached image (handled with hasImage in host)
-  if (/\b(mira|ve|ves|que te parece|te gusta)\b/.test(t) && /\b(foto|imagen|look|outfit|vestid)/.test(t)) {
-    score += 0.35
-  }
+  if (/guardarropa|avatar|principal/.test(t) && /foto|imagen|mira|ve\b/.test(t)) score += 0.2
   return { isCharacterPhoto: score >= 0.55, score: Math.min(1, score) }
 }
 
 /**
- * Host helper: offer wardrobe when any relevant image is attached.
- * Does not require gift phrasing — classification decides safety.
+ * Host: only soft-queue wardrobe when the photo is plausibly the character
+ * or an explicit gift. Third-party / book images must not get chips or auto-save.
+ * LLM may still request chips with [WARDROBE:offer] (see postReplyFinalize).
  */
 export function shouldOfferWardrobeForAttachment(opts: {
   classification: WardrobeClassification
@@ -385,15 +414,18 @@ export function shouldOfferWardrobeForAttachment(opts: {
   giftScore: number
   userText?: string
   hasImage: boolean
+  characterName?: string
 }): boolean {
   if (!opts.hasImage) return false
+  if (detectThirdPartyPhotoIntent(opts.userText || '', opts.characterName)) return false
   const c = opts.classification
-  if (c.kind === 'user_other' && !c.safeForWardrobe) return false
+  if (c.kind === 'user_other') return false
   if (opts.characterPhotoScore >= 0.55 || opts.giftScore >= 0.55) return true
-  if (c.safeForWardrobe && c.kind !== 'unknown') return true
-  // Bare image + soft "mira/ve" or empty caption → soft offer (LLM classifies in reply)
-  const t = (opts.userText || '').toLowerCase()
-  if (c.kind === 'unknown' && (/\b(mira|ve|ves|foto|imagen|look)\b/.test(t) || !t.trim())) {
+  if (
+    c.safeForWardrobe &&
+    (c.kind === 'portrait_identity' || c.kind === 'full_look' || c.kind === 'garment') &&
+    opts.characterPhotoScore >= 0.35
+  ) {
     return true
   }
   return false
@@ -424,14 +456,14 @@ export function buildWardrobeClassifyAndOfferNudge(opts: {
     opts.userHint ? `Usuario: «${opts.userHint.slice(0, 140)}»` : '',
     `1) Describe lo que VES en la imagen (visión); no inventes lo que no se ve.`,
     `2) Opina en personaje (${name}) con naturalidad.`,
-    `3) Si encaja en tu guardarropa, clasifica mentalmente (cara / look / prenda / escena / accesorio) y`,
-    `   PIDE permiso para guardarla (la app mostrará botones). NUNCA digas que ya la guardaste.`,
+    `3) Decide si la imagen eres TÚ (${name}) o es otra persona / arte del libro / regalo no-avatar.`,
+    `   - Si es TÚ y quieres guardarropa/principal: termina con la etiqueta exacta [WARDROBE:offer]`,
+    `   - Si NO eres tú: termina con [WARDROBE:skip] y NO pidas guardar en el guardarropa.`,
+    `   La app solo muestra botones con [WARDROBE:offer]. NUNCA digas que ya la guardaste.`,
     !c.safeForPrimary
       ? `4) NO propongas esta imagen como foto principal del chat (clase ${kindLabel}).`
-      : `4) Si el usuario quiere, también puedes ofrecerla como foto principal.`,
-    !c.safeForWardrobe
-      ? `5) Si no es de ti (otra persona / meme), dilo y no pidas guardarropa del avatar.`
-      : `5) Si confirma, se guardará con rol/tags «${kindLabel}».`
+      : `4) Solo ofrece foto principal si [WARDROBE:offer] y es claramente tu rostro/look.`,
+    `5) Tags heurísticos: «${kindLabel}» / ${tags}.`
   ]
     .filter(Boolean)
     .join('\n')

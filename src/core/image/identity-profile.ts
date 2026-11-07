@@ -149,22 +149,55 @@ export function buildIdentityProfile(input: {
 
 /** Map free-form appearance to short EN SD tags (FaceID works best with tags, not prose). */
 export function appearanceToIdentityTags(text: string): string[] {
-  const t = String(text || '').toLowerCase()
+  // Prefer explicit hair sections (## Cabello / ## Hair) — but never match the word
+  // "hair" inside "brown hair" or the color is lost (section starts at "hair, straight…").
+  let t = String(text || '').toLowerCase()
+  const hairSection = t.match(
+    /(?:##\s*)(?:cabello|pelo|hair)\b[\s\S]{0,800}?(?=##|$)/i
+  ) || t.match(
+    /(?:^|[\n.;])\s*(?:cabello|pelo)\b[\s\S]{0,500}?(?=[\n]|##|$)/i
+  )
+  // Color scan: full text with clothing noise removed (reliable for "long brown hair")
+  const clothingNoise =
+    /\b(?:guantes?|vestidos?|zapatos?|botas?|ropa|outfit|collar|aretes?|pendientes?)\s+negros?\b/gi
+  const colorScan = t.replace(clothingNoise, ' ')
+  const styleScan = hairSection ? hairSection[0] : t
+
   const tags: string[] = []
-  // One hair color only (priority: red > black > brown > blonde — matches typical explicit prose)
-  if (/pelirroj|red hair|cabello rojo|pelo rojo|redhead/.test(t)) tags.push('long red hair')
-  else if (/negro|black hair|cabello negro/.test(t)) tags.push('black hair')
-  else if (/casta[nñ]|brunette|brown hair|cabello casta/.test(t)) tags.push('brown hair')
-  else if (/rubi[ao]|blonde|blond|cabello rubio/.test(t)) tags.push('blonde hair')
-  // One hair style only
-  if (/rizado|curly|rizos/.test(t)) tags.push('curly hair')
-  else if (/ondulado|wavy/.test(t)) tags.push('wavy hair')
-  else if (/lacio|straight|liso/.test(t)) tags.push('straight hair')
-  // One eye color only
-  if (/ojo[s]? violet|violet eyes/.test(t)) tags.push('violet eyes')
-  else if (/ojo[s]? azul|blue eyes/.test(t)) tags.push('blue eyes')
-  else if (/ojo[s]? verde|green eyes/.test(t)) tags.push('green eyes')
-  else if (/ojo[s]? marr|brown eyes|hazel/.test(t)) tags.push('brown eyes')
+  // One hair color only. Word boundaries: "negros" in clothing must NOT win over "castaño".
+  if (/\b(?:pelirroj\w*|redhead)\b|\bred\s+hair\b|\bcabello\s+rojo\b|\bpelo\s+rojo\b/.test(colorScan)) {
+    tags.push('long red hair')
+  } else if (
+    /\b(?:cabello|pelo)\s+negro\b|\bblack\s+hair\b|\bcabello\s+negro\b/.test(colorScan)
+  ) {
+    tags.push('black hair')
+  } else if (/\bcasta[nñ]o?\b|\bbrunette\b|\bbrown\s+hair\b|\bcabello\s+casta/.test(colorScan)) {
+    tags.push('brown hair')
+  } else if (/\brubi[ao]\b|\bblonde\b|\bblond\b|\bcabello\s+rubio\b/.test(colorScan)) {
+    tags.push('blonde hair')
+  }
+
+  // Style: "sin rizos" / "no rizado" must NOT count as curly
+  const deniesCurly = /\b(?:sin|no|nunca|evitar)\s+(?:los\s+)?(?:rizos?|rizado|curls?|curly)\b/i.test(
+    styleScan
+  )
+  if (
+    !deniesCurly &&
+    /\b(?:rizado|curly)\b|\brizos\b/.test(styleScan) &&
+    !/\bsin\s+rizos\b/.test(styleScan)
+  ) {
+    tags.push('curly hair')
+  } else if (/\bondulado\b|\bwavy\b/.test(styleScan)) {
+    tags.push('wavy hair')
+  } else if (/\blacio\b|\bstraight\b|\bliso\b/.test(styleScan)) {
+    tags.push('straight hair')
+  }
+
+  // Eyes / skin — whole text is fine
+  if (/ojo[s]?\s+violet|violet eyes/.test(t)) tags.push('violet eyes')
+  else if (/ojo[s]?\s+azul|blue eyes/.test(t)) tags.push('blue eyes')
+  else if (/ojo[s]?\s+verde|green eyes/.test(t)) tags.push('green eyes')
+  else if (/ojo[s]?\s+marr|brown eyes|hazel/.test(t)) tags.push('brown eyes')
   if (/piel clara|fair skin|pale/.test(t)) tags.push('fair skin')
   if (/sonrisa|smile/.test(t)) tags.push('subtle smile')
   return [...new Set(tags)]
@@ -240,28 +273,41 @@ export function stripConflictingIdentityFromPrompt(
   for (const fam of HAIR_COLOR_FAMILY) {
     if (fam.tag.test(locked)) {
       stripRe(fam.rivals, 'hair_color_rival:' + fam.label)
-      // weighted forms: (blonde hair:1.45)
-      stripRe(
-        /\(\s*(?:blonde|blond|brown|red|black|brunette|platinum|silver)\s+hair\s*:[^)]+\)/gi,
-        'hair_color_weighted'
-      )
-      // keep only the locked color weighted tags — remove wrong weighted
+      // Weighted rivals only — never strip the locked color itself
       if (/brown/.test(fam.label)) {
-        stripRe(/\(\s*(?:blonde|blond|red|black)\s+hair\s*:[^)]+\)/gi, 'hair_color_weighted_brown')
+        stripRe(
+          /\(\s*(?:blonde|blond|red|black|brunette|platinum|silver)\s+hair\s*:[^)]+\)/gi,
+          'hair_color_weighted_brown'
+        )
       } else if (/blonde/.test(fam.label)) {
-        stripRe(/\(\s*(?:brown|red|black)\s+hair\s*:[^)]+\)/gi, 'hair_color_weighted_blonde')
+        stripRe(
+          /\(\s*(?:brown|red|black|brunette|platinum|silver)\s+hair\s*:[^)]+\)/gi,
+          'hair_color_weighted_blonde'
+        )
       } else if (/red/.test(fam.label)) {
-        stripRe(/\(\s*(?:blonde|blond|brown|black)\s+hair\s*:[^)]+\)/gi, 'hair_color_weighted_red')
+        stripRe(
+          /\(\s*(?:blonde|blond|brown|black|brunette|platinum|silver)\s+hair\s*:[^)]+\)/gi,
+          'hair_color_weighted_red'
+        )
       } else if (/black/.test(fam.label)) {
-        stripRe(/\(\s*(?:blonde|blond|brown|red)\s+hair\s*:[^)]+\)/gi, 'hair_color_weighted_black')
+        stripRe(
+          /\(\s*(?:blonde|blond|brown|red|brunette|platinum|silver)\s+hair\s*:[^)]+\)/gi,
+          'hair_color_weighted_black'
+        )
       }
     }
   }
   for (const fam of HAIR_STYLE_FAMILY) {
     if (fam.tag.test(locked)) {
       stripRe(fam.rivals, 'hair_style_rival')
-      stripRe(/\(\s*(?:curly|straight|wavy)\s+hair\s*:[^)]+\)/gi, 'hair_style_weighted')
-      // re-allow only if matches locked — simpler: strip all weighted style then DNA re-adds
+      // Weighted rival styles only
+      if (/straight/.test(fam.tag.source)) {
+        stripRe(/\(\s*(?:curly|wavy)\s+hair\s*:[^)]+\)/gi, 'hair_style_weighted')
+      } else if (/curly/.test(fam.tag.source)) {
+        stripRe(/\(\s*(?:straight|wavy)\s+hair\s*:[^)]+\)/gi, 'hair_style_weighted')
+      } else if (/wavy/.test(fam.tag.source)) {
+        stripRe(/\(\s*(?:curly|straight)\s+hair\s*:[^)]+\)/gi, 'hair_style_weighted')
+      }
     }
   }
   for (const fam of EYE_FAMILY) {

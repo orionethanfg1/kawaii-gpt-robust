@@ -511,8 +511,29 @@ export function resolveLiveIntimatePhase(opts: {
     return phase
   }
 
+  // Natural mode: pure relational/casual talk must not stay stuck in scene_active
+  try {
+    const lastUser = [...recent].reverse().find((x) => x) || ''
+    const { classifyConversationMode } = require('./conversation-mode') as typeof import('./conversation-mode')
+    const cm = classifyConversationMode({ userText: lastUser, priorPhase: phase })
+    if (
+      (cm.mode === 'relational' || cm.mode === 'casual') &&
+      (phase === 'scene_active' || phase === 'aftercare') &&
+      !looksLikeOngoingIntimateScene([lastUser])
+    ) {
+      phase =
+        (opts.relationship as { intimacyOpen?: boolean } | null | undefined)?.intimacyOpen
+          ? 'open'
+          : 'idle'
+      return phase
+    }
+  } catch {
+    /* optional */
+  }
+
   if (looksLikeOngoingIntimateScene(recent)) {
     phase = 'scene_active'
+
   } else if (
     phase === 'scene_active' &&
     withinSticky &&

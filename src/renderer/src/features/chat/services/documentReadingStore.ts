@@ -3,7 +3,11 @@
  * Full document text is recovered from message attachments when possible;
  * here we only persist chapter pointer + rolling summary (small).
  */
-import { isDocReadingPending, type DocReadingState } from '@core/chat/document-reading-state'
+import {
+  isDocReadingPending,
+  isDocReadingComplete,
+  type DocReadingState
+} from '@core/chat/document-reading-state'
 
 const LS_KEY = 'kawaii.docReading.v1'
 const MAX_ENTRIES = 40
@@ -18,6 +22,18 @@ function loadAll(): StoreShape {
     return parsed && typeof parsed === 'object' ? parsed : {}
   } catch {
     return {}
+  }
+}
+
+function notifyDocReadingChanged(convId?: string): void {
+  try {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('kawaii:doc-reading-changed', { detail: { convId: convId || null } })
+      )
+    }
+  } catch {
+    /* */
   }
 }
 
@@ -48,11 +64,14 @@ export function getDocReadingStatesForConv(convId: string): DocReadingState[] {
 export function upsertDocReadingStates(states: DocReadingState[]): void {
   if (!states?.length) return
   const all = loadAll()
+  let convId: string | undefined
   for (const s of states) {
     if (!s?.key) continue
     all[s.key] = s
+    convId = s.convId || convId
   }
   saveAll(all)
+  notifyDocReadingChanged(convId)
 }
 
 export function clearDocReadingForConv(convId: string): void {
@@ -64,7 +83,91 @@ export function clearDocReadingForConv(convId: string): void {
       changed = true
     }
   }
-  if (changed) saveAll(all)
+  if (changed) {
+    saveAll(all)
+    notifyDocReadingChanged(convId)
+  }
+}
+
+/** Drop finished progressive readings so «Continuar lectura» does not stick open. */
+export function pruneCompletedDocReadings(convId?: string): number {
+  const all = loadAll()
+  let n = 0
+  for (const k of Object.keys(all)) {
+    const s = all[k]
+    if (!s) continue
+    if (convId && s.convId !== convId) continue
+    if (!isDocReadingPending(s)) {
+      delete all[k]
+      n++
+    }
+  }
+  if (n) {
+    saveAll(all)
+    notifyDocReadingChanged(convId)
+  }
+  return n
+}
+
+export function removeDocReadingKey(key: string): void {
+  if (!key) return
+  const all = loadAll()
+  if (all[key]) {
+    delete all[key]
+    saveAll(all)
+  }
+}
+
+
+
+/** Hide «Continuar lectura» without losing progress (pure chat turns). */
+export function suspendDocReadingUi(convId: string): void {
+  if (!convId) return
+  const all = loadAll()
+  let changed = false
+  for (const k of Object.keys(all)) {
+    const s = all[k]
+    if (!s || s.convId !== convId) continue
+    if (s.uiSuspended) continue
+    all[k] = { ...s, uiSuspended: true, updatedAt: Date.now() }
+    changed = true
+  }
+  if (changed) {
+    saveAll(all)
+    notifyDocReadingChanged(convId)
+  }
+}
+
+/** Resume UI after explicit read intent / APP continue / new attach. */
+export function resumeDocReadingUi(convId: string): void {
+  if (!convId) return
+  const all = loadAll()
+  let changed = false
+  for (const k of Object.keys(all)) {
+    const s = all[k]
+    if (!s || s.convId !== convId) continue
+    if (!s.uiSuspended && s.lastDocTurnAt) continue
+    all[k] = {
+      ...s,
+      uiSuspended: false,
+      lastDocTurnAt: Date.now(),
+      updatedAt: Date.now()
+    }
+    changed = true
+  }
+  if (changed) {
+    saveAll(all)
+    notifyDocReadingChanged(convId)
+  }
+}
+
+/** True if any non-suspended progressive reading is still open. */
+export function hasActiveDocReadingUi(convId: string): boolean {
+  const states = getDocReadingStatesForConv(convId)
+  return states.some((s) => {
+    if (s.uiSuspended) return false
+    return !isDocReadingComplete(s)
+  })
 }
 
 export type PendingDocReading = {

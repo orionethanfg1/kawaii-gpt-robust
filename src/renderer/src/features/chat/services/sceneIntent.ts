@@ -3,7 +3,12 @@
  * UI dispatches `kawaii:scene-intent`; ChatView listens and sends a real user turn.
  */
 
-export type SceneIntentKind = 'scene-continue' | 'scene-soften' | 'scene-rest' | string
+export type SceneIntentKind =
+  | 'scene-continue'
+  | 'scene-affection'
+  | 'scene-soften'
+  | 'scene-rest'
+  | string
 
 export type SceneIntentDetail = {
   kind: SceneIntentKind
@@ -43,6 +48,8 @@ export function sceneIntentUserMeta(detail: SceneIntentDetail): Record<string, u
         ? 'Bajar ritmo'
         : detail.kind === 'scene-rest'
           ? 'Descansar'
-          : 'Seguir cerca'
+          : detail.kind === 'scene-affection'
+            ? 'Ternura'
+            : 'Seguir cerca'
   }
 }

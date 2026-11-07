@@ -19,6 +19,7 @@ import { isDataImageUrl, pathFromVisualRef, wardrobeMediaUrl } from '@core/image
 import { approveImageToWardrobe, setChatPrimaryFromWardrobe } from '@core/image/wardrobe-approve'
 import { clearPendingCharacterPhotoOffer } from '@core/image/character-photo-offer'
 import { resolveAvatarObjectPosition } from '@core/character/avatar-focus'
+import { looksIncompleteAssistantText } from '@core/chat/stitch-continuation'
 
 function clearWardrobeOfferForActiveConv() {
   try {
@@ -1552,17 +1553,9 @@ function MessageBubbleInner({ message, onResend, onDelete, onContinueWriting }: 
           {!isUser &&
             !message.isStreaming &&
             onContinueWriting &&
+            !message.meta?.continueResolved &&
             (Boolean(message.meta?.limited) ||
-              /…\s*$/.test(String(message.content || '').trim()) ||
-              /¿[^?]*$/.test(String(message.content || '').trim()) ||
-              /\s(?:o|y|pero|aunque|como|que|de|en|con|sin|para|nuestro|nuestra|mi|tu|su)\s*\.?\s*$/i.test(
-                String(message.content || '').trim().slice(-48)
-              ) ||
-              /\b(propio|propia|mismo|misma|encuentro|momento|asustado|asustada)\s*$/i.test(
-                String(message.content || '').trim()
-              ) ||
-              (String(message.content || '').trim().length > 180 &&
-                !/[.!?…]/.test(String(message.content || '').trim().slice(-90)))) && (
+              looksIncompleteAssistantText(String(message.content || ''))) && (
             <button
               type="button"
               className="text-[10px] text-kawaii-pink-deep hover:underline font-medium"

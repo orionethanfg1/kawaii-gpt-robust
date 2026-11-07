@@ -328,14 +328,20 @@ export function registerImageGenerateIpc(opts: {
         let root = resolved.baseUrl.replace(/\/$/, '')
         // I4: hydrate face refs from disk paths
         logImageJobPhase(jobId, 'validate_payload', 'I4 hydrate refs', 19)
+        const hadPrimary = Boolean(payload.referenceImage)
         const hydratedPrimary = await hydrateImageRef(payload.referenceImage)
         if (hydratedPrimary) payload.referenceImage = hydratedPrimary
         const hydratedList = await hydrateRefList(payload.referenceImages)
         if (hydratedList.length) payload.referenceImages = hydratedList
-        if ((payload.isSelf || payload.requireFaceId) && !payload.referenceImage) {
-          throw new Error(
-            'No se pudo leer la referencia facial configurada. Revisa la foto principal del personaje e inténtalo de nuevo.'
-          )
+        // Fail closed: self/FaceID requires a readable data:image face, not a stale path
+        if (payload.isSelf || payload.requireFaceId) {
+          if (!payload.referenceImage || !payload.referenceImage.startsWith('data:image/')) {
+            throw new Error(
+              hadPrimary
+                ? 'La referencia facial no se pudo leer (ruta obsoleta o inaccesible). Elige de nuevo la foto principal del personaje (cara canónica) y reintenta.'
+                : 'No hay foto facial canónica. Define facePrimary / avatar frontal del personaje antes de generar un autorretrato.'
+            )
+          }
         }
         // Progress poll while txt2img runs
         let stopPoll = false
@@ -519,7 +525,7 @@ export function registerImageGenerateIpc(opts: {
                 const resolvedRef = resolveIpAdapterFromModels(
                   models,
                   reference,
-                  Math.min(0.34, ipAdapter.weight * 0.42)
+                  Math.min(0.22, ipAdapter.weight * 0.28)
                 )
                 if (!resolvedRef) continue
                 extraControlNet.push({
@@ -761,7 +767,10 @@ export function registerImageGenerateIpc(opts: {
             r = one
           }
           if (!r) throw new Error('I2: sin resultado de Forge')
+          // Ranker expects [first, ...rest]. Previously used last as primary +
+          // slice(1) → [last, 2nd, 3rd] when N=3 became [3,2,3] (omitted #1, dup #3).
           if (candidateBufs.length > 1) {
+            r = { ...r, buf: candidateBufs[0] }
             ;(r as { extraBuffers?: Buffer[] }).extraBuffers = candidateBufs.slice(1)
             ;(r as { batchSize?: number }).batchSize = candidateBufs.length
           }
@@ -792,7 +801,13 @@ export function registerImageGenerateIpc(opts: {
           let batchRankNote = ''
           try {
             const extras = (r as { extraBuffers?: Buffer[] }).extraBuffers
-            const allBufs = extras && extras.length ? [r.buf, ...extras] : [r.buf]
+            // Prefer the sequential candidate list when present (authoritative order)
+            const allBufs =
+              candidateBufs.length > 1
+                ? candidateBufs
+                : extras && extras.length
+                  ? [r.buf, ...extras]
+                  : [r.buf]
             if (
               (payload.isSelf || payload.requireFaceId) &&
               payload.referenceImage?.startsWith('data:image/')

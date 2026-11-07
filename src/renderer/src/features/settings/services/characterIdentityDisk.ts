@@ -5,6 +5,8 @@
 export type CharacterIdentityDisk = {
   visualDescription: string
   visualFromAvatar: boolean
+  /** User explicitly cleared the sheet — do not restore from older disk text */
+  visualCleared?: boolean
   name: string
   personality?: string
   style?: string
@@ -16,6 +18,8 @@ export type CharacterIdentityDisk = {
 export async function saveCharacterIdentityToDisk(opts: {
   visualDescription?: string
   visualFromAvatar?: boolean
+  /** When true, disk must not resurrect a previous sheet on boot */
+  visualCleared?: boolean
   name?: string
   personality?: string
   style?: string
@@ -27,9 +31,13 @@ export async function saveCharacterIdentityToDisk(opts: {
     if (!api?.filesSaveCharacterIdentity) {
       return { ok: false, error: 'IPC no disponible' }
     }
+    const desc = opts.visualDescription || ''
+    const cleared =
+      opts.visualCleared === true || !String(desc).trim()
     return await api.filesSaveCharacterIdentity({
-      visualDescription: opts.visualDescription || '',
+      visualDescription: desc,
       visualFromAvatar: opts.visualFromAvatar === true,
+      visualCleared: cleared,
       name: opts.name || '',
       personality: opts.personality || '',
       style: opts.style || '',
@@ -63,6 +71,7 @@ export async function loadCharacterIdentityFromDisk(): Promise<{
       data: {
         visualDescription: r.visualDescription || '',
         visualFromAvatar: r.visualFromAvatar === true,
+        visualCleared: (r as { visualCleared?: boolean }).visualCleared === true,
         name: r.name || '',
         personality: r.personality || '',
         style: r.style || '',
@@ -90,7 +99,13 @@ export async function restoreCharacterIdentityIfNeeded(char: {
   if (!loaded.ok || loaded.missing || !loaded.data) return char
   const d = loaded.data
   const next = { ...char }
-  if (!(next.visualDescription || '').trim() && (d.visualDescription || '').trim()) {
+  // Never resurrect a sheet the user cleared (empty LS + cleared disk flag)
+  if (d.visualCleared) {
+    if (!(next.visualDescription || '').trim()) {
+      next.visualDescription = ''
+      next.visualFromAvatar = false
+    }
+  } else if (!(next.visualDescription || '').trim() && (d.visualDescription || '').trim()) {
     next.visualDescription = d.visualDescription
     next.visualFromAvatar = d.visualFromAvatar
   }

@@ -77,3 +77,19 @@ export function wardrobeOfferToMeta(offer: CharacterPhotoOffer): Record<string, 
     wardrobeConfidence: cls?.confidence
   }
 }
+
+/** LLM decision tags in assistant reply. */
+export function parseWardrobeDecisionTag(
+  text: string
+): 'offer' | 'skip' | null {
+  if (/\[\s*WARDROBE\s*:\s*offer\s*\]/i.test(text)) return 'offer'
+  if (/\[\s*WARDROBE\s*:\s*skip\s*\]/i.test(text)) return 'skip'
+  return null
+}
+
+export function stripWardrobeDecisionTags(text: string): string {
+  return String(text || '')
+    .replace(/\[\s*WARDROBE\s*:\s*(?:offer|skip)\s*\]/gi, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim()
+}

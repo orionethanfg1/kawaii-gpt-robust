@@ -3,7 +3,11 @@ import { Send, Square, Smile, ImagePlus, Paperclip, X, FileText, Brain, Mic, Mic
 import { Button } from '@shared/ui/Button'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import { useChatStore } from '@shared/lib/stores/chatStore'
-import { getDocReadingStatesForConv } from '../services/documentReadingStore'
+import {
+  getDocReadingStatesForConv,
+  suspendDocReadingUi
+} from '../services/documentReadingStore'
+import { isDocReadingComplete } from '@core/chat/document-reading-state'
 import type { Attachment } from '@core/conversation'
 import { isTextDocumentFile, isUnsupportedOfficeFile, isOfficeExtractable, MAX_FILE_BYTES, MAX_OFFICE_BYTES } from '@core/chat/document-attach'
 import { useSpeechToText } from '../hooks/useSpeechToText'
@@ -299,33 +303,60 @@ export function ChatInput({ disabled, isLoading, onSend, onStop }: Props) {
   }, [activeId, isLoading])
 
   useEffect(() => {
-    if (!activeId) {
-      setCanContinueReading(false)
-      return
-    }
-    try {
-      const states = getDocReadingStatesForConv(activeId)
-      const open = states.some((x) => {
-        const rem = x as {
-          mode?: string
-          ingestComplete?: boolean
-          streamOffset?: number
-          totalChars?: number
+    const syncDocBtn = () => {
+      if (!activeId) {
+        setCanContinueReading(false)
+        return
+      }
+      try {
+        // If the latest user turn is pure chat, suspend reading UI once (progress kept)
+        try {
+          const conv = useChatStore.getState().conversations.find((c) => c.id === activeId)
+          const msgs = conv?.messages || []
+          let lastUser = ''
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            if (msgs[i].role === 'user') {
+              lastUser = String(msgs[i].content || '')
+              break
+            }
+          }
+          const explicitDoc =
+            /\[APP\].*lectura|sigue\s+leyendo|contin[uú]a\s+leyendo|continuar\s+la\s+lectura|siguiente\s+cap[ií]tulo/i.test(
+              lastUser
+            )
+          const states0 = getDocReadingStatesForConv(activeId)
+          if (states0.length && lastUser && !explicitDoc) {
+            if (states0.some((s) => !s.uiSuspended && !isDocReadingComplete(s))) {
+              suspendDocReadingUi(activeId)
+            }
+          }
+        } catch {
+          /* */
         }
-        if (rem.mode === 'read_and_remember' || rem.ingestComplete) return false
-        const off = Number(rem.streamOffset || 0)
-        const total = Number(rem.totalChars || x.totalChars || 0)
-        if (total > 2000 && off > 0 && off < total * 0.98) return true
-        return (
-          x.chapterCount >= 1 &&
-          x.chapterIndex < x.chapterCount &&
-          (x.totalChars > 800 || x.chapterCount > 1)
-        )
-      })
-      setCanContinueReading(open)
-    } catch {
-      setCanContinueReading(false)
+        const states = getDocReadingStatesForConv(activeId)
+        const open = states.some((x) => {
+          if (x.uiSuspended) return false
+          const rem = x as { mode?: string; ingestComplete?: boolean }
+          if (rem.mode === 'read_and_remember') return !rem.ingestComplete
+          return !isDocReadingComplete(x)
+        })
+        setCanContinueReading(open)
+      } catch {
+        setCanContinueReading(false)
+      }
     }
+    syncDocBtn()
+    const onDoc = (ev: Event) => {
+      try {
+        const d = (ev as CustomEvent).detail as { convId?: string | null }
+        if (d?.convId && activeId && d.convId !== activeId) return
+      } catch {
+        /* */
+      }
+      syncDocBtn()
+    }
+    window.addEventListener('kawaii:doc-reading-changed', onDoc as EventListener)
+    return () => window.removeEventListener('kawaii:doc-reading-changed', onDoc as EventListener)
   }, [activeId, value, isLoading])
   const imageRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
@@ -753,6 +784,9 @@ export function ChatInput({ disabled, isLoading, onSend, onStop }: Props) {
                 if (activeId) {
                   sessionStorage.setItem('kawaii-doc-auto-paused:' + activeId, '1')
                   sessionStorage.setItem('kawaii-doc-auto-chain:' + activeId, '0')
+                  void import('../services/documentReadingStore').then((m) => {
+                    m.resumeDocReadingUi(activeId)
+                  })
                 }
               } catch {
                 /* */

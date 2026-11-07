@@ -375,8 +375,9 @@ export const useSettingsStore = create<SettingsState>()(
               void import('@features/settings/services/characterIdentityDisk')
                 .then(({ saveCharacterIdentityToDisk }) =>
                   saveCharacterIdentityToDisk({
-                    visualDescription: saved!.character!.visualDescription,
+                    visualDescription: saved!.character!.visualDescription || '',
                     visualFromAvatar: saved!.character!.visualFromAvatar === true,
+                    visualCleared: !(saved!.character!.visualDescription || '').trim(),
                     name: saved!.character!.name,
                     personality: saved!.character!.personality,
                     style: saved!.character!.style,
