@@ -35,3 +35,17 @@ Pruebas manuales cortas. Prioridad: parecer humana (HUMAN-PRIORITY).
 - docx: tools/doc_read.py (stdlib zip/xml).
 - pdf: pypdf o pdftotext.
 - Plugin: plugins/doc-read/plugin.json.
+
+## Notas del Usuario a partir de aquí (Eliminar en "Done")
+
+## Comentarios sobre A1
+
+- Memoria funciona, pero guarda basura todavía.
+
+## Comentarios sobre A2
+
+- Las iniciativas no funcionan bien, solamente pregunta por cambiar la foto principal.
+
+## Comentarios sobre A3
+
+- Esta parte parece funcionar correctamente.
