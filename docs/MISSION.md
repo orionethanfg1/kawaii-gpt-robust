@@ -4,7 +4,7 @@
 
 ## En una frase
 
-Ayudar de verdad en el escritorio del usuario (herramientas, archivos, imagen, voz, web, modelos locales) y, al mismo tiempo, mantener un vínculo continuo con personalidad — sin que el roleplay sustituya a la utilidad cuando hay una tarea clara.
+Ser una presencia digital local-first y persistente que, con permiso, conserva objetivos y contexto entre conversaciones, entiende señales autorizadas del entorno y decide cuándo ayudar, preguntar o esperar; a la vez mantiene una personalidad companion coherente y límites claros bajo control del usuario.
 
 ## Pilares
 
@@ -16,15 +16,17 @@ Ayudar de verdad en el escritorio del usuario (herramientas, archivos, imagen, v
 4. **Agencia acotada** — puede proponer y, con confirmación, actuar sobre archivos y servicios del host; no inventa capacidades ni reescribe el binario a ciegas.
 5. **Un residente LLM** — nunca dos modelos de chat cargados a la vez en el servidor local.
 6. **Residencia en el SO** — agenda y avisos útiles con la app en bandeja; notificaciones que devuelven al chat correcto.
+7. **Continuidad event-driven** — objetivos y seguimientos sobreviven a conversaciones y reinicios. Persistencia no significa inferencia constante, observación total ni modelo obligado a permanecer en memoria.
+8. **Control verificable** — fuentes opt-in, iniciativa pausada/revocable, razón visible, recuerdos corregibles/olvidables y aprobación exacta para acciones de riesgo.
 
 ## Capa agente (hacia Jarvis)
 
 | Capacidad | Estado | Notas |
 |-----------|--------|--------|
-| Conciencia de biblioteca / userData | Parcial | Lista dirs, adjuntos, guardarropa; ampliar a inventario + decisión del LLM |
-| Organizar / clasificar / mover / copiar / borrar archivos | Planificado | Allowlist de rutas, confirmación UI, audit log; tools + (opcional) vision |
-| Agenda con app cerrada / minimizada | Planificado | Tray + proceso ligero o tareas programadas del SO |
-| Click en notificación → foco chat | Defecto conocido | Debe abrir ventana + conversación |
+| Conciencia de biblioteca / userData | Base implementada | Inventario y tools existen; verificar cada flujo y su límite de permisos en E2E |
+| Organizar / clasificar / mover / copiar / borrar archivos | Base implementada y acotada | Allowlist/tickets/audit; seguir probando rutas, symlinks, aprobación y cancelación |
+| Agenda con app abierta/minimizada | Base local implementada | El contrato al salir/reiniciar debe definirse y probarse antes de prometer ejecución |
+| Click en notificación → foco chat | Parcial / por validar en build | Confirmar Windows empaquetado, reinicio y conversación correcta |
 | Comandos de host acotados | Planificado | Solo verbos seguros (abrir carpeta, lanzar app permitida); nunca shell libre al inicio |
 | Editar / resumir / corregir archivos | Parcial → ampliar | Docs en chat; tools de lectura/escritura bajo confirmación |
 
@@ -46,3 +48,7 @@ Un agente de escritorio que **hace** (cuando puede y el usuario consiente) y **a
 Antes del LLM: **DecisionPacket** (task, risk, scene, inject, modelHint, reason). Jarvis = utilidad/tools; companion = tono/vínculo; un solo modelo ejecuta ambos. Detalle: `docs/DECISION-LAYER-AND-JARVIS-COMPANION.md`.
 
 Ver también: `docs/ROADMAP.md` (fase Agente), `docs/HARNESS.md`, `docs/MODEL-AGENCY.md`.
+
+## Objetivo persistente
+
+La nueva capa de continuidad extiende —no reemplaza— DecisionPacket, agenda, memoria dual, harness, tray e idle review. Sus fuentes deben ser opt-in; el modelo solo evalúa candidatos útiles tras filtros baratos y respeta un único residente LLM. Ninguna iniciativa equivale a permiso de actuar. Orden, contratos, gates de regresión y análisis de cambios recientes: [PERSISTENT-JARVIS-ROADMAP.md](./PERSISTENT-JARVIS-ROADMAP.md).

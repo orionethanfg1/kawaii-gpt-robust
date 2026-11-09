@@ -6,6 +6,8 @@
 **Revisión inspeccionada:** `1d04437` (`v0.12.0-beta rev.fn`)  
 **Alcance:** seguridad de archivos, fiabilidad de build/tests, agencia y agenda, memoria/companion, identidad visual y coherencia documental. No autoriza shell libre, acceso general al SO, cambios autónomos de código ni llamadas externas con datos privados.
 
+**Nota de vigencia:** este documento conserva un corte histórico de estabilización. El objetivo integrado de Kawaii persistente, la reutilización de sus bloques y la secuencia de nuevas capacidades se rigen ahora por [PERSISTENT-JARVIS-ROADMAP.md](./PERSISTENT-JARVIS-ROADMAP.md); los criterios de seguridad y aceptación de este plan siguen siendo complementarios.
+
 ## 1. Resumen ejecutivo
 
 La prioridad no es añadir capacidades: es hacer verificables y seguras las que ya existen.

@@ -7,6 +7,8 @@ Capacidades resumidas: `docs/CAPABILITIES-0.12.md`.
 Decision layer: `docs/DECISION-LAYER-AND-JARVIS-COMPANION.md`.  
 Extracción turn: `docs/ORCHESTRATOR-DEFLATE-PLAN.md`.
 
+**Objetivo de producto actualizado:** Kawaii como presencia persistente y event-driven, con objetivos entre conversaciones, señales autorizadas e iniciativa revocable. Plan canónico secuencial, gates de regresión y enlace a planes existentes: [PERSISTENT-JARVIS-ROADMAP.md](./PERSISTENT-JARVIS-ROADMAP.md). Este objetivo no implica observación continua ni inferencia constante.
+
 ### Prioridad de trabajo (sigue vigente)
 
 1. **Estabilidad** — single-resident VRAM (S1 completo), prefill bajo, escena/chip honestos, memoria limpia, tickets de archivo, gates/tests.

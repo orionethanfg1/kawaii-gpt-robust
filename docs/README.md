@@ -4,6 +4,7 @@
 |-----|-----|
 | [MISSION.md](./MISSION.md) | Objetivo principal |
 | [ROADMAP.md](./ROADMAP.md) | Plan general + fase Agente |
+| [PERSISTENT-JARVIS-ROADMAP.md](./PERSISTENT-JARVIS-ROADMAP.md) | **Plan canónico** de presencia persistente, observación opt-in, iniciativa y gates de regresión |
 | [JARVIS-AGENT.md](./JARVIS-AGENT.md) | Diseño archivos / tray / host |
 | [BETA-0.12.md](./BETA-0.12.md) | Corte beta actual |
 | [SMOKE-0.12.md](./SMOKE-0.12.md) | Smoke tests |
