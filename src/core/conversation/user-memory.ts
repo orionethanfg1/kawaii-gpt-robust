@@ -116,6 +116,32 @@ export type ExtractedFacts = {
   emotionalNotes?: string[]
 }
 
+function isExplicitRoleplayMemoryContext(text: string): boolean {
+  if (
+    /\b(?:role[\s-]?play|juego de rol|modo escena|escena íntima|narraci[oó]n f[ií]sica|interpreta(?:me)?|act[uú]a como)\b/i.test(
+      text
+    )
+  ) {
+    return true
+  }
+  const embodiedIntimacy =
+    /\b(?:me besas|me acaricias|nos besamos|te desnudas|me desnudas|me tocas|me siento dentro|gemid|orgasmo|penetr|f[oó]ll|sexo)\b/i.test(
+      text
+    )
+  const narrativeAction =
+    /(?:^|\n)\s*(?:\*{1,2}|—|–)\s*[^.\n]{0,180}\b(?:me bes|me acaric|nos bes|te desnud|me desnud|me toc|me acerco|te abrazo)\w*/i.test(
+      text
+    )
+  return embodiedIntimacy || narrativeAction
+}
+
+function extractExplicitSceneRelationshipPreference(text: string): string | undefined {
+  const match = text.match(
+    /\b(?:me gusta|me encanta|prefiero|no me gusta|me incomoda)\b[^.!?]{0,100}\b(?:bes\w*|acarici\w*|abraz\w*|estar contigo|sentirme cerca)\b/i
+  )
+  return match?.[0]?.replace(/\s+/g, ' ').trim().slice(0, 120)
+}
+
 /** Clean noisy like fragments. Reject pronouns, broken parens, pure names. */
 export function normalizeLikePhrase(raw: string): string {
   let s = String(raw || "").trim()
@@ -260,11 +286,9 @@ export function buildSelectiveUserMemoryPrompt(
     })
     if (facts.length && (q.length >= 12 || longChat)) {
       const tokens = q.split(/[^a-záéíóúüñ0-9]+/i).filter((w) => w.length >= 4)
-      let hit = facts
+      const hit = facts
         .filter((f) => tokens.some((w) => f.toLowerCase().includes(w)))
         .slice(0, 4)
-      // Long chat: keep 2 recent-ish facts even without token hit so continuity does not evaporate
-      if (!hit.length && longChat) hit = facts.filter((f) => !/^DOC_(READ|INDEX)\b/i.test(f)).slice(-3)
       if (hit.length) bits.push("Recuerdos relacionados: " + hit.join("; "))
     }
   }
@@ -273,7 +297,7 @@ export function buildSelectiveUserMemoryPrompt(
     "[MEMORIA - capas; no inventario completo]\n" +
     bits.join("\n") +
     "\n" +
-    "Usa solo lo que encaje en este turno. No inventes juegos, titulos ni gustos ausentes. " +
+    "Integra solo lo que encaje en este turno y hazlo con naturalidad. No inventes juegos, titulos ni gustos ausentes. " +
     "No enumeres la memoria. Si hay gusto generico (cafe) y concreto (Moka), manda el concreto. " +
     "Los FAVORITOS del usuario son anclas estables: no los olvides en chats largos ni los copies como tuyos."
   )
@@ -282,6 +306,11 @@ export function buildSelectiveUserMemoryPrompt(
 export function extractUserFactsFromMessage(text: string): ExtractedFacts {
   const t = (text || '').trim()
   if (!t || t.length < 4) return {}
+  // Scene language is meaningful for the conversation, but not evidence of stable biography.
+  if (isExplicitRoleplayMemoryContext(t)) {
+    const preference = extractExplicitSceneRelationshipPreference(t)
+    return preference ? { emotionalNotes: [preference] } : {}
+  }
   const out: ExtractedFacts = { facts: [] }
 
   // Identity: «me llamo / mi nombre es X» — never bare «soy X» (soy tuyo, soy feliz…)
@@ -476,10 +505,8 @@ export function extractUserFactsFromMessage(text: string): ExtractedFacts {
   ) {
     out.emotionalNotes = [t.slice(0, 120)]
   }
-  if (
-    /(?:recuerda|no olvides|importante:)\s+(.{8,120})/i.test(t)
-  ) {
-    const m = t.match(/(?:recuerda|no olvides|importante:)\s+(.{8,120})/i)
+  if (/(?:recuerda|no olvides|importante:)\s*[:,-]?\s+(.{8,120})/i.test(t)) {
+    const m = t.match(/(?:recuerda|no olvides|importante:)\s*[:,-]?\s+(.{8,120})/i)
     if (m?.[1]) out.facts!.push(`PIN:${m[1].trim().slice(0, 120)}`)
   }
 

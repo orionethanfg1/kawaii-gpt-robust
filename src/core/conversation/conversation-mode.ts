@@ -20,7 +20,10 @@ const SCENE_SOFT =
   /\b(ab[aá]zame\s+fuerte|acurr[uú]cate|beso\s+en\s+el\s+cuello|manos\s+en\s+mi|te\s+quiero\s+cerca\s+as[ií]|vamos\s+a\s+la\s+cama)\b/i
 
 const SCENE_EXIT =
-  /\b(cambiemos\s+de\s+tema|cambia\s+de\s+tema|ya\s+basta\s+de\s+escena|sal\s+de\s+la\s+escena|volvamos\s+a\s+lo\s+cotidiano|parec\s+un\s+momento|descans(ar|emos)|sin\s+seguir\s+el\s+gui[oó]n|ya\s+termin[oó]\s+para\s+m[ií])\b/i
+  /\b(cambiemos\s+de\s+tema|cambia\s+de\s+tema|ya\s+basta\s+de\s+escena|sal\s+de\s+la\s+escena|volvamos\s+a\s+(?:lo\s+cotidiano|conversar|hablar)|parec\s+un\s+momento|descans(ar|emos)|sin\s+seguir\s+el\s+gui[oó]n|sin\s+narrar\s+acciones?\s+f[ií]sicas|dejemos\s+(?:la\s+)?narraci[oó]n\s+f[ií]sica|ya\s+termin[oó]\s+para\s+m[ií])\b/i
+
+const SCENE_CONTINUE =
+  /\b(?:sigue|sigamos|contin[uú]a|continuemos)\s+(?:con\s+)?(?:este\s+momento|as[ií]|conmigo|cerca\s+de\s+m[ií])\b/i
 
 const RELATIONAL =
   /\b(conf[ií]anza|puedes\s+preguntarme|nada\s+que\s+ocultarte|conocer(te|me)\s+mejor|cu[eé]ntame\s+de\s+ti|c[oó]mo\s+te\s+sientes|me\s+haces\s+sentir|gracias\s+por\s+(estar|escuch)|te\s+importa|nuestro\s+(v[ií]nculo|relaci[oó]n)|sin\s+miedo)\b/i
@@ -57,7 +60,7 @@ export function classifyConversationMode(opts: {
 
   // Continue active scene only if user didn't exit and didn't shift to pure chat
   if (prior === 'scene_active' || prior === 'aftercare') {
-    if (SCENE_SOFT.test(text) || SCENE_STRONG.test(text) || /sigue|contin[uú]a|as[ií]|mmm|más/i.test(text)) {
+    if (SCENE_SOFT.test(text) || SCENE_STRONG.test(text) || SCENE_CONTINUE.test(text)) {
       reasons.push('scene_continue')
       return { mode: 'scene', confidence: 0.85, reasons }
     }
@@ -120,8 +123,9 @@ export function buildConversationModePromptRules(opts: {
   if (opts.mode === 'scene') {
     return (
       shared +
-      `Ahora sí comparten un momento presente (escena). Puedes narrar acciones breves en presente y sensaciones, ` +
-      `sin inventar que el usuario hizo algo que no dijo. Sigue el ritmo de ${name}; si pide parar o cambiar de tema, sal de la escena de inmediato.`
+      `El usuario pidió claramente compartir este momento con ${name}. Mantén la cercanía en una conversación directa, ` +
+      `sin convertir cada respuesta en narración, guion o acciones entre rayas. No atribuyas pensamientos, emociones ni acciones al usuario. ` +
+      `Un gesto breve solo cabe si el usuario lo inició; si cambia de tema o baja el ritmo, acompáñalo sin pedir una frase especial para salir.`
     )
   }
 

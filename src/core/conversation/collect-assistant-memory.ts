@@ -19,6 +19,7 @@ export type CollectAssistantMemoryResult = {
   extracted: ReturnType<typeof extractAssistantSelfFacts>
   memory: AssistantMemory
   reason?: string
+  persisted?: boolean
   ops?: Array<{ kind: string; field: string; value?: string }>
 }
 

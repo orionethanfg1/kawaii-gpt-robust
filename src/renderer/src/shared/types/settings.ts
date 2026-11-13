@@ -273,6 +273,8 @@ export const SettingsSchema = z.object({
       boundaries: [],
       voiceNotes: []
     }),
+  /** M1 — durable idempotency receipts for completed assistant-memory extraction turns */
+  assistantMemoryTurnReceipts: z.array(z.string().max(512)).max(512).default([]),
 
   /** E3 — episodic shared memories (capped in settings; full history can live in archive) */
   memoryEpisodes: z
@@ -405,6 +407,7 @@ export const SettingsSchema = z.object({
       rejectedNicknames: z.array(z.string()).max(12).optional(),
       lastProposalAt: z.number().optional(),
       lastIntimacyProposalAt: z.number().optional(),
+      lastBirthdayWishAt: z.number().optional(),
       intimacyOpen: z.boolean().optional(),
       turnsTogether: z.number().optional(),
       updatedAt: z.number().optional(),

@@ -56,13 +56,12 @@ function scoreMatch(item: string, toks: string[]): number {
 function pickRelevant(items: string[] | undefined, toks: string[], max: number): string[] {
   const list = (items || []).map((x) => String(x || '').trim()).filter(Boolean)
   if (!list.length) return []
-  if (!toks.length) return list.slice(0, max)
+  if (!toks.length) return []
   const ranked = list
     .map((x) => ({ x, s: scoreMatch(x, toks) }))
     .sort((a, b) => b.s - a.s)
   const hits = ranked.filter((r) => r.s > 0).map((r) => r.x)
-  if (hits.length) return hits.slice(0, max)
-  return list.slice(0, max)
+  return hits.slice(0, max)
 }
 
 export type SelectiveAssistantContext = {
@@ -112,13 +111,11 @@ export function selectAssistantMemoryForTurn(
     }
   }
 
-  // Greeting: light individuality (1 fav / 1 like) so tone stays alive — not a full inventory
+  // Greetings contain no topic signal, so do not inject arbitrary likes or favorites.
   if (greetingOnly && !selfAsk) {
-    const fav = (mem!.favorites || []).filter(Boolean)
-    const likes = (mem!.likes || []).filter(Boolean)
     return {
-      likes: likes.slice(0, 1),
-      favorites: fav.slice(0, 1),
+      likes: [],
+      favorites: [],
       dislikes: [],
       relational: [],
       habits: [],
@@ -163,12 +160,12 @@ export function selectAssistantMemoryForTurn(
     }
   }
 
-  // Default chat: few relevant likes + soft fallback (1) so personality does not vanish
+  // Default chat: only inject tastes with an actual lexical match.
   const likes = pickRelevant(mem!.likes, toks, 3)
   const favorites = pickRelevant(mem!.favorites, toks, 3)
   return {
-    likes: likes.length ? likes : (mem!.likes || []).filter(Boolean).slice(0, 1),
-    favorites: favorites.length ? favorites : (mem!.favorites || []).filter(Boolean).slice(0, 1),
+    likes,
+    favorites,
     dislikes: pickRelevant(mem!.dislikes, toks, 2),
     relational: [],
     habits: pickRelevant(mem!.habits, toks, 1),

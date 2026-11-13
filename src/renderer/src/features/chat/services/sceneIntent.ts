@@ -1,5 +1,5 @@
 /**
- * Scene chips (Seguir cerca / Bajar ritmo / Descansar) — modular intent bus.
+ * Conversation-tone controls — modular intent bus.
  * UI dispatches `kawaii:scene-intent`; ChatView listens and sends a real user turn.
  */
 
@@ -45,11 +45,11 @@ export function sceneIntentUserMeta(detail: SceneIntentDetail): Record<string, u
     scenePhaseAtClick: detail.phase,
     uiLabel:
       detail.kind === 'scene-soften'
-        ? 'Bajar ritmo'
+        ? 'Bajar intensidad'
         : detail.kind === 'scene-rest'
-          ? 'Descansar'
+          ? 'Volver al chat'
           : detail.kind === 'scene-affection'
             ? 'Ternura'
-            : 'Seguir cerca'
+            : 'Seguir conversando'
   }
 }

@@ -24,44 +24,7 @@ export function touchIdleReviewActivity(): void {
 }
 
 async function runHarvest(): Promise<boolean> {
-  const { harvestFromConversations, applyHarvestToAssistantMemory } = await import(
-    '@core/conversation/memory-harvest'
-  )
-  const { filterSalientNames } = await import('@core/conversation/memory-write-policy')
-  const { applyGrowthMilestone } = await import('@core/conversation/memory-growth')
-  const convs = useChatStore.getState().conversations || []
-  const harvest = harvestFromConversations(
-    convs.map((c) => ({
-      id: c.id,
-      title: c.title,
-      messages: (c.messages || []).map((m) => ({
-        role: m.role,
-        content: typeof m.content === 'string' ? m.content : '',
-        meta: m.meta as { kind?: string } | undefined
-      }))
-    })),
-    { maxMessagesPerConv: 200, maxConvs: 20 }
-  )
-  harvest.preferredNames = filterSalientNames(harvest.preferredNames, { explicit: true })
-  if (!harvest.preferredNames.length && !harvest.rejectedNames.length) return false
-  const prev = useSettingsStore.getState().settings.assistantMemory
-  const { next, changed, addedNames } = applyHarvestToAssistantMemory(prev, harvest)
-  let finalMem = next
-  if (addedNames.length) {
-    finalMem = applyGrowthMilestone(next, { type: 'nickname_harvested', names: addedNames })
-  }
-  if (changed || addedNames.length) {
-    useSettingsStore.getState().update({ assistantMemory: finalMem })
-    try {
-      console.info('[idle-review] harvest', {
-        preferred: harvest.preferredNames.slice(0, 5),
-        added: addedNames
-      })
-    } catch {
-      /* */
-    }
-    return true
-  }
+  // Transcript-wide harvesting is paused until candidates have provenance and review.
   return false
 }
 
@@ -84,21 +47,11 @@ async function runConsistency(): Promise<boolean> {
     assistantMemory: st.assistantMemory,
     userMemory: st.userMemory
   })
-  const patch: Record<string, unknown> = {}
-  if (report.assistantAdded.length) patch.assistantMemory = report.assistantMemory
-  if (report.userAdded.length || report.favoritesFound.length) patch.userMemory = report.userMemory
-  if (Object.keys(patch).length) {
-    useSettingsStore.getState().update(patch as never)
-    try {
-      console.info('[idle-review] consistency', {
-        assistantAdded: report.assistantAdded.slice(0, 4),
-        userAdded: report.userAdded.slice(0, 4)
-      })
-    } catch {
-      /* */
-    }
-    return true
-  }
+  console.info('[idle-review] memory consistency preview', {
+    assistantCandidates: report.assistantAdded.length,
+    userCandidates: report.userAdded.length,
+    favoritesFound: report.favoritesFound.length
+  })
   return false
 }
 

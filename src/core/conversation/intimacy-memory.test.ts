@@ -4,7 +4,8 @@ import {
   applyIntimacyExtraction,
   advanceIntimateScenePhase,
   protectIntimacyFactsOnTrim,
-  buildIntimacyMemoryPromptRules
+  buildIntimacyMemoryPromptRules,
+  resolveLiveIntimatePhase
 } from './intimacy-memory'
 
 describe('intimacy-memory I1–I4', () => {
@@ -71,7 +72,7 @@ describe('intimacy-memory I1–I4', () => {
       relationship: { intimacyOpen: true, scenePhase: 'aftercare' },
       facts: ['INTIMACY_FIRST: Primera cercanía con cuidado y nervios mutuos.']
     })
-    expect(block).toMatch(/MEMORIA PRIVILEGIADA|Aftercare|aftercare/i)
+    expect(block).toMatch(/MEMORIA PRIVILEGIADA|pausa afectiva/i)
   })
 })
 
@@ -110,26 +111,34 @@ describe('S1 invite + phase', () => {
       userText: 'quiero estar contigo ahora'
     })
     expect(adv.reason).toBe('s1_invite')
-    expect(['open', 'scene_active']).toContain(adv.phase)
+    expect(adv.phase).toBe('open')
   })
 })
 
 
-describe('S4 sticky phase', () => {
-  it('keeps scene_active from store within sticky window', () => {
-    const { resolveLiveIntimatePhase } = require('./intimacy-memory') as typeof import('./intimacy-memory')
-    const now = Date.now()
+describe('current-turn phase', () => {
+  it('returns to open when the current user turn changes to casual conversation', () => {
     const phase = resolveLiveIntimatePhase({
       relationship: {
         stage: 'intimate',
         intimacyOpen: true,
         scenePhase: 'scene_active',
-        lastIntimateSceneAt: now - 60_000
+        lastIntimateSceneAt: Date.now() - 60_000
       } as never,
       facts: [],
-      recentTexts: ['Hola, ¿cómo estás?'],
-      now
+      recentTexts: ['te deseo más fuerte dentro de mí', 'Hola, ¿cómo estás?'],
+      userText: 'Hola, ¿cómo estás?'
     })
-    expect(phase).toBe('scene_active')
+    expect(phase).toBe('open')
+  })
+
+  it('does not let older scene signals override the latest casual turn', async () => {
+    const { resolveLiveIntimatePhase } = await import('./intimacy-memory')
+    const phase = resolveLiveIntimatePhase({
+      relationship: { intimacyOpen: true, scenePhase: 'open' } as never,
+      recentTexts: ['te deseo más fuerte dentro de mí', '¿Cómo va tu proyecto?'],
+      userText: '¿Cómo va tu proyecto?'
+    })
+    expect(phase).toBe('open')
   })
 })

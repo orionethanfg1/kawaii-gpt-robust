@@ -28,10 +28,27 @@ describe('conversation-mode', () => {
 
   it('exit leaves scene', () => {
     const r = classifyConversationMode({
-      userText: 'Cambiemos de tema un rato',
+      userText: 'Volvamos a conversar con naturalidad, sin narrar acciones físicas.',
       priorPhase: 'scene_active'
     })
     expect(r.mode).toBe('casual')
+  })
+
+  it('ambiguous short replies do not prolong physical narration', () => {
+    for (const userText of ['mmm', 'más', 'así']) {
+      expect(
+        classifyConversationMode({ userText, priorPhase: 'scene_active' }).mode
+      ).not.toBe('scene')
+    }
+  })
+
+  it('continues a shared moment only when the user says so clearly', () => {
+    expect(
+      classifyConversationMode({
+        userText: 'Sigamos con este momento',
+        priorPhase: 'scene_active'
+      }).mode
+    ).toBe('scene')
   })
 
   it('prompt never says juego de rol as instruction to roleplay', () => {

@@ -16,6 +16,15 @@ describe('B3 reconcile', () => {
     expect(r.ops.some((o) => o.kind === 'add')).toBe(true)
   })
 
+  it('keeps a concrete activity when answering an explicit preference question', () => {
+    const r = reconcileAssistantMemory(
+      emptyAssistantMemory(),
+      { likes: ['ver el amanecer sobre un lago'] },
+      { userText: '¿Qué cosas te encanta hacer?' }
+    )
+    expect(r.memory.likes).toContain('ver el amanecer sobre un lago')
+  })
+
   it('noop on duplicate', () => {
     const prev = { ...emptyAssistantMemory(), likes: ['la astronomía'] }
     const r = reconcileAssistantMemory(prev, { likes: ['la astronomía'] })

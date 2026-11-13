@@ -796,12 +796,12 @@ try {
       const phase = resolveLiveIntimatePhase({
         relationship: rel,
         facts,
-        recentTexts: recent
+        recentTexts: recent,
+        userText: ut
       })
       const phasePrompt = buildIntimatePhaseSystemPrompt({
         phase,
         characterName: settings.character?.name,
-        lastIntimateSceneAt: (rel as { lastIntimateSceneAt?: number } | undefined)?.lastIntimateSceneAt,
         hourLocal: new Date().getHours()
       })
       if (phasePrompt) systemMessages.push({ role: 'system', content: phasePrompt })

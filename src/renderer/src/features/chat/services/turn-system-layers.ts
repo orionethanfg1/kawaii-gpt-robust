@@ -212,6 +212,8 @@ export async function buildTurnSystemLayers(input: TurnSystemLayersInput): Promi
     const intimacy = await buildIntimacyInjectBlock({
       packet: input.decisionPacket,
       settings: useSettingsStore.getState().settings,
+      userText: input.trimmed,
+      recentTexts: [input.trimmed],
       isAppDocContinue: isAppDoc
     })
     extra = appendBlock(extra, intimacy)

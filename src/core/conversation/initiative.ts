@@ -1,6 +1,11 @@
 /**
- * Conversation initiatives — pure policy + prompt builders.
- * UI timer lives in useConversationInitiative; this module has no React.
+ * Conversation initiatives — pure policy + prompt builders (sin React).
+ * El timer y el envío viven en useConversationInitiative.
+ *
+ * Contrato de capas:
+ * - shouldSendInitiative: gate determinista (idle, cooldown, quiet hours).
+ * - build, parse y generate: decisión y texto vía LLM.
+ * - pickInitiativeNudge: presencia mínima si el LLM no responde (no sustituye personalidad).
  */
 
 export type InitiativeTone = 'warm' | 'playful' | 'calm' | 'intense' | 'neutral'

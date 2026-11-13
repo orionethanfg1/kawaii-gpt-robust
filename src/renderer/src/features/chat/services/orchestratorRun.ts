@@ -466,27 +466,6 @@ export function createChatRunners(ctx: ChatRunContext) {
       } catch {
         /* settings optional */
       }
-      // B0: memory collect at orchestrator success (does not rely only on UI onDone)
-      try {
-        console.warn('[kawaii-memory] orchestrator-success', {
-          provider: provider.id,
-          model,
-          chars: fullAssistantText.length
-        })
-        if (fullAssistantText.length > 12) {
-          const { runAssistantMemoryCollector } = await import(
-            './assistantMemoryCollector'
-          )
-          const memResult = runAssistantMemoryCollector(fullAssistantText)
-          console.warn('[kawaii-memory] orchestrator-collect', {
-            changed: memResult?.changed,
-            reason: memResult?.reason,
-            likes: memResult?.memory?.likes?.length || 0
-          })
-        }
-      } catch (memErr) {
-        console.warn('[kawaii-memory] orchestrator-collect failed', memErr)
-      }
       try {
         try {
           const { stripLeakedVisualDescription } = await import('@core/character/profile')
@@ -522,22 +501,10 @@ export function createChatRunners(ctx: ChatRunContext) {
         err instanceof AppError ? err : classifyProviderError(String(err), provider.id)
       lastErr = appErr
 
-      // Partial reply delivered via onToken then stream failed (timeout/abort/etc.)
-      // Still finalize memory + UI onDone so B0 and user see a completed turn.
+      // Partial reply delivered via onToken then stream failed (timeout/abort/etc.).
+      // Finalization owns memory collection for both complete and partial replies.
       if (fullAssistantText.trim().length > 24) {
         try {
-          console.warn('[kawaii-memory] partial-success', {
-            provider: provider.id,
-            model,
-            chars: fullAssistantText.length,
-            err: appErr.code
-          })
-          const { runAssistantMemoryCollector } = await import('./assistantMemoryCollector')
-          const memResult = runAssistantMemoryCollector(fullAssistantText)
-          console.warn('[kawaii-memory] partial-collect', {
-            changed: memResult?.changed,
-            reason: memResult?.reason
-          })
           callbacks.onDone?.({
             model,
             provider: provider.id,
@@ -555,7 +522,7 @@ export function createChatRunners(ctx: ChatRunContext) {
           globalCircuitBreaker.recordSuccess(provider.id)
           return
         } catch (partialErr) {
-          console.warn('[kawaii-memory] partial-success failed', partialErr)
+          console.warn('[orchestrator] partial-success failed', partialErr)
         }
       }
 

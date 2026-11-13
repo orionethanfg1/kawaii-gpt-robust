@@ -3,6 +3,8 @@ import {
   shouldSendInitiative,
   detectInitiativeTone,
   initiativeMinutesForTone,
+  hasInitiativeFollowUpSignal,
+  buildInitiativeDecisionMessages,
   parseInitiativeDecision,
   parseInitiativeSnooze,
   isQuietHours
@@ -52,5 +54,25 @@ describe('initiative core', () => {
     expect(
       detectInitiativeTone({ personality: 'cariñosa y dulce con él' })
     ).toBe('warm')
+  })
+
+  it('requires a concrete follow-up signal rather than elapsed time alone', () => {
+    expect(hasInitiativeFollowUpSignal({ recentUserLines: ['Usuario: ¿Qué hora es?'] })).toBe(false)
+    expect(hasInitiativeFollowUpSignal({ goals: ['Completar el catálogo de Michoacán'] })).toBe(true)
+    expect(
+      hasInitiativeFollowUpSignal({
+        recentUserLines: ['Estoy trabajando en la colección y me falta terminar el catálogo']
+      })
+    ).toBe(true)
+  })
+
+  it('provides goals and rejects time-only generic messages in the decision prompt', () => {
+    const [system] = buildInitiativeDecisionMessages({
+      activeGoals: ['Completar los bocetos pendientes'],
+      hoursSinceLastUser: 3
+    })
+    expect(system.content).toContain('Completar los bocetos pendientes')
+    expect(system.content).toContain('El tiempo transcurrido por sí solo NO justifica escribir')
+    expect(system.content).toContain('no menciones la foto/avatar')
   })
 })

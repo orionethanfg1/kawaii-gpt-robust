@@ -35,7 +35,7 @@ function formatSummaryAge(ts?: number, now = Date.now()): string | null {
 }
 
 
-/** I5 — fase íntima: settings + mensajes recientes del chat activo */
+/** I5 — tono de cercanía: settings + último mensaje del usuario */
 function IntimateScenePhaseChip() {
   const rel = useSettingsStore((s) => s.settings.relationshipState)
   const facts = useSettingsStore((s) => s.settings.userMemory?.facts)
@@ -63,39 +63,32 @@ function IntimateScenePhaseChip() {
 
   let phase = 'idle'
   try {
+    const lastUserText =
+      [...messages].reverse().find((message: { role?: string }) => message.role === 'user')
+        ?.content || ''
     phase = resolveLiveIntimatePhase({
       relationship: rel,
       facts: facts || [],
-      recentTexts: messages.slice(-24).map((m: { content?: string }) => String(m.content || ''))
+      userText: String(lastUserText),
+      recentTexts: lastUserText ? [String(lastUserText)] : []
     })
   } catch {
     phase = String((rel as { scenePhase?: string } | undefined)?.scenePhase || 'idle')
   }
-  // S4/S5: if store still says scene_active/aftercare and clock sticky, never show "idle"
-  try {
-    const stored = String((rel as { scenePhase?: string } | undefined)?.scenePhase || '')
-    const lastAt = Number((rel as { lastIntimateSceneAt?: number } | undefined)?.lastIntimateSceneAt || 0)
-    const sticky = lastAt > 0 && Date.now() - lastAt < 6 * 60 * 60 * 1000
-    if (sticky && (stored === 'scene_active' || stored === 'aftercare') && (phase === 'idle' || phase === 'open')) {
-      phase = stored
-    }
-  } catch {
-    /* */
-  }
   if (phase === 'idle' && !rel?.intimacyOpen) return null
   const label: Record<string, string> = {
     idle: 'cercanía',
-    invited: 'propuesta',
+    invited: 'cercanía pendiente',
     open: 'cercanía',
-    scene_active: 'en escena',
-    aftercare: 'aftercare'
+    scene_active: 'cercanía activa',
+    aftercare: 'pausa afectiva'
   }
   const titles: Record<string, string> = {
-    idle: 'Vínculo cercano; sin escena íntima en curso (puedes retomar cuando quieras)',
-    open: 'Cariño y cercanía afectuosa (no es lo mismo que una escena íntima explícita)',
-    scene_active: 'Escena íntima activa — el asistente mantiene el hilo (di «cambiemos de tema» para salir)',
-    aftercare: 'Aftercare / calma tras la escena — continuidad suave',
-    invited: 'Propuesta de cercanía pendiente de tu sí o no'
+    idle: 'Conversación cercana, sin narración física activa',
+    open: 'Tono afectuoso disponible; la conversación sigue con naturalidad',
+    scene_active: 'Momento cercano solicitado en este turno; puedes cambiar de tema cuando quieras',
+    aftercare: 'Pausa afectiva; puedes seguir conversando o cambiar de tema',
+    invited: 'Propuesta afectuosa pendiente de tu respuesta'
   }
   const active = phase === 'scene_active' || phase === 'aftercare'
   const showActions = phase === 'scene_active' || phase === 'aftercare' || phase === 'open' || phase === 'invited' || phase === 'idle'
@@ -130,11 +123,11 @@ function IntimateScenePhaseChip() {
             <button
               type="button"
               className="text-[10px] px-1.5 py-0.5 rounded-full border border-pink-200/90 bg-white/80 text-pink-900 hover:bg-pink-50"
-              title="Cariño y ternura sin subir a escena íntima explícita"
+              title="Mantener un tono cariñoso sin narración física"
               onClick={() =>
                 sendSceneIntent(
                   'scene-affection',
-                  'Quiero quedarme en el cariño y la ternura contigo, sin necesidad de una escena íntima explícita.'
+                  'Quiero quedarme en el cariño y la ternura contigo, sin narrar acciones físicas.'
                 )
               }
             >
@@ -147,19 +140,19 @@ function IntimateScenePhaseChip() {
               className="text-[10px] px-1.5 py-0.5 rounded-full border border-rose-200/90 bg-white/80 text-rose-900 hover:bg-rose-50"
               title={
                 phase === 'scene_active'
-                  ? 'Seguir en la escena íntima'
+                  ? 'Seguir conversando con cercanía'
                   : 'Seguir en la cercanía afectuosa'
               }
               onClick={() =>
                 sendSceneIntent(
                   'scene-continue',
                   phase === 'scene_active'
-                    ? 'Quiero seguir cerca de ti, sin cambiar de tema de golpe.'
+                    ? 'Sigamos conversando así, con calma y cariño.'
                     : 'Sigamos en esta cercanía cariñosa, con calma y afecto.'
                 )
               }
             >
-              Seguir cerca
+              Seguir conversando
             </button>
           )}
           {(phase === 'scene_active' || phase === 'aftercare' || phase === 'open') && (
@@ -174,22 +167,22 @@ function IntimateScenePhaseChip() {
                 )
               }
             >
-              Bajar ritmo
+              Bajar intensidad
             </button>
           )}
           {(phase === 'scene_active' || phase === 'aftercare' || phase === 'open') && (
             <button
               type="button"
               className="text-[10px] px-1.5 py-0.5 rounded-full border border-kawaii-border/80 bg-white/80 text-kawaii-muted hover:bg-kawaii-surface"
-              title="Salir del guion íntimo con naturalidad"
+              title="Volver al diálogo cotidiano sin narración física"
               onClick={() =>
                 sendSceneIntent(
                   'scene-rest',
-                  'Descansemos un rato de la escena; podemos hablar de otra cosa o simplemente estar.'
+                  'Volvamos a conversar con naturalidad, sin narrar acciones físicas. Podemos cambiar de tema o seguir platicando con calma.'
                 )
               }
             >
-              Descansar
+              Volver al chat
             </button>
           )}
         </>

@@ -13,6 +13,7 @@ export async function buildIntimacyInjectBlock(opts: {
   packet: DecisionPacket | null | undefined
   settings: Settings | Record<string, unknown>
   recentTexts?: string[]
+  userText?: string
   /** Transparent doc continue — never inject scene */
   isAppDocContinue?: boolean
 }): Promise<string> {
@@ -36,12 +37,12 @@ export async function buildIntimacyInjectBlock(opts: {
     const phase = resolveLiveIntimatePhase({
       relationship: rel,
       facts,
-      recentTexts: opts.recentTexts || []
+      recentTexts: opts.recentTexts || [],
+      userText: opts.userText
     })
     const phasePrompt = buildIntimatePhaseSystemPrompt({
       phase,
       characterName: settings.character?.name,
-      lastIntimateSceneAt: (rel as { lastIntimateSceneAt?: number } | undefined)?.lastIntimateSceneAt,
       hourLocal: new Date().getHours()
     })
     if (phasePrompt) parts.push(phasePrompt)

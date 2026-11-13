@@ -13,15 +13,21 @@ const mem: AssistantMemory = {
 }
 
 describe('CV1 selective memory', () => {
-  it('greeting injects one fav and one like', () => {
+  it('greeting does not inject arbitrary likes or favorites', () => {
     const s = selectAssistantMemoryForTurn(mem, 'hola')
     expect(s.greetingOnly).toBe(true)
-    expect(s.favorites.length).toBe(1)
-    expect(s.likes.length).toBe(1)
+    expect(s.favorites).toEqual([])
+    expect(s.likes).toEqual([])
   })
 
-  it('default chat keeps at least one like if any exist', () => {
+  it('does not inject unrelated likes or favorites', () => {
     const s = selectAssistantMemoryForTurn(mem, 'cuéntame del clima hoy en la ciudad')
-    expect(s.likes.length + s.favorites.length).toBeGreaterThan(0)
+    expect(s.likes).toEqual([])
+    expect(s.favorites).toEqual([])
+  })
+
+  it('injects tastes when the message is about them', () => {
+    const s = selectAssistantMemoryForTurn(mem, 'Hablemos sobre café de olla')
+    expect(s.likes).toContain('el café')
   })
 })

@@ -4,7 +4,6 @@
 import { runMemoryConsistencyPass } from '@core/conversation/memory-consistency'
 import { useChatStore } from '@shared/lib/stores/chatStore'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
-import { forcePersistAssistantMemory } from '../../chat/services/assistantMemoryCollector'
 
 export type ConsistencyUiResult = {
   ok: boolean
@@ -30,16 +29,6 @@ export function runOpenChatsMemoryConsistency(): ConsistencyUiResult {
     assistantMemory: s.assistantMemory,
     userMemory: s.userMemory
   })
-  if (report.assistantAdded.length || report.favoritesFound.length) {
-    forcePersistAssistantMemory(report.assistantMemory)
-  }
-  const prevFav = s.userMemory?.favorites?.length || 0
-  const nextFav = report.userMemory.favorites?.length || 0
-  if (report.userAdded.length || nextFav > prevFav) {
-    useSettingsStore.getState().update({
-      userMemory: { ...report.userMemory, updatedAt: Date.now() }
-    })
-  }
   return {
     ok: true,
     durationMs: report.durationMs,

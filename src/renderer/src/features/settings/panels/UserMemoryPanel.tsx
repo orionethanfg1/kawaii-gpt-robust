@@ -1,12 +1,12 @@
 import { runOpenChatsMemoryConsistency } from '../services/runMemoryConsistency'
-import { compactAssistantMemory, memoryListsChanged } from '@core/conversation/assistant-memory-compact'
+import { createMemorySnapshot } from '@core/conversation/memory-snapshot'
 /**
  * Contexto y memoria del usuario — editable, visible, limpia.
  * Complementa el aprendizaje automático del chat (mergeUserMemory).
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useDebouncedCommit } from '@shared/lib/hooks/useDebouncedCommit'
-import { Brain, Pin, Trash2, Plus, User } from 'lucide-react'
+import { Brain, Pin, Trash2, Plus, User, Download } from 'lucide-react'
 import {
   assistantLikeLabels,
   inferAssistantGender
@@ -22,7 +22,6 @@ import { Button } from '@shared/ui/Button'
 import { AgendaMemoryPanel } from './AgendaMemoryPanel'
 import {
   flattenFacts,
-  normalizeLikePhrase,
   type UserMemory,
   type NamedPerson
 } from '@core/conversation/user-memory'
@@ -41,7 +40,6 @@ import {
   type AssistantMemory
 } from '@core/conversation/assistant-memory'
 import {
-  hydrateAssistantMemoryFromMirror,
   peekAssistantMemoryMirror
 } from '@features/chat/services/assistantMemoryCollector'
 import {
@@ -128,20 +126,6 @@ export function UserMemoryPanel() {
     },
     300
   )
-  // One-shot heal: drop erotic/RP junk that landed in the sheet
-  useEffect(() => {
-    const cur = (mem.appearanceNotes || '').trim()
-    if (
-      cur &&
-      /\b(?:gemid|orgasmo|penetra|clítoris|vagina|pene|foll|respiro\s+agitad|sonido\s+de\s+placer|interior\s+ard)\b/i.test(
-        cur
-      )
-    ) {
-      updateMemory({ appearanceNotes: undefined })
-      setAppearanceDraft('')
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
   const [userNameDraft, setUserNameDraft, flushUserName] = useDebouncedCommit(
     (mem as { userName?: string }).userName || '',
     (text) => {
@@ -189,55 +173,6 @@ export function UserMemoryPanel() {
   )
   const [factDraft, setFactDraft] = useState('')
   const [rebuildConvId, setRebuildConvId] = useState<string>('')
-  // One-shot: scrub narrative junk from assistant likes / rejected «así»
-  useEffect(() => {
-    try {
-      const {
-        classifyAssistantLikePhrase,
-        isStableTopicPhrase
-      } = require('@core/conversation/assistant-memory') as typeof import('@core/conversation/assistant-memory')
-      const a = useSettingsStore.getState().settings.assistantMemory
-      if (!a) return
-      const likes = (a.likes || []).filter(
-        (x) => classifyAssistantLikePhrase(x) === 'stable' || isStableTopicPhrase(x)
-      )
-      const rejectedNames = (a.rejectedNames || []).filter(
-        (x) => !/^(así|asi|eso|esto)$/i.test(x)
-      )
-      if (
-        likes.length !== (a.likes || []).length ||
-        rejectedNames.length !== (a.rejectedNames || []).length
-      ) {
-        useSettingsStore.getState().update({
-          assistantMemory: { ...a, likes, rejectedNames, updatedAt: Date.now() }
-        })
-      }
-    } catch {
-      /* */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // One-shot: clear preferredName if it was wrongly set to «tuyo» etc.
-  useEffect(() => {
-    try {
-      const { looksLikePersonName } = require('@core/conversation/user-memory') as typeof import('@core/conversation/user-memory')
-      const pref = mem.preferredName
-      if (pref && !looksLikePersonName(pref)) {
-        const fromSummary = String(mem.relationshipSummary || '').match(/\b(Nahum|[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,})\b/)
-        const healed = fromSummary?.[1] && looksLikePersonName(fromSummary[1]) ? fromSummary[1] : undefined
-        updateMemory({
-          preferredName: healed,
-          userName: (mem as { userName?: string }).userName || healed
-        } as Parameters<typeof updateMemory>[0])
-      } else if (pref && looksLikePersonName(pref) && !(mem as { userName?: string }).userName) {
-        updateMemory({ userName: pref } as Parameters<typeof updateMemory>[0])
-      }
-    } catch {
-      /* */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
   // Retro: chats con señales íntimas → privados si ya hay INTIMACY_FIRST
   useEffect(() => {
     try {
@@ -266,28 +201,8 @@ export function UserMemoryPanel() {
   const [personName, setPersonName] = useState('')
   const [personRel, setPersonRel] = useState('')
   const [consistencyNote, setConsistencyNote] = useState('')
+  const [exportingSnapshot, setExportingSnapshot] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    const id = window.setTimeout(() => {
-      if (cancelled) return
-      try {
-        const r = runOpenChatsMemoryConsistency()
-        if (!cancelled && (r.assistantAdded.length || r.userAdded.length || r.favoritesFound.length)) {
-          setConsistencyNote(
-            `Auto-revisión (${r.durationMs}ms): ` +
-              [...r.favoritesFound.slice(0, 3), ...r.assistantAdded.slice(0, 2)].filter(Boolean).join(' · ')
-          )
-        }
-      } catch {
-        /* ignore */
-      }
-    }, 500)
-    return () => {
-      cancelled = true
-      window.clearTimeout(id)
-    }
-  }, []) // consistency-auto
   const [tab, setTab] = useState<'user' | 'assistant' | 'intimate' | 'agenda'>('user')
   const showIntimateTab = Boolean(
     settings.adultIntimacyOptIn ||
@@ -305,6 +220,126 @@ export function UserMemoryPanel() {
   }, [])
   const lastCollect = getLastMemoryCollectStatus()
   void collectStatusTick
+
+  const exportMemorySnapshot = async () => {
+    setExportingSnapshot(true)
+    try {
+      const current = useSettingsStore.getState().settings
+      const readLocalValue = (key: string) => {
+        try {
+          return {
+            status: 'loaded',
+            value: typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null
+          }
+        } catch (error) {
+          return {
+            status: 'unavailable',
+            error: error instanceof Error ? error.message : String(error)
+          }
+        }
+      }
+      const persistedRaw = readLocalValue('kawaii-settings-v2')
+      let persistedSettings: Record<string, unknown> = {
+        status: persistedRaw.status,
+        ...(persistedRaw.status === 'loaded' ? { present: persistedRaw.value !== null } : {}),
+        ...(persistedRaw.status === 'unavailable' ? { error: persistedRaw.error } : {})
+      }
+      if (persistedRaw.status === 'loaded' && persistedRaw.value) {
+        try {
+          const parsed: unknown = JSON.parse(persistedRaw.value)
+          if (parsed && typeof parsed === 'object') {
+            const root = parsed as Record<string, unknown>
+            const state =
+              root.state && typeof root.state === 'object'
+                ? (root.state as Record<string, unknown>)
+                : root
+            const stored =
+              state.settings && typeof state.settings === 'object'
+                ? (state.settings as Record<string, unknown>)
+                : {}
+            persistedSettings = {
+              status: 'loaded',
+              present: true,
+              data: {
+                userMemory: stored.userMemory,
+                assistantMemory: stored.assistantMemory,
+                memoryEpisodes: stored.memoryEpisodes,
+                relationshipState: stored.relationshipState,
+                userMood: stored.userMood,
+                assistantMood: stored.assistantMood,
+                memoryOnboarding: stored.memoryOnboarding,
+                assistantMemoryTurnReceipts: stored.assistantMemoryTurnReceipts
+              }
+            }
+          } else {
+            persistedSettings = { status: 'invalid', error: 'Unexpected settings snapshot shape' }
+          }
+        } catch (error) {
+          persistedSettings = {
+            status: 'invalid',
+            error: error instanceof Error ? error.message : String(error)
+          }
+        }
+      }
+
+      const archiveSnapshot: Record<string, unknown> = {}
+      for (const kind of ['user', 'assistant'] as const) {
+        try {
+          const loaded = await window.kawaii?.filesLoadMemoryArchive?.(kind)
+          archiveSnapshot[kind] = loaded?.ok
+            ? { status: 'loaded', data: loaded.data }
+            : { status: 'unavailable', error: loaded?.error || 'archive API unavailable' }
+        } catch (error) {
+          archiveSnapshot[kind] = {
+            status: 'unavailable',
+            error: error instanceof Error ? error.message : String(error)
+          }
+        }
+      }
+
+      const version = await window.kawaii?.getVersion?.()
+      const snapshot = await createMemorySnapshot({
+        appVersion: String(version || 'unknown'),
+        sources: {
+          settingsStore: {
+            userMemory: current.userMemory,
+            assistantMemory: current.assistantMemory,
+            memoryEpisodes: current.memoryEpisodes,
+            relationshipState: current.relationshipState,
+            userMood: current.userMood,
+            assistantMood: current.assistantMood,
+            memoryOnboarding: current.memoryOnboarding,
+            assistantMemoryTurnReceipts: current.assistantMemoryTurnReceipts
+          },
+          persistedSettings,
+          assistantMirror: readLocalValue('kawaii-assistant-memory-v1'),
+          userMemoryBackups: readLocalValue('kawaii-user-memory-backup-v1'),
+          episodeMigrationBackup: readLocalValue('kawaii-episode-migration-backup-v1'),
+          archives: archiveSnapshot
+        }
+      })
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
+        type: 'application/json'
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `kawaii-memory-snapshot-${new Date(snapshot.createdAt)
+        .toISOString()
+        .replace(/[:.]/g, '-')}.json`
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
+      setConsistencyNote(
+        `Snapshot exportado sin modificar recuerdos${snapshot.sha256 ? ` · SHA-256 ${snapshot.sha256.slice(0, 12)}` : ''}.`
+      )
+    } catch (error) {
+      setConsistencyNote(
+        `No se pudo exportar la memoria: ${error instanceof Error ? error.message : String(error)}`
+      )
+    } finally {
+      setExportingSnapshot(false)
+    }
+  }
 
   const aMem: AssistantMemory = (() => {
     const fromSettings = settings.assistantMemory
@@ -336,67 +371,6 @@ export function UserMemoryPanel() {
   const [aLikeDraft, setALikeDraft] = useState('')
   const [aDislikeDraft, setADislikeDraft] = useState('')
   const [aRelDraft, setARelDraft] = useState('')
-
-  // Rehydrate assistant memory + B2 partition + drop legacy garbage likes
-  useEffect(() => {
-    const empty =
-      !(
-        aMem.likes?.length ||
-        aMem.dislikes?.length ||
-        aMem.habits?.length ||
-        aMem.relational?.length
-      )
-    if (empty) {
-      try {
-        hydrateAssistantMemoryFromMirror()
-      } catch {
-        /* ignore */
-      }
-    }
-    // B2: persist partitioned likes → relational if needed
-    try {
-      const cur = useSettingsStore.getState().settings.assistantMemory
-      if (cur?.likes?.length) {
-        const part = partitionAssistantLikes(cur)
-        const moved =
-          (part.relational?.length || 0) > (cur.relational?.length || 0) ||
-          (part.likes?.length || 0) < (cur.likes?.length || 0)
-        if (moved) {
-          useSettingsStore.getState().update({ assistantMemory: part })
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-    try {
-      const prev = useSettingsStore.getState().settings.userMemory
-      const likes = (prev?.likes || []).map(normalizeLikePhrase).filter(Boolean)
-      if (prev?.likes && likes.join('|') !== prev.likes.join('|')) {
-        useSettingsStore.getState().update({
-          userMemory: { ...prev, likes, updatedAt: Date.now() }
-        })
-      }
-    } catch {
-      /* ignore */
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab])
-
-  // B7 — compact near-duplicate likes when opening assistant memory
-  useEffect(() => {
-    if (tab !== 'assistant') return
-    try {
-      const cur = useSettingsStore.getState().settings.assistantMemory
-      if (!cur) return
-      const next = compactAssistantMemory(cur)
-      if (memoryListsChanged(cur, next)) {
-        useSettingsStore.getState().update({ assistantMemory: { ...next, updatedAt: Date.now() } })
-      }
-    } catch {
-      /* ignore */
-    }
-  }, [tab])
-
 
   const updateAssistant = (patch: Partial<AssistantMemory>) => {
     const prev = useSettingsStore.getState().settings.assistantMemory || emptyAssistantMemory()
@@ -535,6 +509,17 @@ export function UserMemoryPanel() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              disabled={exportingSnapshot}
+              className="text-[11px] px-2.5 py-1 rounded-full border border-kawaii-border bg-white hover:bg-violet-50 text-kawaii-text disabled:opacity-50"
+              onClick={() => void exportMemorySnapshot()}
+            >
+              <span className="inline-flex items-center gap-1">
+                <Download className="w-3 h-3" />
+                {exportingSnapshot ? 'Exportando…' : 'Exportar snapshot (solo lectura)'}
+              </span>
+            </button>
+            <button
+              type="button"
               className="text-[11px] px-2.5 py-1 rounded-full border border-kawaii-border bg-white hover:bg-pink-50 text-kawaii-text"
               onClick={() => {
                 try {
@@ -552,8 +537,8 @@ export function UserMemoryPanel() {
                   ].filter(Boolean)
                   setConsistencyNote(
                     bits.length
-                      ? 'Consistencia OK (' + r.durationMs + 'ms) · ' + bits.join(' · ')
-                      : 'Consistencia OK (' + r.durationMs + 'ms) · sin novedades en chats abiertos'
+                      ? 'Vista previa (' + r.durationMs + 'ms; no modifica memoria) · ' + bits.join(' · ')
+                      : 'Vista previa (' + r.durationMs + 'ms; no modifica memoria) · sin candidatos nuevos'
                   )
                 } catch (e) {
                   setConsistencyNote(

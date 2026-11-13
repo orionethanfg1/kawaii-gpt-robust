@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   extractUserFactsFromMessage,
+  hasMemorySignal,
   mergeUserMemory,
   buildUserMemoryPrompt,
   buildRelationshipContinuityBlock
@@ -26,6 +27,26 @@ describe('user-memory relationship', () => {
     expect(c.facts?.[0]).toMatch(/^PIN:/)
   })
 
+  it('does not promote explicit roleplay or embodied narration into stable user memories', () => {
+    const framed = extractUserFactsFromMessage(
+      'En este roleplay me encanta que me beses junto al café; me gusta la escena.'
+    )
+    expect(framed.likes).toBeUndefined()
+    expect(framed.facts).toBeUndefined()
+    expect(framed.emotionalNotes?.[0]).toMatch(/me encanta que me beses/i)
+
+    const narrated = extractUserFactsFromMessage(
+      '*Me acerco y te abrazo.* Me gusta que me acaricies así.'
+    )
+    expect(narrated.likes).toBeUndefined()
+    expect(narrated.favorites).toBeUndefined()
+  })
+
+  it('still captures a direct preference outside roleplay context', () => {
+    const direct = extractUserFactsFromMessage('Me gusta el café de olla.')
+    expect(direct.likes).toContain('café de olla')
+  })
+
   it('merge pins and builds prompt without listing order pressure', () => {
     let mem = mergeUserMemory(null, {
       preferredName: 'Azrael',
@@ -35,7 +56,7 @@ describe('user-memory relationship', () => {
     const prompt = buildUserMemoryPrompt(mem)
     expect(prompt).toMatch(/Azrael/)
     expect(prompt).toMatch(/Anclas|trabaja de noche/)
-    expect(prompt).toMatch(/naturalidad/)
+    expect(prompt).toMatch(/naturali/)
     const cont = buildRelationshipContinuityBlock(mem, 'novia')
     expect(cont).toMatch(/novia|Azrael/)
   })

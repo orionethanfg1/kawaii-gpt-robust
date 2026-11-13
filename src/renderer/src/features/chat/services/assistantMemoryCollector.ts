@@ -8,7 +8,8 @@ import {
   emptyAssistantMemory,
   isAssistantMemoryEmpty,
   isStableTopicPhrase,
-  classifyAssistantLikePhrase
+  classifyAssistantLikePhrase,
+  isAssistantPreferenceQuestion
 } from '@core/conversation/assistant-memory'
 import { resolveMirrorVsStore, ASSISTANT_MEMORY_VERSION } from '@core/conversation/assistant-memory-reconcile'
 import { reportMemoryCollectStatus } from '@core/conversation/memory-collect-status'
@@ -18,11 +19,16 @@ import {
   type CollectAssistantMemoryResult
 } from '@core/conversation/collect-assistant-memory'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
+import {
+  appendAssistantMemoryTurnReceipt,
+  hasAssistantMemoryTurnReceipt
+} from '@core/conversation/assistant-memory-idempotency'
 
 const MIRROR_KEY = 'kawaii-assistant-memory-v1'
 
 function counts(m?: AssistantMemory | null): {
   likes: number
+  favorites: number
   dislikes: number
   habits: number
   boundaries: number
@@ -52,18 +58,104 @@ function readMirror(): AssistantMemory | null {
   }
 }
 
-function writeMirror(mem: AssistantMemory): void {
+function writeMirror(mem: AssistantMemory): boolean {
   try {
     localStorage.setItem(MIRROR_KEY, JSON.stringify(mem))
+    return true
   } catch {
-    /* quota */
+    console.error('[assistant-memory] mirror persist failed')
+    return false
+  }
+}
+
+function persistedMemoryMatches(expected: AssistantMemory): boolean {
+  try {
+    const raw = localStorage.getItem('kawaii-settings-v2')
+    if (!raw) return false
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return false
+    const root = parsed as Record<string, unknown>
+    const state =
+      root.state && typeof root.state === 'object'
+        ? (root.state as Record<string, unknown>)
+        : root
+    const settings =
+      state.settings && typeof state.settings === 'object'
+        ? (state.settings as Record<string, unknown>)
+        : null
+    const saved =
+      settings?.assistantMemory && typeof settings.assistantMemory === 'object'
+        ? (settings.assistantMemory as Record<string, unknown>)
+        : null
+    if (!saved) return false
+    const fields = [
+      'preferredNames',
+      'rejectedNames',
+      'growthNotes',
+      'likes',
+      'favorites',
+      'dislikes',
+      'habits',
+      'boundaries',
+      'voiceNotes',
+      'relational'
+    ] as const
+    return fields.every(
+      (field) =>
+        JSON.stringify(Array.isArray(saved[field]) ? saved[field] : []) ===
+        JSON.stringify(expected[field] || [])
+    )
+  } catch {
+    return false
+  }
+}
+
+function persistedTurnReceiptMatches(receipt: string): boolean {
+  try {
+    const raw = localStorage.getItem('kawaii-settings-v2')
+    if (!raw) return false
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return false
+    const root = parsed as Record<string, unknown>
+    const state =
+      root.state && typeof root.state === 'object'
+        ? (root.state as Record<string, unknown>)
+        : root
+    const settings =
+      state.settings && typeof state.settings === 'object'
+        ? (state.settings as Record<string, unknown>)
+        : null
+    const receipts = settings?.assistantMemoryTurnReceipts
+    return Array.isArray(receipts) && receipts.includes(receipt)
+  } catch {
+    return false
+  }
+}
+
+export function persistAssistantMemoryTurnReceipt(receipt: string): boolean {
+  try {
+    const settings = useSettingsStore.getState().settings
+    const receipts = appendAssistantMemoryTurnReceipt(
+      settings.assistantMemoryTurnReceipts,
+      receipt
+    )
+    useSettingsStore.getState().update({ assistantMemoryTurnReceipts: receipts })
+    return (
+      hasAssistantMemoryTurnReceipt(
+        useSettingsStore.getState().settings.assistantMemoryTurnReceipts,
+        receipt
+      ) && persistedTurnReceiptMatches(receipt)
+    )
+  } catch (error) {
+    console.warn('[assistant-memory] turn receipt persist failed', error)
+    return false
   }
 }
 
 /**
  * Force-write assistant memory to settings + mirror (bypasses soft merge quirks).
  */
-export function forcePersistAssistantMemory(mem: AssistantMemory): boolean {
+export function forcePersistAssistantMemory(mem: AssistantMemory, turnReceipt?: string): boolean {
   try {
     const scrubLikes = (xs?: string[]) =>
       (xs || [])
@@ -71,7 +163,7 @@ export function forcePersistAssistantMemory(mem: AssistantMemory): boolean {
         .slice(0, 12)
     const scrubReject = (xs?: string[]) =>
       (xs || []).filter((x) => !/^(así|asi|eso|esto)$/i.test(x)).slice(0, 6)
-    const clean: AssistantMemory = {
+    const clean = {
       preferredNames: Array.isArray(mem.preferredNames) ? mem.preferredNames.slice(0, 8) : [],
       rejectedNames: scrubReject(mem.rejectedNames),
       growthNotes: Array.isArray(mem.growthNotes) ? mem.growthNotes.slice(0, 10) : [],
@@ -85,14 +177,34 @@ export function forcePersistAssistantMemory(mem: AssistantMemory): boolean {
       updatedAt: Date.now()
     }
     const before = counts(useSettingsStore.getState().settings.assistantMemory)
-    useSettingsStore.getState().update({ assistantMemory: clean })
-    writeMirror(clean)
+    const settings = useSettingsStore.getState().settings
+    useSettingsStore.getState().update({
+      assistantMemory: clean,
+      ...(turnReceipt
+        ? {
+            assistantMemoryTurnReceipts: appendAssistantMemoryTurnReceipt(
+              settings.assistantMemoryTurnReceipts,
+              turnReceipt
+            )
+          }
+        : {})
+    })
+    const mirrorOk = writeMirror(clean)
     const after = counts(useSettingsStore.getState().settings.assistantMemory)
-    const mirrorOk = !isAssistantMemoryEmpty(readMirror())
+    const durableOk = persistedMemoryMatches(clean)
+    const receiptOk =
+      !turnReceipt ||
+      (hasAssistantMemoryTurnReceipt(
+        useSettingsStore.getState().settings.assistantMemoryTurnReceipts,
+        turnReceipt
+      ) &&
+        persistedTurnReceiptMatches(turnReceipt))
     console.warn('[assistant-memory] persisted', {
       before,
       after,
       mirrorOk,
+      durableOk,
+      receiptOk,
       updatedAt: clean.updatedAt
     })
     // Readback mismatch = store rejected or merge lost fields
@@ -108,6 +220,13 @@ export function forcePersistAssistantMemory(mem: AssistantMemory): boolean {
       })
       return false
     }
+    if (!durableOk || !receiptOk) {
+      console.error('[assistant-memory] durable readback mismatch', {
+        memory: durableOk,
+        receipt: receiptOk
+      })
+      return false
+    }
     return true
   } catch (e) {
     console.warn('[assistant-memory] setState failed', e)
@@ -120,10 +239,16 @@ export function forcePersistAssistantMemory(mem: AssistantMemory): boolean {
  */
 export function runAssistantMemoryCollector(
   replyText: string,
-  opts?: { userText?: string }
+  opts?: { userText?: string; turnReceipt?: string }
 ): CollectAssistantMemoryResult | null {
-  const prev =
-    useSettingsStore.getState().settings.assistantMemory || emptyAssistantMemory()
+  const settings = useSettingsStore.getState().settings
+  if (
+    opts?.turnReceipt &&
+    hasAssistantMemoryTurnReceipt(settings.assistantMemoryTurnReceipts, opts.turnReceipt)
+  ) {
+    return null
+  }
+  const prev = settings.assistantMemory || emptyAssistantMemory()
   const textLen = String(replyText || '').length
   let result: CollectAssistantMemoryResult
   try {
@@ -146,14 +271,18 @@ export function runAssistantMemoryCollector(
   }
 
   if (!result.changed) {
+    const receiptOk = opts?.turnReceipt
+      ? persistAssistantMemoryTurnReceipt(opts.turnReceipt)
+      : true
     console.warn('[assistant-memory] skip', result.reason, {
       textLen,
       extracted: extractedCounts,
-      store: counts(prev)
+      store: counts(prev),
+      receiptOk
     })
     reportMemoryCollectStatus({
       at: Date.now(),
-      ok: true,
+      ok: receiptOk,
       changed: false,
       reason: result.reason,
       extracted: {
@@ -161,12 +290,14 @@ export function runAssistantMemoryCollector(
         dislikes: extractedCounts.dislikes,
         habits: extractedCounts.habits,
         relational: result.extracted?.relational?.length || 0
-      }
+      },
+      ...(!receiptOk ? { error: 'Persistent assistant-memory turn receipt readback failed' } : {})
     })
+    result.persisted = receiptOk
     return result
   }
 
-  const ok = forcePersistAssistantMemory(result.memory)
+  const ok = forcePersistAssistantMemory(result.memory, opts?.turnReceipt)
   console.warn('[assistant-memory] write', {
     reason: result.reason,
     textLen,
@@ -176,7 +307,7 @@ export function runAssistantMemoryCollector(
   })
   reportMemoryCollectStatus({
     at: Date.now(),
-    ok: true,
+    ok,
     changed: true,
     reason: result.reason,
     extracted: {
@@ -185,7 +316,10 @@ export function runAssistantMemoryCollector(
       habits: extractedCounts.habits,
       relational: result.extracted?.relational?.length || 0
     },
-    persistOk: ok
+    persistOk: ok,
+    ...(!ok
+      ? { error: 'Persistent settings readback did not match the written assistant memory' }
+      : {})
   })
   try {
     const ex = result.extracted || {}
@@ -213,13 +347,10 @@ export function runAssistantMemoryCollector(
   } catch {
     /* log optional */
   }
-  // App intermediaria: el modelo propone hechos limpios en segundo plano
-  try {
+  if (ok && isAssistantPreferenceQuestion(opts?.userText)) {
     scheduleLlmAssistantMemoryEnrich(replyText, opts)
-  } catch {
-    /* */
   }
-  return result
+  return { ...result, persisted: ok }
 }
 
 /** Panel can rehydrate from mirror if store empty */
@@ -251,6 +382,8 @@ export function scheduleLlmAssistantMemoryEnrich(
 ): void {
   const text = String(replyText || '').trim()
   if (text.length < 80) return
+  const expectedUpdatedAt =
+    useSettingsStore.getState().settings.assistantMemory?.updatedAt || 0
   void (async () => {
     try {
       const {
@@ -265,34 +398,25 @@ export function scheduleLlmAssistantMemoryEnrich(
       const openBase = (settings.localOpenAIBaseUrl || '').trim()
       const ollamaBase = (settings.localBaseUrl || '').trim()
       const messages = buildAssistantMemoryExtractMessages(text, opts?.userText)
-      let raw = ''
-      if (openBase && window.kawaii?.localChat) {
-        // Prefer generic IPC if present
-      }
-      // Minimal OpenAI-compatible fetch via main is not always exposed; use provider classes
       const { OpenAICompatibleProvider, OllamaProvider } = await import('@core/providers')
-      let provider: { chat: (req: unknown) => Promise<{ content?: string }> }
-      let useModel = model
-      if (openBase) {
-        provider = new OpenAICompatibleProvider({
-          baseUrl: openBase,
-          timeoutMs: 45_000
-        }) as never
-      } else if (ollamaBase) {
-        provider = new OllamaProvider({
-          baseUrl: ollamaBase,
-          timeoutMs: 45_000
-        }) as never
-      } else {
-        return
-      }
+      const provider = openBase
+        ? new OpenAICompatibleProvider({
+            id: 'assistant-memory-extractor',
+            displayName: 'Assistant memory extractor',
+            baseUrl: openBase,
+            timeoutMs: 45_000
+          })
+        : ollamaBase
+          ? new OllamaProvider({ baseUrl: ollamaBase, timeoutMs: 45_000 })
+          : null
+      if (!provider) return
       const result = await provider.chat({
-        model: useModel,
+        model,
         messages,
         temperature: 0.1,
         maxTokens: 400
-      } as never)
-      raw = String((result as { content?: string })?.content || '')
+      })
+      const raw = result.content
       const patch = sanitizeLlmMemoryPatch(parseAssistantMemoryExtractJson(raw))
       const has =
         (patch.likes?.length || 0) +
@@ -301,14 +425,22 @@ export function scheduleLlmAssistantMemoryEnrich(
           (patch.relational?.length || 0) >
         0
       if (!has) return
-      const prev =
-        useSettingsStore.getState().settings.assistantMemory || emptyAssistantMemory()
+      const current = useSettingsStore.getState().settings.assistantMemory
+      if ((current?.updatedAt || 0) !== expectedUpdatedAt) {
+        console.info('[assistant-memory] llm-enrich skipped; memory changed during extraction')
+        return
+      }
+      const prev = current || emptyAssistantMemory()
       const next = mergeAssistantMemory(prev, patch)
-      forcePersistAssistantMemory(next)
-      console.warn('[assistant-memory] llm-enrich ok', {
-        likes: patch.likes?.length || 0,
-        names: patch.preferredNames?.length || 0
-      })
+      const persistOk = forcePersistAssistantMemory(next)
+      if (persistOk) {
+        console.info('[assistant-memory] llm-enrich persisted', {
+          likes: patch.likes?.length || 0,
+          names: patch.preferredNames?.length || 0
+        })
+      } else {
+        console.error('[assistant-memory] llm-enrich persistence failed')
+      }
     } catch (e) {
       console.warn('[assistant-memory] llm-enrich skip', e)
     }

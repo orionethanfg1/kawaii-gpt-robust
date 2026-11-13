@@ -10,9 +10,10 @@ describe('N1 initiative decision', () => {
     expect(parseInitiativeDecision('silencio\n').speak).toBe(false)
   })
 
-  it('parses MENSAJE', () => {
-    expect(parseInitiativeDecision('MENSAJE').speak).toBe(true)
-    expect(parseInitiativeDecision('MENSAJE\nextra').speak).toBe(true)
+  it('requires an explicit, non-empty MENSAJE decision', () => {
+    expect(parseInitiativeDecision('MENSAJE').speak).toBe(false)
+    expect(parseInitiativeDecision('MENSAJE\nextra').speak).toBe(false)
+    expect(parseInitiativeDecision('MENSAJE: Retomamos los bocetos pendientes?').speak).toBe(true)
   })
 
   it('ambiguous prose defaults to silence', () => {
@@ -30,7 +31,7 @@ describe('N1 initiative decision', () => {
       recentLines: ['Usuario: hola']
     })
     expect(msgs[0].role).toBe('system')
-    expect(msgs[1].content).toMatch(/sin respuesta/i)
-    expect(msgs[1].content).toMatch(/SILENCIO|MENSAJE/)
+    expect(msgs[0].content).toMatch(/sin respuesta/i)
+    expect(msgs[0].content).toMatch(/SILENCIO|MENSAJE/)
   })
 })

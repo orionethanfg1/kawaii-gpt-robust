@@ -25,7 +25,10 @@ import { isChatBusy } from '../services/chatBusy'
  */
 export function useConversationInitiative(enabledGate: boolean) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastNudgeRef = useRef(0)
+  /** Solo se actualiza al enviar una iniciativa real (cooldown). */
+  const lastInitiativeSentRef = useRef(0)
+  /** Ancla de reprogramación tras actividad del chat (no cuenta como iniciativa). */
+  const scheduleAnchorRef = useRef(0)
   const recentNudgesRef = useRef<string[]>([])
   const generatingRef = useRef(false)
   const lastWardrobeProposeRef = useRef(0)
@@ -113,11 +116,12 @@ export function useConversationInitiative(enabledGate: boolean) {
         [...msgs].reverse().find((m) => m.role === 'user')?.createdAt || 0
       // Prefer assistant completion; if none, fall back to user
       const activityAt = Math.max(lastAssistantDone, lastUserAt)
-      const anchor = Math.max(activityAt, lastNudgeRef.current)
+      // No mezclar "última iniciativa enviada" con "última actividad del chat"
+      const anchor = Math.max(activityAt, scheduleAnchorRef.current, lastInitiativeSentRef.current)
       const dueAt = anchor + intervalMs
       const wait = dueAt - Date.now()
       // Never wait more than interval; never negative → fire soon
-      if (wait <= 0) return 1500
+      if (wait <= 0) return 1200
       return Math.min(wait, intervalMs)
     }
 
@@ -249,9 +253,10 @@ export function useConversationInitiative(enabledGate: boolean) {
       })
       const fixedMin = fixedMinutes()
       // CV1: after harness/tool bubbles, don't force the full idle window again
+      // Fijo: 35% del intervalo (mín. 8s). Adaptativo: 45s de silencio real.
       let minUserIdleMs =
         fixedMin != null
-          ? Math.max(10_000, Math.floor(fixedMin * 60_000 * 0.35))
+          ? Math.max(8_000, Math.floor(fixedMin * 60_000 * 0.35))
           : 45_000
       if (lastRaw && isHarnessNoise(lastRaw)) {
         minUserIdleMs = Math.min(minUserIdleMs, fixedMin != null ? 15_000 : 45_000)
@@ -283,7 +288,7 @@ export function useConversationInitiative(enabledGate: boolean) {
             : s.initiativeRespectQuietHours !== false,
         enabled: true,
         snoozeUntil: s.conversationInitiativeSnoozeUntil,
-        lastInitiativeAt: lastNudgeRef.current || undefined,
+        lastInitiativeAt: lastInitiativeSentRef.current || undefined,
         lastUserAt: effectiveLastUser,
         tone,
         ignoredCount: ignoredCountRef.current,
@@ -451,21 +456,14 @@ if (modelRaw) {
               timeoutMs: 18_000
             })
             const decision = parseInitiativeDecision(decRaw || '')
-            // Model wrote the initiative in the decision step (ignored MENSAJE label)
-            if (
-              decision.speak &&
-              decRaw &&
-              !/^\s*MENSAJE\b/i.test(decRaw.trim()) &&
-              decRaw.trim().length >= 20 &&
-              !/\bSILENCIO\b/i.test(decRaw)
-            ) {
-              text = decRaw.trim().slice(0, 600)
+            // MENSAJE: … o texto libre del modelo
+            if (decision.speak && decision.text) {
+              text = decision.text
               if (typeof console !== 'undefined' && console.debug) {
-                console.debug('[initiative] N1 used decision text as message')
+                console.debug('[initiative] N1 approved message')
               }
             } else if (!decision.speak) {
-              const explicitSilence = /\bSILENCIO\b/i.test(decRaw || '')
-              // Empty / failed format: do NOT skip — generate a real message below
+              const explicitSilence = /^\s*SILENCIO\b/i.test(decRaw || '')
               if (explicitSilence) {
                 if (typeof console !== 'undefined' && console.debug) {
                   console.debug('[initiative] N1 SILENCIO', {
@@ -569,12 +567,16 @@ if (modelRaw) {
             webContext,
             unansweredInitiatives: ignoredCountRef.current
           })
-          text = await generateInitiativeWithLocalLlm({
+          const generated = await generateInitiativeWithLocalLlm({
             baseUrl: base,
             model: modelRaw,
             messages: msgs,
             timeoutMs: 28_000
           })
+          {
+            const gd = parseInitiativeDecision(generated || '')
+            text = gd.speak ? gd.text || null : null
+          }
           initiativeWebHitsForMeta = initiativeWebHits
           if (!text) {
             const alt =
@@ -582,15 +584,16 @@ if (modelRaw) {
                 ? 'http://127.0.0.1:1234'
                 : 'http://127.0.0.1:11434'
             if (alt !== base) {
-              text = await generateInitiativeWithLocalLlm({
+              const alternate = await generateInitiativeWithLocalLlm({
                 baseUrl: alt,
                 model: modelRaw,
                 messages: msgs,
                 timeoutMs: 18_000
               })
+              const ad = parseInitiativeDecision(alternate || '')
+              text = ad.speak ? ad.text || null : null
             }
           }
-          // No alternate-model retry: loading a second LLM for initiative wastes VRAM/RAM
           if (text && recentNudgesRef.current.some((r) => r && text!.includes(r.slice(0, 40)))) {
             text = null
           }
@@ -957,21 +960,39 @@ if (modelRaw) {
           /* intimacy propose optional */
         }
 
-        // Planned flow: only the LLM speaks. No template fallbacks.
+        // Preferencia: LLM. Si falla (modelo caído / timeout), presencia mínima para no quedar muda.
+        let usedTemplate = false
         if (!text) {
+          text = pickInitiativeNudge({
+            tone,
+            name: charName,
+            userName,
+            recentTexts: recentNudgesRef.current,
+            focus: s.userMemory?.currentFocus,
+            hoursSinceUser: hoursSince,
+            memoryHint:
+              s.userMemory?.goals?.[0] ||
+              s.userMemory?.likes?.[0] ||
+              s.userMemory?.people?.[0]?.name
+          })
+          usedTemplate = Boolean(text)
           if (typeof console !== 'undefined' && console.debug) {
-            console.debug('[initiative] LLM empty — reschedule, no template', {
+            console.debug('[initiative] presence fallback', {
               model: modelRaw || null,
-              base
+              base,
+              usedTemplate
             })
           }
+        }
+        if (!text) {
           schedule(modelRaw ? 'llm-empty' : 'no-model')
           return
         }
-        const usedTemplate = false
 
         recentNudgesRef.current = [text, ...recentNudgesRef.current].slice(0, 12)
         sentTodayRef.current.count += 1
+        lastInitiativeSentRef.current = Date.now()
+        scheduleAnchorRef.current = Date.now()
         store.addMessage(convId, {
           role: 'assistant',
           content: text,
@@ -984,11 +1005,10 @@ if (modelRaw) {
             reason: wardrobeProposeMeta
               ? 'Iniciativa visual · guardarropa'
               : usedTemplate
-                ? 'Iniciativa · respaldo (' + tone + ')'
+                ? 'Iniciativa · presencia (' + tone + ')'
                 : !usedTemplate && initiativeWebHitsForMeta > 0
                   ? 'Iniciativa · modelo + web (' + initiativeWebHitsForMeta + ' hits · ' + tone + ')'
                   : 'Iniciativa · modelo (' + tone + ')',
-            // Never claim web on template fallbacks
             useWebSearch: !usedTemplate && initiativeWebHitsForMeta > 0,
             webHitCount:
               !usedTemplate && initiativeWebHitsForMeta > 0 ? initiativeWebHitsForMeta : undefined,
@@ -1019,7 +1039,8 @@ if (modelRaw) {
             silent: false
           })
         }
-        lastNudgeRef.current = Date.now()
+        lastInitiativeSentRef.current = Date.now()
+        scheduleAnchorRef.current = Date.now()
         ignoredCountRef.current = Math.min(8, ignoredCountRef.current + 1)
         if (typeof console !== 'undefined' && console.debug) {
           console.debug('[initiative] sent', text?.slice(0, 60))
@@ -1096,8 +1117,8 @@ if (modelRaw) {
         const isH =
           last.meta?.model === 'harness-host' ||
           /harness/i.test(String(last.meta?.model || ''))
-        // Timer starts from assistant completion, not from user send
-        lastNudgeRef.current = Math.max(lastNudgeRef.current, Date.now())
+        // Solo ancla de agenda — no cuenta como iniciativa enviada
+        scheduleAnchorRef.current = Math.max(scheduleAnchorRef.current, Date.now())
         schedule(isH ? 'post-harness' : 'assistant-done')
       }
       // Streaming ended on existing last message
@@ -1109,7 +1130,7 @@ if (modelRaw) {
         !last.isStreaming &&
         last.id === prevLast.id
       ) {
-        lastNudgeRef.current = Math.max(lastNudgeRef.current, Date.now())
+        scheduleAnchorRef.current = Math.max(scheduleAnchorRef.current, Date.now())
         schedule('assistant-stream-end')
       }
     })

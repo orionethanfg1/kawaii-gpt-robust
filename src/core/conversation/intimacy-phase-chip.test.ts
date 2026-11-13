@@ -24,18 +24,17 @@ describe('G0 intimacy chip phase', () => {
     expect(phase).toBe('scene_active')
   })
 
-  it('sticky keeps scene without fresh tokens if lastIntimateSceneAt recent', () => {
-    const now = Date.now()
+  it('does not keep a physical-scene state when the current turn is casual', () => {
     const phase = resolveLiveIntimatePhase({
       relationship: {
         intimacyOpen: true,
         scenePhase: 'scene_active',
-        lastIntimateSceneAt: now - 60_000
+        lastIntimateSceneAt: Date.now() - 60_000
       } as never,
       facts: ['INTIMACY_PHASE: scene_active'],
-      recentTexts: ['Hola, ¿cómo estás?'],
-      now
+      recentTexts: ['te deseo más fuerte dentro de mí', 'Hola, ¿cómo estás?'],
+      userText: 'Hola, ¿cómo estás?'
     })
-    expect(phase).toBe('scene_active')
+    expect(phase).toBe('open')
   })
 })

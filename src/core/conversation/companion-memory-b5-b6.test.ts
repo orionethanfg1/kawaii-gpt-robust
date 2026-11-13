@@ -153,11 +153,32 @@ describe('B6 coexistence suite', () => {
     expect(p).toMatch(/Nahum|Nombre/i)
   })
 
+  it('does not inject unrelated user facts into a long conversation', () => {
+    const p = buildSelectiveUserMemoryPrompt(
+      { facts: ['Trabaja en una colección de diseños de Michoacán'] },
+      '¿Qué temperatura hará mañana?',
+      { messageCount: 30 }
+    )
+    expect(p).not.toMatch(/colección de diseños/i)
+  })
+
   it('extract + reconcile: amanecer sample from product', () => {
     const sample =
       'Me encanta ver el amanecer sobre un lago, cuando la luz se refleja en las aguas.'
-    const r = collectAssistantMemoryFromReply(emptyAssistantMemory(), sample)
+    const r = collectAssistantMemoryFromReply(emptyAssistantMemory(), sample, {
+      userText: '¿Qué cosas te encanta hacer?'
+    })
     expect(r.changed).toBe(true)
     expect((r.memory.likes || []).join(' ')).toMatch(/amanecer|lago/i)
+  })
+
+  it('does not turn a generated scene reply into stable assistant tastes', () => {
+    const r = collectAssistantMemoryFromReply(
+      emptyAssistantMemory(),
+      'Me encanta caminar bajo la lluvia y mirar las luces de la ciudad.',
+      { userText: 'Genera una foto tuya caminando bajo la lluvia en la ciudad.' }
+    )
+    expect(r.changed).toBe(false)
+    expect(r.memory.likes).toEqual([])
   })
 })

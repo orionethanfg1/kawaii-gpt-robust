@@ -13,6 +13,7 @@
 
 import { useChatStore } from '@shared/lib/stores/chatStore'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
+import type { Settings } from '@shared/types/settings'
 import {
   extractExplicitNickname,
   looksLikeNicknameAccept,
@@ -21,7 +22,8 @@ import {
   extractUserFactsFromTurnPair,
   mergeUserMemory,
   sanitizeUserMemoryNames,
-  hasMemorySignal
+  hasMemorySignal,
+  type UserMemory
 } from '@core/conversation/user-memory'
 import {
   advanceOnboardingAfterExtract,
@@ -34,6 +36,54 @@ import {
 } from '@core/conversation/relationship-confidence'
 import { syncRelationshipFromTurn } from './relationshipSync'
 
+function toSettingsUserMemory(memory: UserMemory): NonNullable<Settings['userMemory']> {
+  return {
+    ...memory,
+    facts: memory.facts || [],
+    nicknames: memory.nicknames || [],
+    avatarScenes: memory.avatarScenes || [],
+    goals: memory.goals || [],
+    likes: memory.likes || [],
+    favorites: memory.favorites || [],
+    dislikes: memory.dislikes || [],
+    standingInstructions: memory.standingInstructions || []
+  }
+}
+
+function persistedUserMemoryMatches(expected: UserMemory): boolean {
+  try {
+    const raw = localStorage.getItem('kawaii-settings-v2')
+    if (!raw) return false
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return false
+    const root = parsed as Record<string, unknown>
+    const state =
+      root.state && typeof root.state === 'object'
+        ? (root.state as Record<string, unknown>)
+        : root
+    const settings =
+      state.settings && typeof state.settings === 'object'
+        ? (state.settings as Record<string, unknown>)
+        : null
+    const saved =
+      settings?.userMemory && typeof settings.userMemory === 'object'
+        ? (settings.userMemory as Record<string, unknown>)
+        : null
+    if (!saved) return false
+    return (
+      JSON.stringify(saved.facts || []) === JSON.stringify(expected.facts || []) &&
+      JSON.stringify(saved.likes || []) === JSON.stringify(expected.likes || []) &&
+      JSON.stringify(saved.favorites || []) === JSON.stringify(expected.favorites || []) &&
+      JSON.stringify(saved.dislikes || []) === JSON.stringify(expected.dislikes || []) &&
+      JSON.stringify(saved.goals || []) === JSON.stringify(expected.goals || []) &&
+      String(saved.userName || '') === String(expected.userName || '') &&
+      String(saved.preferredName || '') === String(expected.preferredName || '')
+    )
+  } catch {
+    return false
+  }
+}
+
 /** Phase: nicknames / preferred name from the user turn. */
 export function applyNicknameFromUserMessage(trimmed: string): void {
   try {
@@ -43,13 +93,13 @@ export function applyNicknameFromUserMessage(trimmed: string): void {
       const nicks = Array.isArray(mem.nicknames) ? [...mem.nicknames] : []
       if (!nicks.map((x) => x.toLowerCase()).includes(nick.toLowerCase())) nicks.push(nick)
       useSettingsStore.getState().update({
-        userMemory: {
+        userMemory: toSettingsUserMemory({
           ...mem,
           preferredName: mem.preferredName || nick,
           nicknames: nicks.slice(0, 12),
           pendingNickname: undefined,
           updatedAt: Date.now()
-        }
+        })
       })
       return
     }
@@ -60,7 +110,7 @@ export function applyNicknameFromUserMessage(trimmed: string): void {
       if (pend) {
         const r = acceptNickname(mem, rel, pend)
         useSettingsStore.getState().update({
-          userMemory: r.userMemory,
+          userMemory: toSettingsUserMemory(r.userMemory),
           relationshipState: r.relationship
         })
       }
@@ -73,7 +123,7 @@ export function applyNicknameFromUserMessage(trimmed: string): void {
       if (pend) {
         const r = rejectNickname(mem, rel, pend)
         useSettingsStore.getState().update({
-          userMemory: r.userMemory,
+          userMemory: toSettingsUserMemory(r.userMemory),
           relationshipState: r.relationship
         })
       }
@@ -125,7 +175,11 @@ export function applyUserMemoryFromTurn(
           um.preferredName.toLowerCase() === name.toLowerCase()
         ) {
           useSettingsStore.getState().update({
-            userMemory: { ...um, preferredName: undefined, updatedAt: Date.now() }
+            userMemory: toSettingsUserMemory({
+              ...um,
+              preferredName: undefined,
+              updatedAt: Date.now()
+            })
           })
         }
       }
@@ -156,7 +210,7 @@ export function applyUserMemoryFromTurn(
       const cur = useSettingsStore.getState().settings.userMemory
       const cleaned = sanitizeUserMemoryNames(cur)
       if (cleaned && cleaned !== cur) {
-        useSettingsStore.getState().update({ userMemory: cleaned })
+        useSettingsStore.getState().update({ userMemory: toSettingsUserMemory(cleaned) })
       }
     } catch {
       /* */
@@ -187,9 +241,42 @@ export function applyUserMemoryFromTurn(
         /* */
       }
       useSettingsStore.getState().update({
-        userMemory: merged,
+        userMemory: toSettingsUserMemory(merged),
         ...(nextOb ? { memoryOnboarding: nextOb } : {})
       })
+      const persistOk = persistedUserMemoryMatches(merged)
+      const persistError = persistOk
+        ? undefined
+        : 'Persistent settings readback did not match the written user memory'
+      if (!persistOk) console.error('[user-memory] durable readback mismatch')
+      void import('@core/conversation/memory-write-log')
+        .then(({ recordMemoryWrite, clipSamples }) => {
+          recordMemoryWrite({
+            side: 'user',
+            reason: 'turn-extract',
+            fields: {
+              likes: facts.likes?.length || 0,
+              dislikes: facts.dislikes?.length || 0,
+              favorites: facts.favorites?.length || 0,
+              facts: facts.facts?.length || 0,
+              goals: facts.goals?.length || 0,
+              userName: facts.userName ? 1 : 0,
+              preferredName: facts.preferredName ? 1 : 0
+            },
+            samples: clipSamples({
+              likes: facts.likes,
+              favorites: facts.favorites,
+              facts: facts.facts,
+              goals: facts.goals,
+              userName: facts.userName ? [facts.userName] : undefined,
+              preferredName: facts.preferredName ? [facts.preferredName] : undefined
+            }),
+            persistOk,
+            error: persistError,
+            conversationId: opts?.conversationId
+          })
+        })
+        .catch((error) => console.warn('[user-memory] write log failed', error))
     }
     try {
       syncRelationshipFromTurn(trimmed)

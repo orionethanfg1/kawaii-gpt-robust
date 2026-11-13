@@ -1,3 +1,11 @@
+## 0.12.0-beta rev.ib
+
+- **Iniciativas reparadas (E2E lógico):**
+  - Separados cooldown real (`lastInitiativeSentRef`) y ancla de agenda (`scheduleAnchorRef`); ya no se reinicia el cooldown en cada respuesta del asistente.
+  - N1 acepta `MENSAJE:` y texto libre del modelo (antes se descartaba el mensaje etiquetado).
+  - Si el LLM no responde: presencia mínima (`pickInitiativeNudge`), no silencio eterno.
+  - Política pura en `initiative.ts`; timer/envío en el hook (modular).
+
 ## 0.12.0-beta rev.hx
 
 - **Boot:** restaurados módulos core faltantes desde el repo (assistant-memory, dual-memory, etc.).

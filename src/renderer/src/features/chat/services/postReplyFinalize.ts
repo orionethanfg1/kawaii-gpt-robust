@@ -30,6 +30,7 @@ import {
   clearPendingCharacterPhotoOffer
 } from '@core/image/character-photo-offer'
 import { detectThirdPartyPhotoIntent } from '@core/image/wardrobe-classify'
+import { createAssistantMemoryTurnReceipt } from '@core/conversation/assistant-memory-idempotency'
 
 export type PostReplyFinalizeArgs = {
   convId: string
@@ -100,74 +101,7 @@ export function finalizeCompletedAssistantReply(
     /* R4 optional */
   }
 
-  // User memory: likes/favorites from this user turn (+ structured write log)
-  void import('@core/conversation/user-memory')
-    .then(async ({ extractUserFactsFromMessage, mergeUserMemory }) => {
-      const ut = String(userText || '').trim()
-      if (ut.length < 6 || /^\s*\[APP\]/i.test(ut)) return
-      const patch = extractUserFactsFromMessage(ut)
-      const has =
-        (patch.likes?.length || 0) +
-          (patch.dislikes?.length || 0) +
-          (patch.favorites?.length || 0) +
-          (patch.facts?.length || 0) +
-          (patch.goals?.length || 0) +
-          (patch.userName ? 1 : 0) +
-          (patch.preferredName ? 1 : 0) >
-        0
-      if (!has) return
-      const sU = useSettingsStore.getState().settings
-      const prev = sU.userMemory || { facts: [] }
-      const merged = mergeUserMemory(prev, patch)
-      let persistOk = true
-      let err: string | undefined
-      try {
-        useSettingsStore.getState().update({
-          userMemory: { ...merged, updatedAt: Date.now() }
-        })
-      } catch (e) {
-        persistOk = false
-        err = e instanceof Error ? e.message : String(e)
-      }
-      try {
-        const { recordMemoryWrite, clipSamples } = await import(
-          '@core/conversation/memory-write-log'
-        )
-        recordMemoryWrite({
-          side: 'user',
-          reason: 'turn-extract',
-          fields: {
-            likes: patch.likes?.length || 0,
-            dislikes: patch.dislikes?.length || 0,
-            favorites: patch.favorites?.length || 0,
-            facts: patch.facts?.length || 0,
-            goals: patch.goals?.length || 0,
-            userName: patch.userName ? 1 : 0,
-            preferredName: patch.preferredName ? 1 : 0
-          },
-          samples: clipSamples({
-            likes: patch.likes,
-            favorites: patch.favorites,
-            facts: patch.facts,
-            goals: patch.goals,
-            userName: patch.userName ? [patch.userName] : undefined,
-            preferredName: patch.preferredName ? [patch.preferredName] : undefined
-          }),
-          persistOk,
-          error: err,
-          conversationId: convId
-        })
-      } catch {
-        console.warn('[postReplyFinalize] user-memory-hit', {
-          likes: patch.likes?.length || 0,
-          favorites: patch.favorites?.length || 0,
-          persistOk
-        })
-      }
-    })
-    .catch((e) => console.warn('[postReplyFinalize] user-memory', e))
-
-    // I1–I3: intimacy scene phase + privileged first-time / scene notes (separate extractor)
+  // I1–I3: intimacy scene phase + privileged first-time / scene notes (separate extractor)
   void import('@core/conversation/intimacy-memory')
     .then(({ applyIntimacyExtraction }) => {
       const sI = useSettingsStore.getState().settings
@@ -215,7 +149,8 @@ export function finalizeCompletedAssistantReply(
         livePhase = im.resolveLiveIntimatePhase({
           relationship: applied.relationship,
           facts: applied.facts,
-          recentTexts
+          recentTexts,
+          userText: String(lastUser?.content || '')
         })
         // If user closed but resolver lagged, force aftercare
         if (
@@ -515,7 +450,7 @@ export function finalizeCompletedAssistantReply(
     /* ignore */
   }
 
-  // Memory: prefer B1 memorySource (milder), then raw / store
+  // One stable source and one collection attempt per completed assistant bubble.
   try {
     const storeTxt =
       useChatStore
@@ -523,46 +458,20 @@ export function finalizeCompletedAssistantReply(
         .conversations.find((c) => c.id === convId)
         ?.messages.find((m) => m.id === assistantId)?.content || ''
 
-    const candidates: Array<{ via: string; text: string }> = [
-      { via: 'memorySource', text: memorySource },
-      { via: 'raw', text: rawText },
-      { via: 'store', text: storeTxt },
-      { via: 'final', text: finalText }
-    ]
-    for (const c of candidates) {
-      if (!c.text || c.text.length < 8) continue
-      const r = runAssistantMemoryCollector(c.text, { userText })
-      if (r?.changed) {
-        memoryChanged = true
-        console.warn('[postReplyFinalize] memory-hit', { via: c.via, reason: r.reason })
-        break
-      }
-      if (r && !r.changed) {
-        console.warn('[postReplyFinalize] memory-no-change', { via: c.via, reason: r.reason })
-      }
+    const source = memorySource || rawText || storeTxt || finalText
+    if (source.length >= 8 && !args.limited) {
+      const turnReceipt = createAssistantMemoryTurnReceipt(convId, assistantId)
+      const result = runAssistantMemoryCollector(source, { userText, turnReceipt: turnReceipt || undefined })
+      memoryChanged = Boolean(result?.changed && result.persisted)
+      console.warn('[postReplyFinalize] memory collection', {
+        changed: Boolean(result?.changed),
+        persisted: Boolean(result?.persisted),
+        reason: result?.reason
+      })
     }
   } catch (e) {
     console.warn('[postReplyFinalize] memory', e)
   }
-
-  // Late flush if stream wrote after finalize
-  setTimeout(() => {
-    try {
-      const again =
-        useChatStore
-          .getState()
-          .conversations.find((c) => c.id === convId)
-          ?.messages.find((m) => m.id === assistantId)?.content || finalText
-      if (again && again.length > 12) {
-        const r = runAssistantMemoryCollector(again, { userText })
-        if (r?.changed) {
-          console.warn('[postReplyFinalize] memory-hit', { via: 'late', reason: r.reason })
-        }
-      }
-    } catch {
-      /* ignore */
-    }
-  }, 400)
 
   // B2b — mood with timestamps (user + assistant)
   try {

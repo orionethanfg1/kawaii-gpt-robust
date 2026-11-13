@@ -6,10 +6,11 @@ describe('B0 collectAssistantMemoryFromReply', () => {
   it('extracts explicit like from cafe phrase', () => {
     const r = collectAssistantMemoryFromReply(
       emptyAssistantMemory(),
-      'Me gusta el café de olla por las mañanas, es mi ritual favorito.'
+      'Me gusta el café de olla por las mañanas, es mi ritual favorito.',
+      { userText: '¿Qué te gusta tomar por la mañana?' }
     )
     expect(r.changed).toBe(true)
-    expect(r.reason).toBe('merged')
+    expect(r.reason).toBe('reconciled')
     expect(r.memory.likes?.some((l) => /caf/i.test(l))).toBe(true)
   })
 
