@@ -18,6 +18,7 @@ import { maybeNotifyModelRefusal } from './modelRefusalTip'
 import { finalizeAssistantReply } from '@core/chat/assistant-reply-pipeline'
 import { inferAssistantGender } from '@core/character/pronouns'
 import { runAssistantMemoryCollector } from './assistantMemoryCollector'
+import { scheduleUserMemoryLlmReview } from './userMemoryLlmReviewer'
 import { syncRelationshipFromTurn } from './relationshipSync'
 import {
   extractUserMood,
@@ -471,6 +472,10 @@ export function finalizeCompletedAssistantReply(
     }
   } catch (e) {
     console.warn('[postReplyFinalize] memory', e)
+  }
+
+  if (!args.limited) {
+    scheduleUserMemoryLlmReview({ convId, assistantId, userText })
   }
 
   // B2b — mood with timestamps (user + assistant)

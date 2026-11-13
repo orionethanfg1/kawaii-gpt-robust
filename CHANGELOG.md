@@ -1,3 +1,11 @@
+## 0.12.0-beta rev.ij
+
+- **Memoria del usuario más selectiva:** saludos y preguntas no relacionadas ya no reciben inventarios de gustos, metas, personas, apariencia ni anclas irrelevantes; las instrucciones estables se limitan y los datos repetidos entre identidad, foco y continuidad se reducen.
+- **Revisión con LLM local:** tras turnos con señales explícitas de memoria, el modelo local puede proponer hechos estructurados sin reescribir lo ya capturado. Solo se aceptan campos respaldados por palabras del usuario; escenas/roleplay, datos ambiguos y contenido no fundamentado se descartan. Si la memoria cambia durante la revisión, el resultado no se aplica.
+- Los estados de ánimo pasajeros dejan de duplicarse como datos permanentes; permanecen en la memoria temporal con vencimiento.
+- La recuperación del archivo ya no rellena consultas normales con líneas recientes arbitrarias; conserva un fallback pequeño para solicitudes explícitas de recuerdo.
+- Tests de regresión para extracción conservadora y recuperación sin coincidencias.
+
 ## 0.12.0-beta rev.ii
 
 - **Iniciativas redactadas por el LLM:** se eliminó el fallback de frases predefinidas; si no hay texto válido del modelo, no se envía una iniciativa.

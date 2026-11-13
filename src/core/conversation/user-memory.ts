@@ -116,7 +116,7 @@ export type ExtractedFacts = {
   emotionalNotes?: string[]
 }
 
-function isExplicitRoleplayMemoryContext(text: string): boolean {
+export function isExplicitRoleplayMemoryContext(text: string): boolean {
   if (
     /\b(?:role[\s-]?play|juego de rol|modo escena|escena íntima|narraci[oó]n f[ií]sica|interpreta(?:me)?|act[uú]a como)\b/i.test(
       text
@@ -174,6 +174,12 @@ function dedupeStrings(list: string[], max: number): string[] {
   return out
 }
 
+function isGeneratedRelationshipSummary(value: string): boolean {
+  return /^Conoces a .+; están construyendo confianza y detalles compartidos\.?$|^Están construyendo una relación con detalles compartidos; sé coherente con lo ya dicho\.?$/i.test(
+    String(value || '').trim()
+  )
+}
+
 /** Canonical list of fact strings for UI + legacy */
 export function flattenFacts(mem?: UserMemory | null): string[] {
   if (!mem) return []
@@ -189,30 +195,52 @@ export function buildUserMemoryPrompt(mem?: UserMemory | null): string {
 export function buildSelectiveUserMemoryPrompt(
   mem?: UserMemory | null,
   userText?: string,
-  opts?: { messageCount?: number; longChat?: boolean }
+  opts?: { messageCount?: number; longChat?: boolean; includeIdentity?: boolean }
 ): string {
   if (!mem) return ""
   const q = String(userText || "").toLowerCase()
   const bits: string[] = []
   const msgCount = Math.max(0, opts?.messageCount ?? 0)
   const longChat = opts?.longChat === true || msgCount >= 16
-  if (mem.userName) bits.push("Nombre (identidad): " + mem.userName)
-  if (mem.preferredName && mem.preferredName !== mem.userName) {
-    bits.push("Cómo le gusta que le digan AL USUARIO (no al asistente): " + mem.preferredName)
-  } else if (mem.preferredName && !mem.userName) {
-    bits.push("Nombre: " + mem.preferredName)
+  if (opts?.includeIdentity !== false) {
+    if (mem.userName) bits.push("Nombre (identidad): " + mem.userName)
+    if (mem.preferredName && mem.preferredName !== mem.userName) {
+      bits.push("Cómo le gusta que le digan AL USUARIO (no al asistente): " + mem.preferredName)
+    } else if (mem.preferredName && !mem.userName) {
+      bits.push("Nombre: " + mem.preferredName)
+    }
   }
-  if (mem.nicknames?.length) bits.push("Apodos OK del USUARIO: " + mem.nicknames.slice(0, 4).join(", "))
-  if (mem.relationshipSummary) bits.push("Vínculo: " + mem.relationshipSummary.slice(0, 160))
-  if ((mem.appearanceNotes || "").trim()) {
+  const asksName =
+    /\b(mi nombre|c[oó]mo me (?:llamas|dices)|qu[eé] apodo|apodo para m[ií]|ll[aá]mame)\b/i.test(q)
+  if (asksName && mem.nicknames?.length) {
+    bits.push("Apodos OK del USUARIO: " + mem.nicknames.slice(0, 4).join(", "))
+  }
+  const asksRelationship =
+    /\b(nuestra relaci[oó]n|nuestro v[ií]nculo|c[oó]mo vamos|qu[eé] sabes de m[ií]|qu[eé] recuerdas de m[ií])\b/i.test(
+      q
+    )
+  if (
+    asksRelationship &&
+    mem.relationshipSummary &&
+    !isGeneratedRelationshipSummary(mem.relationshipSummary)
+  ) {
+    bits.push("Vínculo: " + mem.relationshipSummary.slice(0, 160))
+  }
+  const asksAppearance =
+    /\b(apariencia|c[oó]mo me veo|mi aspecto|mi cabello|mi pelo|mis ojos|mi estatura|mi foto|mi imagen)\b/i.test(
+      q
+    )
+  if (asksAppearance && (mem.appearanceNotes || "").trim()) {
     bits.push(
       "Apariencia del USUARIO (no la del asistente): " +
         String(mem.appearanceNotes).trim().slice(0, 280)
     )
   }
-  const pinned = (mem.factEntries || []).filter((f) => f.pinned).map((f) => f.text)
-  if (pinned.length) bits.push("Anclas: " + pinned.slice(0, 4).join("; "))
-  const greetingOnly = q.length > 0 && q.length < 12 && !longChat
+  const pinned = (mem.factEntries || [])
+    .filter((f) => f.pinned)
+    .map((f) => String(f.text || '').trim().slice(0, 160))
+    .filter(Boolean)
+  const greetingOnly = q.length > 0 && q.length < 12
   // Asking about the assistant's tastes — do NOT inject the user's likes
   const aboutAssistantSelf =
     /\b(te gusta|te gustan|te encanta|te apasiona|disfrutas|prefieres)\b/i.test(q) ||
@@ -225,34 +253,93 @@ export function buildSelectiveUserMemoryPrompt(
   const wantsUserLikes =
     !aboutAssistantSelf &&
     (wantsFood || /\b(me gusta|mis gustos|mi favorito|lo que me gusta)\b/i.test(q))
-  const wantsGoals = /meta|objetivo|proyecto|libro|plan|quiero|enfoque/i.test(q)
+  const asksDislikes = /\b(qu[eé] no me gusta|mis disgustos|qu[eé] detesto)\b/i.test(q)
+  const wantsGoals = /meta|objetivo|proyecto|libro|plan|enfoque/i.test(q)
   const wantsPeople =
     /amigo|amiga|hermano|hermana|familia|persona|novio|novia|personaje|libro|novela|protagonista/i.test(
       q
     )
   const likes = (mem.likes || []).map(normalizeLikePhrase).filter(Boolean)
   const dislikes = (mem.dislikes || []).map(normalizeLikePhrase).filter(Boolean)
-  const favorites = (mem.favorites || []).filter(Boolean)
-
-  // Soft anchors: favorites survive long chats without dumping the full inventory
-  if (!aboutAssistantSelf && favorites.length && (!greetingOnly || longChat)) {
-    const n = longChat || wantsUserLikes ? 6 : 3
-    bits.push(
-      "Favoritos del USUARIO (anclas; no son tuyos): " + favorites.slice(0, n).join(", ")
+  const favorites = (mem.favorites || [])
+    .map((favorite) => String(favorite || '').trim().slice(0, 64))
+    .filter(Boolean)
+  const queryTokens = q
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .split(/[^a-z0-9]+/i)
+    .filter((w) => w.length >= 4)
+  const matchesQuery = (item: string) => {
+    const normalized = item
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+    return queryTokens.some((word) => normalized.includes(word))
+  }
+  const asksMemory =
+    !q.trim() ||
+    /\b(recuerdas|te acuerdas|qu[eé] sabes de m[ií]|qu[eé] recuerdas|retomemos|continuemos con)\b/i.test(
+      q
     )
+  const standingInstructions = (mem.standingInstructions || [])
+    .map((instruction) => String(instruction || '').trim().slice(0, 140))
+    .filter(Boolean)
+    .slice(0, 2)
+  const relevantPins = asksMemory
+    ? pinned.slice(0, 3)
+    : pinned.filter(matchesQuery).slice(0, 2)
+  const selectedPins = relevantPins.filter(
+    (pin) =>
+      !standingInstructions.some(
+        (instruction) => instruction.toLocaleLowerCase() === pin.toLocaleLowerCase()
+      )
+  )
+  if (standingInstructions.length) {
+    bits.push('Instrucciones estables del usuario: ' + standingInstructions.join('; '))
+  }
+  if (selectedPins.length) bits.push('Anclas: ' + selectedPins.join('; '))
+
+  if (!aboutAssistantSelf && favorites.length && !greetingOnly) {
+    const relevantFavorites = favorites.filter(matchesQuery)
+    const selectedFavorites = wantsUserLikes
+      ? favorites.slice(0, longChat ? 4 : 3)
+      : relevantFavorites.slice(0, 2)
+    if (selectedFavorites.length) {
+      bits.push(
+        "Favoritos del USUARIO (anclas; no son tuyos): " + selectedFavorites.join(", ")
+      )
+    }
   }
 
   if (!greetingOnly) {
     if (wantsUserLikes && likes.length) {
-      bits.push("Gustos del USUARIO (no son tuyos): " + likes.slice(0, 6).join(", "))
+      bits.push(
+        "Gustos del USUARIO (no son tuyos): " + likes.slice(0, longChat ? 4 : 3).join(", ")
+      )
     }
-    if ((wantsFood || longChat) && dislikes.length) {
-      bits.push("No le gusta al USUARIO: " + dislikes.slice(0, longChat ? 5 : 4).join(", "))
+    if ((wantsFood || asksDislikes) && dislikes.length) {
+      const selectedDislikes = asksDislikes
+        ? dislikes.slice(0, 4)
+        : dislikes.filter(matchesQuery).slice(0, 2)
+      if (selectedDislikes.length) {
+        bits.push("No le gusta al USUARIO: " + selectedDislikes.join(", "))
+      }
     }
-    if ((wantsGoals || longChat) && mem.goals?.length) {
-      bits.push("Metas: " + mem.goals.slice(0, longChat ? 5 : 4).join("; "))
+    if (wantsGoals && mem.goals?.length) {
+      bits.push(
+        "Metas: " +
+          mem.goals
+            .slice(0, longChat ? 3 : 2)
+            .map((goal) => String(goal || '').trim().slice(0, 100))
+            .filter(Boolean)
+            .join("; ")
+      )
     }
-    if ((wantsGoals || longChat) && mem.currentFocus) {
+    if (
+      wantsGoals &&
+      mem.currentFocus &&
+      !mem.goals?.some((goal) => goal.toLowerCase().trim() === mem.currentFocus?.toLowerCase().trim())
+    ) {
       bits.push("Enfoque: " + mem.currentFocus.slice(0, 80))
     }
     const people = mem.people || []
@@ -267,29 +354,32 @@ export function buildSelectiveUserMemoryPrompt(
             .map((p) => p.name + (p.relation ? " (" + p.relation + ")" : ""))
             .join("; ")
       )
-    } else if ((wantsPeople || longChat) && people.length) {
+    } else if (wantsPeople && people.length) {
       bits.push(
         "Personas: " +
           people
-            .slice(0, longChat ? 5 : 4)
-            .map((p) => p.name + (p.relation ? " (" + p.relation + ")" : ""))
+            .slice(0, longChat ? 3 : 2)
+            .map(
+              (p) =>
+                String(p.name || '').trim().slice(0, 32) +
+                (p.relation ? " (" + String(p.relation).trim().slice(0, 32) + ")" : "")
+            )
             .join("; ")
       )
     }
     const wantsDoc =
       /\b(libro|documento|cap[ií]tulo|lectura|pdf|docx|adjunto|rese[nñ]a)\b/i.test(q)
     const facts = flattenFacts(mem).filter((f) => {
-      if (pinned.includes(f)) return false
+      if (pinned.some((pin) => pin.toLowerCase() === f.toLowerCase())) return false
       // DOC_READ / DOC_INDEX only when the user is talking about the book
       if (/^DOC_(READ|INDEX)\b/i.test(String(f)) && !wantsDoc) return false
       return true
     })
-    if (facts.length && (q.length >= 12 || longChat)) {
-      const tokens = q.split(/[^a-záéíóúüñ0-9]+/i).filter((w) => w.length >= 4)
-      const hit = facts
-        .filter((f) => tokens.some((w) => f.toLowerCase().includes(w)))
-        .slice(0, 4)
-      if (hit.length) bits.push("Recuerdos relacionados: " + hit.join("; "))
+    if (facts.length && queryTokens.length) {
+      const hit = facts.filter(matchesQuery).slice(0, longChat ? 3 : 2)
+      if (hit.length) {
+        bits.push("Recuerdos relacionados: " + hit.map((fact) => fact.slice(0, 160)).join("; "))
+      }
     }
   }
   if (!bits.length) return ""
@@ -467,8 +557,17 @@ export function extractUserFactsFromMessage(text: string): ExtractedFacts {
     out.people = [...(out.people || []), { name: namedBook[1], relation: 'personaje del libro' }]
   }
 
-  if (/(vivo en|trabajo en|estudio|tengo \d+ a[ñn]os|cumplo|soy de )/i.test(t)) {
-    out.facts!.push(t.slice(0, 160))
+  const durableProfileFact =
+    t.match(/\b(?:vivo|resido)\s+en\s+([^.!?]{2,60})/i) ||
+    t.match(/\btrabajo\s+como\s+([^.!?]{2,60})/i) ||
+    t.match(/\bsoy\s+de\s+([A-ZÁÉÍÓÚÜÑ][^.!?]{1,48})/)
+  if (durableProfileFact?.[1]) {
+    const label = /\b(?:vivo|resido)\s+en/i.test(t)
+      ? 'Residencia declarada'
+      : /\btrabajo\s+como/i.test(t)
+        ? 'Ocupación declarada'
+        : 'Origen declarado'
+    out.facts!.push(`${label}: ${durableProfileFact[1].trim().slice(0, 80)}`)
   }
   const hobby = t.match(/(?:mi hobby|en mi tiempo libre|suel[eo] (?:jugar|leer|ver|escuchar))\s+(.{4,80})/i)
   if (hobby?.[1]) {
@@ -498,13 +597,7 @@ export function extractUserFactsFromMessage(text: string): ExtractedFacts {
       out.appearanceNotes = clause.slice(0, 200)
     }
   }
-  if (
-    /(me siento|estoy (triste|feliz|cansad|estres|ansios|enojad|agotad)|tuve un (mal|buen) d[ií]a)/i.test(
-      t
-    )
-  ) {
-    out.emotionalNotes = [t.slice(0, 120)]
-  }
+  // Temporary moods belong in mood-memory, which carries a timestamp and TTL.
   if (/(?:recuerda|no olvides|importante:)\s*[:,-]?\s+(.{8,120})/i.test(t)) {
     const m = t.match(/(?:recuerda|no olvides|importante:)\s*[:,-]?\s+(.{8,120})/i)
     if (m?.[1]) out.facts!.push(`PIN:${m[1].trim().slice(0, 120)}`)
@@ -678,18 +771,15 @@ export function mergeUserMemory(
     base.factEntries = base.factEntries!.slice(-30)
   }
 
-  // Soft relationship summary if we have enough signal
-  if (!base.relationshipSummary && (base.preferredName || (base.facts || []).length >= 2)) {
-    base.relationshipSummary = base.preferredName
-      ? `Conoces a ${base.preferredName}; están construyendo confianza y detalles compartidos.`
-      : `Están construyendo una relación con detalles compartidos; sé coherente con lo ya dicho.`
-  }
   if (base.relationshipSummary) {
     base.relationshipSummary = base.relationshipSummary
       .replace(/\bvais\b/gi, 'van')
       .replace(/\bestáis\b/gi, 'están')
       .replace(/\btenéis\b/gi, 'tienen')
       .replace(/\bpodéis\b/gi, 'pueden')
+    if (isGeneratedRelationshipSummary(base.relationshipSummary)) {
+      base.relationshipSummary = undefined
+    }
   }
 
   // Privileged intimacy facts must survive general fact pressure
@@ -736,7 +826,6 @@ export function buildRelationshipContinuityBlock(
   mem?: UserMemory | null,
   role?: string
 ): string {
-  if (!mem && !role) return ''
   const empty =
     !(mem?.preferredName || '').trim() &&
     !(mem?.likes?.length) &&
@@ -744,9 +833,8 @@ export function buildRelationshipContinuityBlock(
     !(mem?.factEntries?.length) &&
     !(mem?.nicknames?.length)
   if (empty) {
-    const roleLine = role
-      ? `Tu rol de personaje («${role}») es la META del vínculo: quieres llegar ahí con naturalidad, no fingir que ya hay una historia larga juntos.`
-      : `Estás empezando el vínculo: cercana, sin inventar recuerdos compartidos.`
+    if (!role) return ''
+    const roleLine = `Tu rol de personaje («${role}») es la META del vínculo: quieres llegar ahí con naturalidad, no fingir que ya hay una historia larga juntos.`
     return (
       `# Continuidad afectiva\n` +
       `Aún NO conoces los datos de esta persona (nombre, gustos, historia). ` +
@@ -755,19 +843,11 @@ export function buildRelationshipContinuityBlock(
       `Una sola respuesta coherente: no repitas el mismo saludo ni el mismo párrafo varias veces.`
     )
   }
-  const parts: string[] = []
-  if (role) parts.push(`Rol vivo con el usuario: ${role}`)
-  if (mem?.preferredName) parts.push(`Le gusta que le digas: ${mem.preferredName}`)
-  if (mem?.relationshipSummary) parts.push(mem.relationshipSummary)
-  if (mem?.currentFocus) parts.push(`Ahora le importa: ${mem.currentFocus}`)
-  if (mem?.emotionalNotes?.length) {
-    parts.push(`Clima reciente: ${mem.emotionalNotes[mem.emotionalNotes.length - 1]}`)
-  }
-  if (!parts.length) return ''
+  if (!role) return ''
   return (
     `# Continuidad afectiva\n` +
-    parts.join('\n') +
-    `\nResponde como alguien que recuerda el vínculo, no como un bot que acaba de nacer.`
+    `Rol vivo con el usuario: ${role}\n` +
+    `Ajusta la cercanía a la historia confirmada; no inventes hitos, estados emocionales ni datos personales.`
   )
 }
 

@@ -550,7 +550,7 @@ export async function sendChatMessage(options: {
   const userMemPrompt = buildSelectiveUserMemoryPrompt(
     settings.userMemory,
     typeof userContent === "string" ? userContent : "",
-    { messageCount: histLen, longChat: histLen >= 16 }
+    { messageCount: histLen, longChat: histLen >= 16, includeIdentity: false }
   )
   const continuityPrompt = buildRelationshipContinuityBlock(
     settings.userMemory,

@@ -27,7 +27,11 @@ export function pickArchiveLinesForTurn(
     raw.push(...String(blob.text).split(/\n+/).map((x) => x.trim()).filter(Boolean))
   }
   if (!raw.length) return []
-  if (!tokens.length) return raw.slice(-max)
+  const asksRecall =
+    /\b(recuerdas|te acuerdas|qu[eé] sabes de m[ií]|retomemos|continuemos con|lo que hablamos de)\b/i.test(
+      userText
+    )
+  if (!tokens.length) return asksRecall ? raw.slice(-Math.min(2, max)) : []
 
   const scored = raw
     .map((line) => {
@@ -41,7 +45,7 @@ export function pickArchiveLinesForTurn(
 
   const out = scored.slice(0, max).map((x) => x.line)
   if (out.length) return out
-  return raw.slice(-Math.min(2, max))
+  return asksRecall ? raw.slice(-Math.min(2, max)) : []
 }
 
 export function formatArchiveLinesForPrompt(lines: string[]): string {

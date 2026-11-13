@@ -4,6 +4,7 @@ import {
   hasMemorySignal,
   mergeUserMemory,
   buildUserMemoryPrompt,
+  buildSelectiveUserMemoryPrompt,
   buildRelationshipContinuityBlock
 } from './user-memory'
 import {
@@ -58,6 +59,19 @@ describe('user-memory relationship', () => {
     expect(prompt).toMatch(/naturali/)
     const cont = buildRelationshipContinuityBlock(mem, 'novia')
     expect(cont).toMatch(/novia|Azrael/)
+  })
+
+  it('does not inject unrelated pinned facts into greetings, but keeps standing instructions', () => {
+    const prompt = buildSelectiveUserMemoryPrompt(
+      {
+        factEntries: [{ text: 'Proyecto Michoacán', pinned: true }],
+        standingInstructions: ['No inventes escenas físicas sin preguntarme'],
+        likes: ['café']
+      },
+      'Hola'
+    )
+    expect(prompt).not.toMatch(/Proyecto Michoacán|Gustos del USUARIO/)
+    expect(prompt).toMatch(/No inventes escenas físicas/)
   })
 })
 
