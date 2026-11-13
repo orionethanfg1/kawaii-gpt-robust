@@ -1,3 +1,9 @@
+## 0.12.0-beta rev.ii
+
+- **Iniciativas redactadas por el LLM:** se eliminó el fallback de frases predefinidas; si no hay texto válido del modelo, no se envía una iniciativa.
+- Las propuestas internas (apodo, guardarropa, cumpleaños e intimidad) conservan sus metadatos/controles, pero el texto visible se redacta con el LLM. Sus estados solo se guardan tras obtener ese texto.
+- **LM Studio sin preflight del renderer:** las generaciones de iniciativas usan el proxy local IPC (`localHttp`) como las solicitudes normales del proveedor; se respeta el timeout explícito de cada solicitud local.
+
 ## 0.12.0-beta rev.ih
 
 - **Rendimiento de streaming:** la detección de degeneración sobre el texto acumulado se limita a intervalos de 120 ms o 256 caracteres nuevos; el pintado evita repetir ese análisis completo.

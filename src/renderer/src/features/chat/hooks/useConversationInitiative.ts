@@ -7,12 +7,12 @@ import { notifyUser } from '@shared/lib/notify'
 import {
   buildInitiativeLlmMessages,
   buildInitiativeDecisionMessages,
+  buildInitiativeCompositionMessages,
   parseInitiativeDecision,
   hasInitiativeFollowUpSignal,
   detectInitiativeTone,
   generateInitiativeWithLocalLlm,
   initiativeMinutesForTone,
-  pickInitiativeNudge,
   shouldSendInitiative
 } from '@core/conversation/initiative'
 import {
@@ -380,6 +380,8 @@ export function useConversationInitiative(enabledGate: boolean) {
         }
 
         let text: string | null = null
+        let templateDraft: string | null = null
+        let onTemplateSent: (() => void) | null = null
         let initiativeWebHitsForMeta = 0
         const isVisionModel = (id: string) =>
           /moondream|mmproj|vision|llava|clip|minicpm-v|bakllava|\.projector/i.test(id)
@@ -676,11 +678,14 @@ if (modelRaw && hasFollowUpContext) {
             const nick = pickNicknameProposal(s.relationshipState, s.userMemory, blob)
             if (nick) {
               text = buildNicknameProposalText(nick, s.character?.name)
-              const mem = s.userMemory || { facts: [] }
-              useSettingsStore.getState().update({
-                userMemory: { ...mem, pendingNickname: nick, updatedAt: Date.now() },
-                relationshipState: markProposalSent(s.relationshipState, nick)
-              })
+              templateDraft = text
+              onTemplateSent = () => {
+                const mem = s.userMemory || { facts: [] }
+                useSettingsStore.getState().update({
+                  userMemory: { ...mem, pendingNickname: nick, updatedAt: Date.now() },
+                  relationshipState: markProposalSent(s.relationshipState, nick)
+                })
+              }
             }
           }
         } catch {
@@ -773,6 +778,7 @@ if (modelRaw && hasFollowUpContext) {
                 characterName: s.character?.name,
                 candidate: cand
               })
+              templateDraft = text
               wardrobeProposeMeta = {
                 itemId: cand.item.id,
                 dataUrl: cand.item.dataUrl,
@@ -782,11 +788,9 @@ if (modelRaw && hasFollowUpContext) {
                 mode: cand.mode
               }
               const nowTs = Date.now()
-              lastWardrobeProposeRef.current = nowTs
-              try {
+              onTemplateSent = () => {
+                lastWardrobeProposeRef.current = nowTs
                 useSettingsStore.getState().update({ lastWardrobeProposeAt: nowTs })
-              } catch {
-                /* optional persist */
               }
             }
           }
@@ -827,9 +831,10 @@ if (modelRaw && hasFollowUpContext) {
                 dayPart: resolveDayPart(),
                 wish
               })
+              templateDraft = text
               const nowW = Date.now()
-              lastWardrobeWishRef.current = nowW
-              try {
+              onTemplateSent = () => {
+                lastWardrobeWishRef.current = nowW
                 const mem = s.userMemory || { facts: [] }
                 const line = 'WARDROBE_WISH: ' + wish
                 const facts = [
@@ -840,8 +845,6 @@ if (modelRaw && hasFollowUpContext) {
                   userMemory: { ...mem, facts, updatedAt: Date.now() },
                   lastWardrobeWishAt: nowW
                 } as never)
-              } catch {
-                /* */
               }
             }
           }
@@ -870,18 +873,21 @@ if (modelRaw && hasFollowUpContext) {
                   s.userMemory?.preferredName,
                 characterName: s.character?.name
               })
-              useSettingsStore.getState().update({
-                relationshipState: {
-                  ...(s.relationshipState || {
-                    stage: 'stranger',
-                    acceptedNicknames: [],
-                    rejectedNicknames: [],
-                    turnsTogether: 0
-                  }),
-                  lastBirthdayWishAt: Date.now(),
-                  updatedAt: Date.now()
-                }
-              })
+              templateDraft = text
+              onTemplateSent = () => {
+                useSettingsStore.getState().update({
+                  relationshipState: {
+                    ...(s.relationshipState || {
+                      stage: 'stranger',
+                      acceptedNicknames: [],
+                      rejectedNicknames: [],
+                      turnsTogether: 0
+                    }),
+                    lastBirthdayWishAt: Date.now(),
+                    updatedAt: Date.now()
+                  }
+                })
+              }
             }
           }
         } catch {
@@ -983,9 +989,10 @@ if (modelRaw && hasFollowUpContext) {
                 characterName: s.character?.name,
                 recentTexts
               })
+              templateDraft = text
               intimacyProposeMeta = { kind: gateI.kind }
-              lastIntimacyProposeRef.current = Date.now()
-              try {
+              onTemplateSent = () => {
+                lastIntimacyProposeRef.current = Date.now()
                 const rel = s.relationshipState || {}
                 useSettingsStore.getState().update({
                   relationshipState: {
@@ -994,8 +1001,6 @@ if (modelRaw && hasFollowUpContext) {
                     updatedAt: Date.now()
                   }
                 })
-              } catch {
-                /* */
               }
             }
             } // !recentPropose
@@ -1004,26 +1009,40 @@ if (modelRaw && hasFollowUpContext) {
           /* intimacy propose optional */
         }
 
-        // Si el LLM no produjo texto útil: presencia mínima (no silencio eterno).
-        let usedTemplate = false
-        if (!text) {
-          text = pickInitiativeNudge({
+        // App-owned proposals may select a safe intent, but only the LLM writes the sent text.
+        if (templateDraft && modelRaw) {
+          const compositionMessages = buildInitiativeCompositionMessages({
+            characterName: charName,
+            personality: s.character?.personality,
+            style: s.character?.style,
+            relationshipRole: s.character?.relationshipRole,
             tone,
-            userName: userName || undefined,
-            hoursSinceUser: hoursSince,
-            focus: currentFocus || undefined
+            draft: templateDraft,
+            recentLines
           })
-          usedTemplate = true
-          if (typeof console !== 'undefined' && console.debug) {
-            console.debug('[initiative] LLM empty — presencia mínima', {
-              model: modelRaw || null,
-              base
-            })
-          }
+          const composed = await generateInitiativeWithLocalLlm({
+            baseUrl: base,
+            model: modelRaw,
+            messages: compositionMessages,
+            timeoutMs: 18_000
+          })
+          const compositionDecision = parseInitiativeDecision(composed || '')
+          text = compositionDecision.speak ? compositionDecision.text || null : null
         }
         if (!text) {
+          if (typeof console !== 'undefined' && console.debug) {
+            console.debug('[initiative] no LLM message; nothing sent', {
+              model: modelRaw || null,
+              hadTemplateDraft: Boolean(templateDraft)
+            })
+          }
           schedule(modelRaw ? 'llm-empty' : 'no-model')
           return
+        }
+        try {
+          onTemplateSent?.()
+        } catch (error) {
+          console.warn('[initiative] proposal state persistence failed', error)
         }
 
         recentNudgesRef.current = [text, ...recentNudgesRef.current].slice(0, 12)
@@ -1041,16 +1060,14 @@ if (modelRaw && hasFollowUpContext) {
             route: 'local',
             reason: wardrobeProposeMeta
               ? 'Iniciativa visual · guardarropa'
-              : usedTemplate
-                ? 'Iniciativa · presencia (' + tone + ')'
-                : !usedTemplate && initiativeWebHitsForMeta > 0
+              : !templateDraft && initiativeWebHitsForMeta > 0
                   ? 'Iniciativa · modelo + web (' + initiativeWebHitsForMeta + ' hits · ' + tone + ')'
                   : 'Iniciativa · modelo (' + tone + ')',
-            useWebSearch: !usedTemplate && initiativeWebHitsForMeta > 0,
+            useWebSearch: !templateDraft && initiativeWebHitsForMeta > 0,
             webHitCount:
-              !usedTemplate && initiativeWebHitsForMeta > 0 ? initiativeWebHitsForMeta : undefined,
+              !templateDraft && initiativeWebHitsForMeta > 0 ? initiativeWebHitsForMeta : undefined,
             webSearchAttempted:
-              !usedTemplate && initiativeWebHitsForMeta > 0 ? true : undefined,
+              !templateDraft && initiativeWebHitsForMeta > 0 ? true : undefined,
             ...(wardrobeProposeMeta
               ? {
                   kind: 'wardrobe-propose',

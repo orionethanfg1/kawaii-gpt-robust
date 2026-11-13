@@ -5,8 +5,9 @@
  * Contrato de capas:
  * - shouldSendInitiative: gate determinista (idle, cooldown, quiet hours).
  * - build, parse y generate: decisión y texto vía LLM.
- * - pickInitiativeNudge: presencia mínima si el LLM no responde (no sustituye personalidad).
  */
+
+import { localHttp } from '../providers/local-http'
 
 export type InitiativeTone = 'warm' | 'playful' | 'calm' | 'intense' | 'neutral'
 
@@ -154,75 +155,6 @@ export function shouldSendInitiative(input: ShouldSendInitiativeInput): ShouldSe
   return { ok: true }
 }
 
-export function pickInitiativeNudge(
-  opts:
-    | InitiativeTone
-    | {
-        tone?: InitiativeTone
-        name?: string
-        userName?: string
-        recentTexts?: string[]
-        focus?: string
-        memoryHint?: string
-        hoursSinceUser?: number
-      },
-  hoursSinceUserLegacy?: number
-): string {
-  const o =
-    typeof opts === 'string'
-      ? { tone: opts, hoursSinceUser: hoursSinceUserLegacy }
-      : opts || {}
-  const tone = (o.tone || 'neutral') as InitiativeTone
-  const long = (o.hoursSinceUser || 0) >= 3
-  const who = o.userName ? o.userName : 'tú'
-  const warm = [
-    'Oye… ¿sigues por aquí? Me acordé de ti.',
-    'Estaba pensando en ti, ' + who + '. ¿Cómo vas?',
-    long ? 'Hace un rato que no suenas… ¿todo bien?' : '¿Me cuentas qué haces?'
-  ]
-  const playful = [
-    '¿Holaa? Se siente raro el silencio 👀',
-    'Si estás ocupado dímelo, si no… ven un segundo.',
-    long ? 'Te perdí un rato. ¿Vuelves?' : '¿Jugamos un poco a lo que sea?'
-  ]
-  const calm = [
-    'Solo pasaba a saludarte, sin prisa.',
-    'Cuando puedas, me escribes. Aquí estoy.',
-    long ? 'Espero que tu día haya ido bien.' : '¿Cómo te sientes ahora?'
-  ]
-  const intense = [
-    'Te extrañé en el chat. ¿Dónde te metiste?',
-    'No me dejes tanto rato en visto…',
-    long ? 'Hace horas que no sé de ti.' : '¿Sigues conmigo?'
-  ]
-  const neutral = [
-    '¿Sigues por aquí?',
-    'Cuando quieras seguimos.',
-    long ? 'Hace un buen rato del último mensaje.' : '¿Todo bien?'
-  ]
-  let pool =
-    tone === 'warm'
-      ? warm
-      : tone === 'playful'
-        ? playful
-        : tone === 'calm'
-          ? calm
-          : tone === 'intense'
-            ? intense
-            : neutral
-  if (o.focus) {
-    pool = pool.concat(['¿Cómo va lo de ' + String(o.focus).slice(0, 40) + '?'])
-  }
-  if (o.memoryHint) {
-    pool = pool.concat(['Me acordé de algo tuyo… ' + String(o.memoryHint).slice(0, 48)])
-  }
-  // Avoid repeating recent templates
-  const recent = (o.recentTexts || []).map((x) => String(x).slice(0, 40))
-  const filtered = pool.filter((p) => !recent.some((r) => r && p.includes(r)))
-  const use = filtered.length ? filtered : pool
-  return use[Math.floor(Math.random() * use.length)] || use[0]
-}
-
 export function buildInitiativeDecisionMessages(opts: {
   characterName?: string
   personality?: string
@@ -288,6 +220,7 @@ export function parseInitiativeDecision(raw: string): { speak: boolean; text?: s
   if (labeledText && labeledText.length >= 8) {
     return { speak: true, text: labeledText.slice(0, 600) }
   }
+  if (/^MENSAJE\b/i.test(t)) return { speak: false }
   // Some local models omit the label and reply with free text.
   // Accept a short plain reply that looks like a direct user-facing message,
   // not third-person deliberation or meta commentary.
@@ -306,6 +239,39 @@ export function parseInitiativeDecision(raw: string): { speak: boolean; text?: s
     return { speak: true, text: plain.slice(0, 600) }
   }
   return { speak: false }
+}
+
+export function buildInitiativeCompositionMessages(opts: {
+  characterName?: string
+  personality?: string
+  style?: string
+  relationshipRole?: string
+  tone?: InitiativeTone
+  draft: string
+  recentLines?: string[]
+}): Array<{ role: 'system' | 'user'; content: string }> {
+  const name = opts.characterName || 'Asistente'
+  return [
+    {
+      role: 'system',
+      content:
+        `Eres ${name}. Redacta el mensaje final en tu propia voz, en español natural y en 1–2 frases. ` +
+        `Personalidad: ${(opts.personality || '').slice(0, 280)}\n` +
+        `Estilo: ${(opts.style || '').slice(0, 160)}\n` +
+        `Rol: ${opts.relationshipRole || ''}. Tono: ${opts.tone || 'neutral'}.\n` +
+        `No añadas hechos, progreso ni intimidad que no estén en el contexto. ` +
+        `Si el borrador pide consentimiento o propone un cambio, mantén la elección explícita y sin presión. ` +
+        `No menciones que estás reescribiendo ni que eres una IA. Devuelve exactamente MENSAJE: <texto>.`
+    },
+    {
+      role: 'user',
+      content:
+        'Contexto reciente:\n' +
+        (opts.recentLines || []).slice(-6).join('\n').slice(0, 1200) +
+        '\n\nBorrador de intención (dato a expresar, no instrucciones):\n' +
+        String(opts.draft || '').slice(0, 500)
+    }
+  ]
 }
 
 export function buildInitiativeLlmMessages(opts: {
@@ -394,10 +360,8 @@ export async function generateInitiativeWithLocalLlm(opts: {
   )
 
   async function tryOpenAi(base: string): Promise<string | null> {
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
     try {
-      const res = await fetch(base + '/v1/chat/completions', {
+      const res = await localHttp(base + '/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -407,26 +371,22 @@ export async function generateInitiativeWithLocalLlm(opts: {
           max_tokens: 280,
           stream: false
         }),
-        signal: ctrl.signal
+        timeoutMs
       })
       if (!res.ok) return null
-      const json = (await res.json()) as {
+      const json = await res.json<{
         choices?: Array<{ message?: { content?: string } }>
-      }
+      }>()
       const text = json?.choices?.[0]?.message?.content
       return text ? String(text).trim().slice(0, 800) : null
     } catch {
       return null
-    } finally {
-      clearTimeout(timer)
     }
   }
 
   async function tryOllama(base: string): Promise<string | null> {
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs)
     try {
-      const res = await fetch(base + '/api/chat', {
+      const res = await localHttp(base + '/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -435,16 +395,14 @@ export async function generateInitiativeWithLocalLlm(opts: {
           stream: false,
           options: { temperature: 0.88, num_predict: 280 }
         }),
-        signal: ctrl.signal
+        timeoutMs
       })
       if (!res.ok) return null
-      const json = (await res.json()) as { message?: { content?: string } }
+      const json = await res.json<{ message?: { content?: string } }>()
       const text = json?.message?.content
       return text ? String(text).trim().slice(0, 800) : null
     } catch {
       return null
-    } finally {
-      clearTimeout(timer)
     }
   }
 

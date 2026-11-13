@@ -5,6 +5,7 @@ import {
   initiativeMinutesForTone,
   hasInitiativeFollowUpSignal,
   buildInitiativeDecisionMessages,
+  buildInitiativeCompositionMessages,
   parseInitiativeDecision,
   parseInitiativeSnooze,
   isQuietHours
@@ -72,7 +73,19 @@ describe('initiative core', () => {
       hoursSinceLastUser: 3
     })
     expect(system.content).toContain('Completar los bocetos pendientes')
-    expect(system.content).toContain('El tiempo transcurrido por sí solo NO justifica escribir')
+    expect(system.content).toContain('El tiempo solo NO justifica escribir')
     expect(system.content).toContain('no menciones la foto/avatar')
+  })
+
+  it('asks the LLM to write proposal copy and preserve consent without template text', () => {
+    const [system, user] = buildInitiativeCompositionMessages({
+      characterName: 'Niamh',
+      tone: 'warm',
+      draft: 'Proponer retomar los bocetos pendientes',
+      recentLines: ['Usuario: me falta terminar los bocetos']
+    })
+    expect(system.content).toContain('mantén la elección explícita y sin presión')
+    expect(user.content).toContain('Proponer retomar los bocetos pendientes')
+    expect(user.content).not.toContain('Estaba pensando en ti')
   })
 })

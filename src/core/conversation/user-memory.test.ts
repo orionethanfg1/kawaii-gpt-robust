@@ -10,8 +10,7 @@ import {
   shouldSendInitiative,
   parseInitiativeSnooze,
   initiativeMinutesForTone,
-  isQuietHours,
-  pickInitiativeNudge
+  isQuietHours
 } from './initiative'
 
 describe('user-memory relationship', () => {
@@ -109,16 +108,6 @@ describe('initiative non-spam', () => {
     expect(allowed.ok).toBe(true)
   })
 
-  it('pickInitiative avoids recent duplicates', () => {
-    const line = pickInitiativeNudge({
-      tone: 'warm',
-      userName: 'Azrael',
-      name: 'Kawaii',
-      recentTexts: [],
-      focus: 'el proyecto'
-    })
-    expect(line.length).toBeGreaterThan(5)
-  })
 })
 
 describe('MEM-Evo extract', () => {

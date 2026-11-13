@@ -47,7 +47,7 @@ export async function localFetchImpl(
   const fallback = hasBody ? 1_200_000 : 8_000
   const timeoutMs = Math.min(
     1_800_000, // hard cap 30 min
-    Math.max(hasBody ? 120_000 : 1_000, init?.timeoutMs ?? fallback)
+    Math.max(1_000, init?.timeoutMs ?? fallback)
   )
   try {
     const res = await fetch(url, {
