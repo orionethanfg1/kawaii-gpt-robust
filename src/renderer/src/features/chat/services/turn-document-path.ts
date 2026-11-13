@@ -22,6 +22,7 @@ import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 export type DocumentTurnPathInput = {
   convId: string
   trimmed: string
+  forceDocContinue?: boolean
   attachments?: Array<{
     id?: string
     name?: string
@@ -39,7 +40,73 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
   const { convId, trimmed, attachments, settings, getMessages } = input
   let extraSystem = input.extraSystem
 
-    // Align progressive slice size with live model context (checkpoint unchanged)
+  let priorStates: ReturnType<typeof getDocReadingStatesForConv> = []
+  try {
+    priorStates = getDocReadingStatesForConv(convId)
+  } catch {
+    /* reading state is optional */
+  }
+  const isDocumentCandidate = (a: NonNullable<typeof attachments>[number]) => {
+    const mimeType = String(a.mimeType || '').toLowerCase()
+    const path = String(a.name || a.filePath || '')
+    if (
+      mimeType.startsWith('image/') ||
+      mimeType.startsWith('audio/') ||
+      /\.(?:png|jpe?g|gif|webp|bmp|mp[34]|wav|ogg|flac|m4a)$/i.test(path)
+    ) {
+      return false
+    }
+    return Boolean(a.textContent || a.filePath || a.name)
+  }
+  const currentDocs = (attachments || []).filter(isDocumentCandidate)
+  const hasDocAttachment = currentDocs.length > 0
+  const wantsAdvance =
+    /\b(sigue\s+leyendo|contin[uú]a\s+leyendo|continuar\s+la\s+lectura|siguiente\s+(cap[ií]tulo|tramo|parte)|next\s+chapter|lee\s+(el\s+)?(siguiente|otro)\s+(cap[ií]tulo|tramo)|avanza\s+(en\s+)?(el\s+)?(libro|documento|cap[ií]tulo))\b/i.test(
+      trimmed
+    ) ||
+    (/\b(sigue|contin[uú]a|continuar)\b/i.test(trimmed) &&
+      /\b(cap[ií]tulo|tramo|documento|archivo|pdf|docx|p[aá]ginas?)\b/i.test(trimmed))
+  const appDocContinue =
+    Boolean(input.forceDocContinue) ||
+    /\[APP\].*(continuar la lectura del documento|continuaci[oó]n autom[aá]tica de lectura)/i.test(
+      trimmed
+    )
+  const refersToExistingDoc =
+    priorStates.length > 0 &&
+    /\b(lee(r|me|lo|la)?|lectura|repasa|revisa\s+el\s+(libro|documento)|abre\s+el\s+(libro|documento)|qu[eé]\s+dice\s+el\s+(libro|documento)|contin[uú]a\s+con\s+el\s+(libro|documento)|cap[ií]tulo\s+\d+|cap\.?\s*\d+|hasta\s+d[oó]nde|progreso\s+(de\s+)?lectura)\b/i.test(
+      trimmed
+    )
+  const bareContinue = /^(sigue|contin[uú]a|continuar)(\s+por\s+favor)?[.!…]?$/i.test(
+    trimmed.trim()
+  )
+  const hasActiveReading = priorStates.some(
+    (state) => !isDocReadingComplete(state) && !state.uiSuspended
+  )
+  const forceDocContinue =
+    appDocContinue ||
+    wantsAdvance ||
+    (bareContinue && (Boolean(input.forceDocContinue) || hasActiveReading))
+  const hasImageThisTurn = Boolean(
+    attachments?.some(
+      (a) =>
+        a.dataUrl &&
+        (String(a.mimeType || '').startsWith('image/') ||
+          /\.(png|jpe?g|webp|gif)$/i.test(String(a.name || '')))
+    )
+  )
+  const shouldHydrateDocumentSource =
+    !hasImageThisTurn && (hasDocAttachment || forceDocContinue || refersToExistingDoc)
+  const docMemoryMention =
+    /\b(cap[ií]tulo|tramo|documento|archivo|pdf|docx|p[aá]gina|libro|novela|lectura)\b/i.test(
+      trimmed
+    )
+  const shouldPrepareDocument =
+    hasDocAttachment || forceDocContinue || refersToExistingDoc || docMemoryMention
+
+  if (!shouldPrepareDocument) return extraSystem
+
+  // Align progressive slice size with live model context only when reading a source.
+  if (shouldHydrateDocumentSource) {
     try {
       const mid = String(settings.localModel || '').trim()
       if (mid) {
@@ -61,19 +128,21 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
     } catch {
       /* keep default slice */
     }
+  }
 
-    // Text / code documents for local/cloud models (progressive + rolling summary)
-    try {
-      const priorStates = getDocReadingStatesForConv(convId)
-      // D1: rehydrate — attachments of this turn OR docs from history (continuar lectura)
-      let docAtts = attachments
+  // Text / code documents for local/cloud models (progressive + rolling summary)
+  try {
+    // Rehydrate current attachments, or consult history only after an explicit read request.
+    let docAtts = currentDocs
+    if (shouldHydrateDocumentSource) {
       try {
-        const hist = collectDocAttachmentsFromMessages(getMessages())
-        const merged = [...(attachments || []), ...hist]
-        // de-dupe by filePath/name
+        const sourceAttachments = hasDocAttachment
+          ? currentDocs
+          : collectDocAttachmentsFromMessages(getMessages())
+        // De-dupe by filePath/name.
         const seen = new Set<string>()
         const uniq = []
-        for (const a of merged) {
+        for (const a of sourceAttachments) {
           const k = (a.filePath || a.name || a.id || '').toLowerCase()
           if (!k || seen.has(k)) continue
           seen.add(k)
@@ -148,16 +217,17 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
       } catch {
         try {
           const { hydrateAttachmentTextsFromDisk: hyd } = await import('@core/chat/document-attach')
-          docAtts = await hyd(attachments)
+          docAtts = await hyd(currentDocs)
         } catch {
-          docAtts = attachments
+          docAtts = hasDocAttachment ? currentDocs : []
         }
+      }
       }
       const recovered: Array<{ name: string; text: string }> = []
       const hasFreshDoc = Boolean(
         docAtts?.some((a) => a.textContent && String(a.textContent).trim().length > 80)
       )
-      if (!hasFreshDoc) {
+      if (shouldHydrateDocumentSource && !hasFreshDoc) {
         const fromHist = findLatestDocText(getMessages())
         if (fromHist) recovered.push(fromHist)
         // Last resort: any hydrated text still short — keep recovered
@@ -168,37 +238,13 @@ export async function applyDocumentTurnPath(input: DocumentTurnPathInput): Promi
       }
       // Explicit read-advance only. Do NOT treat «en el libro» in romantic chat as doc intent
       // (that re-opened progressive reading + auto-chain mid-conversation).
-      const wantsAdvance =
-        /\b(sigue\s+leyendo|contin[uú]a\s+leyendo|continuar\s+la\s+lectura|siguiente\s+(cap[ií]tulo|tramo|parte)|next\s+chapter|lee\s+(el\s+)?(siguiente|otro)\s+(cap[ií]tulo|tramo)|avanza\s+(en\s+)?(el\s+)?(libro|documento|cap[ií]tulo))\b/i.test(
-          trimmed
-        ) ||
-        (/\b(sigue|contin[uú]a|continuar)\b/i.test(trimmed) &&
-          /\b(cap[ií]tulo|tramo|documento|archivo|pdf|docx|p[aá]ginas?)\b/i.test(trimmed))
-      const refersToExistingDoc =
-        priorStates.length > 0 &&
-        /\b(lee(r|me|lo|la)?|lectura|repasa|revisa\s+el\s+(libro|documento)|abre\s+el\s+(libro|documento)|qu[eé]\s+dice\s+el\s+(libro|documento)|contin[uú]a\s+con\s+el\s+(libro|documento))\b/i.test(
-          trimmed
-        )
       const bareSigue =
         /^(sigue|contin[uú]a|continuar)(\s+por\s+favor)?[.!…]?$/i.test(trimmed.trim()) ||
         /\[APP\].*(continuar la lectura del documento|Continuaci[oó]n autom[aá]tica de lectura)/i.test(
           trimmed
         )
-      // Bare «sigue» alone only advances doc if there is open progressive reading AND
-      // the last assistant turn was also a doc turn (not intimate chat).
-      const forceDocContinue =
-        priorStates.length > 0 &&
-        (wantsAdvance || refersToExistingDoc || bareSigue)
 
       // Context eviction: full text only when the turn needs the document
-      const hasImageThisTurn = Boolean(
-        attachments?.some(
-          (a) =>
-            a.dataUrl &&
-            (String(a.mimeType || '').startsWith('image/') ||
-              /\.(png|jpe?g|webp|gif)$/i.test(String(a.name || '')))
-        )
-      )
       let contextTurnKind: import('@core/chat/context-eviction').ContextTurnKind = 'general'
       try {
         const { classifyContextTurn } = await import('@core/chat/context-eviction')

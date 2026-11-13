@@ -32,6 +32,22 @@ export type ShouldSendInitiativeInput = {
 
 export type ShouldSendResult = { ok: true } | { ok: false; reason: string }
 
+export function hasInitiativeFollowUpSignal(input: {
+  goals?: string[]
+  currentFocus?: string
+  recentUserLines?: string[]
+}): boolean {
+  if ((input.goals || []).some((goal) => String(goal || '').trim().length >= 4)) return true
+  if (String(input.currentFocus || '').trim().length >= 4) return true
+  return (input.recentUserLines || [])
+    .slice(-6)
+    .some((line) =>
+      /\b(?:mi (?:meta|objetivo|proyecto)|estoy (?:trabajando|avanzando|buscando)|me falta|tengo pendiente|quiero (?:terminar|completar|retomar)|retomemos|no he podido terminar)\b/i.test(
+        String(line || '')
+      )
+    )
+}
+
 export function isQuietHours(
   now: Date = new Date(),
   startH = 23,
@@ -216,27 +232,42 @@ export function buildInitiativeDecisionMessages(opts: {
   tone?: InitiativeTone
   userName?: string
   hoursSinceLastUser?: number
+  /** Hours of real silence since assistant finished writing (preferred pivot). */
+  hoursSinceAssistantDone?: number
   unansweredInitiatives?: number
   recentLines?: string[]
+  activeGoals?: string[]
+  currentFocus?: string
   relationshipStage?: string
   timeHint?: string
 }): Array<{ role: 'system' | 'user'; content: string }> {
   const name = opts.characterName || 'Asistente'
   const user = opts.userName || 'el usuario'
-  const hours = opts.hoursSinceLastUser ?? 0
+  const hoursUser = opts.hoursSinceLastUser ?? 0
+  const hoursDone =
+    opts.hoursSinceAssistantDone != null && opts.hoursSinceAssistantDone >= 0
+      ? opts.hoursSinceAssistantDone
+      : hoursUser
   const sys =
-    `Eres ${name}. Debes decidir si envías un mensaje proactivo corto porque ${user} lleva ` +
-    `${hours.toFixed(1)} h sin escribir.\n` +
+    `Eres ${name}. Debes decidir si envías un mensaje proactivo corto.\n` +
+    `Silencio real desde que terminaste de escribir: ~${hoursDone.toFixed(2)} h. ` +
+    `(Último mensaje de ${user}: ~${hoursUser.toFixed(2)} h.)\n` +
     `Personalidad: ${(opts.personality || '').slice(0, 280)}\n` +
     `Estilo: ${(opts.style || '').slice(0, 160)}\n` +
     `Tono iniciativa: ${opts.tone || 'neutral'}. Rol: ${opts.relationshipRole || ''}.\n` +
     `Iniciativas sin respuesta reciente: ${opts.unansweredInitiatives || 0}.\n` +
-    (opts.timeHint ? `Tiempo: ${opts.timeHint}\n` : '') +
+    (opts.activeGoals?.length
+      ? `Objetivos activos del usuario: ${opts.activeGoals.slice(0, 4).join('; ').slice(0, 420)}\n`
+      : '') +
+    (opts.currentFocus ? `Enfoque actual: ${opts.currentFocus.slice(0, 160)}\n` : '') +
+    (opts.timeHint ? `Tiempo del hilo: ${opts.timeHint}\n` : '') +
     `Responde SOLO con una línea:\n` +
-    `- SILENCIO  (solo si es madrugada sensible o el usuario pidió no molestar)\n` +
+    `- SILENCIO  (si no hay un seguimiento concreto y útil, el asunto ya terminó, o el usuario pidió no molestar)\n` +
     `- MENSAJE: <texto breve en personaje>\n` +
-    `Si lleva más de ~1 h sin escribir, prefiere MENSAJE salvo que haya pedido silencio.\n` +
-    `También puedes escribir directamente el mensaje (sin etiqueta). Máx 2-3 frases.`
+    `El pivote temporal es cuando terminaste de responder, no cuando empezaste a generar. ` +
+    `El tiempo solo NO justifica escribir. Prioriza SILENCIO si no puedes vincular el mensaje a un objetivo pendiente o a una señal reciente concreta.\n` +
+    `No envíes saludos genéricos, no preguntes solo si el usuario sigue ahí y no menciones la foto/avatar salvo que el seguimiento lo requiera.\n` +
+    `Máx. 2 frases; si eliges hablar, menciona el objetivo/señal real sin inventar progreso.`
   const userMsg =
     'Contexto reciente:\n' +
     (opts.recentLines || []).slice(-6).join('\n').slice(0, 1200) +
@@ -250,12 +281,30 @@ export function buildInitiativeDecisionMessages(opts: {
 export function parseInitiativeDecision(raw: string): { speak: boolean; text?: string } {
   const t = String(raw || '').trim()
   if (!t) return { speak: false }
-  if (/\bSILENCIO\b/i.test(t) && t.length < 40) return { speak: false }
-  if (/^\s*SILENCIO\b/i.test(t)) return { speak: false }
-  const m = t.match(/^\s*MENSAJE\s*:\s*([\s\S]+)/i)
-  if (m?.[1]) return { speak: true, text: m[1].trim().slice(0, 600) }
-  // Model wrote a normal message
-  if (t.length >= 12 && !/\bSILENCIO\b/i.test(t)) return { speak: true, text: t.slice(0, 600) }
+  if (/^SILENCIO\b/i.test(t)) return { speak: false }
+  // Prefer labeled form: MENSAJE: …
+  const labeled = t.match(/^\s*MENSAJE\s*:\s*([\s\S]+)/i)
+  const labeledText = labeled?.[1]?.trim()
+  if (labeledText && labeledText.length >= 8) {
+    return { speak: true, text: labeledText.slice(0, 600) }
+  }
+  // Some local models omit the label and reply with free text.
+  // Accept a short plain reply that looks like a direct user-facing message,
+  // not third-person deliberation or meta commentary.
+  const plain = t.replace(/\s+/g, ' ').trim()
+  const looksMeta =
+    /^(creo que|deber[ií]a|tal vez|quiz[aá]|podr[ií]a|ser[ií]a mejor|como (?:ia|modelo)|soy (?:una? )?(?:ia|modelo)|no puedo)\b/i.test(
+      plain
+    ) || /\b(escribirle|mandarle|enviarle|responderle)\b/i.test(plain)
+  if (
+    plain.length >= 12 &&
+    plain.length <= 420 &&
+    !/^SILENCIO\b/i.test(plain) &&
+    !/^(no|nada|none|n\/a)\b/i.test(plain) &&
+    !looksMeta
+  ) {
+    return { speak: true, text: plain.slice(0, 600) }
+  }
   return { speak: false }
 }
 
@@ -271,19 +320,26 @@ export function buildInitiativeLlmMessages(opts: {
   tone?: InitiativeTone
   userName?: string
   hoursSinceLastUser?: number
+  hoursSinceAssistantDone?: number
   recentLines?: string[]
   memoryBlock?: string
   focus?: string
   webContext?: string
   unansweredInitiatives?: number
+  activeGoals?: string[]
+  currentFocus?: string
   timeHint?: string
 }): Array<{ role: 'system' | 'user'; content: string }> {
   const name = opts.characterName || 'Asistente'
-  const user = opts.userName || 'él/ella'
-  const hours = opts.hoursSinceLastUser || 0
+  const hoursUser = opts.hoursSinceLastUser || 0
+  const hoursDone =
+    opts.hoursSinceAssistantDone != null && opts.hoursSinceAssistantDone >= 0
+      ? opts.hoursSinceAssistantDone
+      : hoursUser
   const sys =
-    `Eres ${name}. El usuario lleva ~${hours.toFixed(1)} h sin escribir. ` +
-    `Debes generar UN mensaje proactivo en personaje (no es plantilla del sistema).\n` +
+    `Eres ${name}. Silencio real desde que terminaste de escribir: ~${hoursDone.toFixed(2)} h ` +
+    `(último mensaje del usuario: ~${hoursUser.toFixed(2)} h). ` +
+    `Genera un mensaje solo si aporta un seguimiento concreto y útil; si no, responde SILENCIO.\n` +
     `Personalidad: ${(opts.personality || '').slice(0, 320)}\n` +
     `Estilo: ${(opts.style || '').slice(0, 180)}\n` +
     `Rol vínculo: ${opts.relationshipRole || ''}. Reacción típica: ${(opts.relationshipReaction || '').slice(0, 120)}\n` +
@@ -292,17 +348,22 @@ export function buildInitiativeLlmMessages(opts: {
     (opts.tagline ? `Tagline: ${opts.tagline.slice(0, 120)}\n` : '') +
     `Reglas: escribe como ${name} en 1–3 frases; español natural; no digas que eres una iniciativa; ` +
     `no uses [APP]; no ofrezcas guardarropa; no finjas que el usuario acaba de escribir.\n` +
-    (opts.focus ? `Enfoque reciente del usuario: ${String(opts.focus).slice(0, 80)}\n` : '') +
+    (opts.activeGoals?.length
+      ? `Objetivos activos del usuario: ${opts.activeGoals.slice(0, 4).join('; ').slice(0, 420)}\n`
+      : '') +
+    (opts.currentFocus || opts.focus
+      ? `Enfoque reciente del usuario: ${String(opts.currentFocus || opts.focus).slice(0, 120)}\n`
+      : '') +
     (opts.memoryBlock ? `Memoria útil: ${opts.memoryBlock}\n` : '') +
     (opts.webContext ? `Contexto web (opcional, no inventes): ${opts.webContext.slice(0, 400)}\n` : '') +
     (opts.timeHint ? opts.timeHint + '\n' : '') +
-    (hours >= 2
-      ? 'El silencio es largo: es natural que te preocupes o preguntes con cariño cómo está.\n'
-      : 'Silencio moderado: un toque suave basta.\n')
+    `El pivote temporal es el fin de tu última respuesta (no el inicio del stream). ` +
+    `El tiempo sin mensajes nunca es motivo suficiente para intervenir. No uses saludos genéricos ni menciones foto/avatar si no está relacionado con el objetivo. Si el objetivo está resuelto, vencido o no se entiende, responde SILENCIO.\n` +
+    (hoursDone >= 2 ? 'El seguimiento debe ser respetuoso y sin presión.\n' : '')
   const userMsg =
     'Últimas líneas del chat:\n' +
     (opts.recentLines || []).slice(-8).join('\n').slice(0, 1600) +
-    '\n\nEscribe SOLO el mensaje proactivo (sin prefijos MENSAJE:/SILENCIO).'
+    '\n\nResponde exactamente MENSAJE: <seguimiento concreto> o SILENCIO.'
   return [
     { role: 'system', content: sys },
     { role: 'user', content: userMsg }
@@ -401,11 +462,25 @@ export async function generateInitiativeWithLocalLlm(opts: {
 /** Parse user phrases that pause initiatives. */
 export function parseInitiativeSnooze(
   text: string
-): { kind: 'silence' | 'busy' | 'later'; label: string; ms: number } | null {
+): { kind: 'silence' | 'busy' | 'later' | 'wait'; label: string; ms: number } | null {
   const t = String(text || '').toLowerCase()
   if (!t.trim()) return null
-  if (/\b(no me escribas|deja de escribir|silencio|no molestes|calla)\b/.test(t)) {
-    return { kind: 'silence', label: '2 h', ms: 2 * 3600_000 }
+  const duration = t.match(/\b(\d{1,3})\s*(min(?:uto)?s?|h(?:ora)?s?)\b/i)
+  const durationMs = duration
+    ? Number(duration[1]) * (/^h/i.test(duration[2]) ? 60 * 60_000 : 60_000)
+    : undefined
+  if (
+    /\b(no me (?:hables|escribas|contactes)|deja de escribir|no molestes|calla(?:te)?)\b/.test(t) ||
+    (/\b(?:pausa|suspende)\s+(?:mis\s+)?iniciativas\b/.test(t))
+  ) {
+    const ms = durationMs || 2 * 3600_000
+    return { kind: 'silence', label: formatSnoozeDuration(ms), ms }
+  }
+  if (/\b(?:guarda|hagamos)\s+silencio\b/.test(t) && durationMs) {
+    return { kind: 'silence', label: formatSnoozeDuration(durationMs), ms: durationMs }
+  }
+  if (/\b(?:dame|espera|esp[eé]rame)\s+\d{1,3}\s*(?:min(?:uto)?s?|h(?:ora)?s?)\b/i.test(t) && durationMs) {
+    return { kind: 'wait', label: formatSnoozeDuration(durationMs), ms: durationMs }
   }
   if (/\b(estoy ocupad[oa]|ahora no puedo|luego te escribo|más tarde)\b/.test(t)) {
     return { kind: 'busy', label: '90 min', ms: 90 * 60_000 }
@@ -417,6 +492,15 @@ export function parseInitiativeSnooze(
     return { kind: 'silence', label: '1 h', ms: 3600_000 }
   }
   return null
+}
+
+function formatSnoozeDuration(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000))
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60
+    return `${hours} h`
+  }
+  return `${minutes} min`
 }
 
 /** Light emoji annotation for models that mishandle unicode (pass-through safe). */

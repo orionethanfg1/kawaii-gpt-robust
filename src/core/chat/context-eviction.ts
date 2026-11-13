@@ -129,6 +129,8 @@ export function buildEvictedDocMemoryBlock(
 
 const HEAVY_DOC_RE =
   /\[DOCUMENTOS_ADJUNTOS\]|\[LECTURA_PROGRESIVA\]|\[MODO_DOCUMENTO\]|\[MODO_LEER_Y_RECORDAR\]|\[DOCUMENTO_TRAMO\]|\[EXTRACTO_/i
+const APP_DOC_INSTRUCTION_RE =
+  /\[INSTRUCCIÓN DE LA APP\b[\s\S]{0,800}(?:lectura del documento|continuar la lectura|documento adjunto|siguiente tramo|siguiente capítulo)/i
 
 /** Drop full-document system blobs; keep persona, memory, vision, etc. */
 export function stripHeavyDocSystemMessages(messages: ChatMessage[]): ChatMessage[] {
@@ -137,6 +139,44 @@ export function stripHeavyDocSystemMessages(messages: ChatMessage[]): ChatMessag
     if (typeof c !== 'string') return true
     return !HEAVY_DOC_RE.test(c)
   })
+}
+
+/**
+ * Prior document excerpts are rehydrated from reading state on explicit read turns.
+ * Do not resend those excerpts or their app directives on every later chat turn.
+ */
+export function stripDocumentTurnsFromHistory(messages: ChatMessage[]): ChatMessage[] {
+  const out: ChatMessage[] = []
+  let skipDocumentReply = false
+
+  for (const message of messages || []) {
+    const content = typeof message.content === 'string' ? message.content : ''
+    const isDocumentInstruction =
+      message.role === 'system' &&
+      (HEAVY_DOC_RE.test(content) || APP_DOC_INSTRUCTION_RE.test(content))
+
+    if (isDocumentInstruction) {
+      skipDocumentReply = true
+      continue
+    }
+
+    if (skipDocumentReply) {
+      if (message.role === 'system') {
+        skipDocumentReply = false
+      }
+      if (message.role === 'assistant') {
+        if (content.length > 500) {
+          continue
+        }
+      } else if (message.role === 'user') {
+        skipDocumentReply = false
+      }
+    }
+
+    out.push(message)
+  }
+
+  return out
 }
 
 /**

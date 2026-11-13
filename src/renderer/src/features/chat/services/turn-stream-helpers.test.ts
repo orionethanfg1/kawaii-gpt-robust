@@ -14,7 +14,7 @@ describe('turn-stream-helpers X3', () => {
 
   it('buildAppContinueTurnTexts avoids robotic pause for app-continue', () => {
     const t = buildAppContinueTurnTexts('app-continue', 'sigue escribiendo')
-    expect(t.turnUserText).toMatch(/Continúa exactamente/)
+    expect(t.turnUserText).toMatch(/Continúa pegado al último carácter/)
     expect(t.turnExtraSystem).toMatch(/INSTRUCCIÓN DE LA APP/)
     expect(t.turnUserText).not.toMatch(/en curso\.\)$/)
   })

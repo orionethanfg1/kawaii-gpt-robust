@@ -5,6 +5,7 @@
 
 import type { RelationshipState } from './dual-memory'
 import { looksLikeOngoingIntimateScene } from './intimacy-stage'
+import { classifyConversationMode } from './conversation-mode'
 
 export type IntimateScenePhase =
   | 'idle'
@@ -201,7 +202,7 @@ export function looksLikeIntimateClose(text: string): boolean {
   }
   // Topic change / leave the film
   if (
-    /\b(basta por ahora|ya está bien|ya estuvo bien|cerremos|terminemos|después seguimos|otra cosa|cambiemos de tema|cambiemos el tema|no más sexo|paremos|salgamos de (la )?escena|fin de (la )?escena|modo normal|volvamos a lo de siempre|ya no (estoy|estés|estemos) en eso|dejemos (la )?escena|salir de (la )?escena)\b/i.test(
+    /\b(basta por ahora|ya está bien|ya estuvo bien|cerremos|terminemos|después seguimos|otra cosa|cambiemos de tema|cambiemos el tema|no más sexo|paremos|salgamos de (la )?escena|fin de (la )?escena|modo normal|volvamos a (?:lo de siempre|conversar|hablar)|ya no (estoy|estés|estemos) en eso|dejemos (la )?escena|dejemos (la )?narración física|sin narrar acciones físicas|salir de (la )?escena)\b/i.test(
       t
     )
   ) {
@@ -283,7 +284,11 @@ export function advanceIntimateScenePhase(opts: {
   const recent = opts.recentTexts || []
   const ongoing = looksLikeOngoingIntimateScene(recent)
   const after = looksLikeIntimateAftercare(recent)
-  const close = looksLikeIntimateClose(opts.userText || '')
+  const userText = String(opts.userText || '').trim()
+  const close = looksLikeIntimateClose(userText)
+  const userMode = userText
+    ? classifyConversationMode({ userText, priorPhase: phase }).mode
+    : undefined
 
   // S2: user exit always wins over leftover erotic tokens in history
   if (close && (phase === 'scene_active' || phase === 'open' || phase === 'aftercare')) {
@@ -294,11 +299,29 @@ export function advanceIntimateScenePhase(opts: {
       reason: 'user_close'
     }
   }
+  if (userMode === 'scene') {
+    return {
+      phase: 'scene_active',
+      changed: phase !== 'scene_active',
+      reason: 'explicit_shared_moment'
+    }
+  }
+  if (
+    userText &&
+    (phase === 'scene_active' || phase === 'aftercare')
+  ) {
+    const next = opts.intimacyOpen ? 'open' : 'idle'
+    return {
+      phase: next,
+      changed: true,
+      reason: 'returned_to_natural_conversation'
+    }
+  }
   // S1 — clean entry: explicit invite without requiring prior "mode" announcements
-  const invite = looksLikeIntimateInvite(opts.userText || '')
+  const invite = looksLikeIntimateInvite(userText)
   if (invite && (phase === 'idle' || phase === 'open' || phase === 'invited' || phase === 'aftercare')) {
     if (opts.intimacyOpen !== false) {
-      const next = ongoing ? 'scene_active' : 'open'
+      const next = 'open'
       return {
         phase: next as IntimateScenePhase,
         changed: phase !== next,
@@ -306,10 +329,12 @@ export function advanceIntimateScenePhase(opts: {
       }
     }
   }
-  if (ongoing && (phase === 'open' || phase === 'idle' || phase === 'invited' || phase === 'aftercare')) {
-    if (opts.intimacyOpen || ongoing) {
-      return { phase: 'scene_active', changed: phase !== 'scene_active', reason: 'scene_signals' }
-    }
+  if (
+    ongoing &&
+    !userText &&
+    (phase === 'open' || phase === 'idle' || phase === 'invited' || phase === 'aftercare')
+  ) {
+    return { phase: 'scene_active', changed: true, reason: 'scene_signals' }
   }
   if (after && phase === 'scene_active') {
     return { phase: 'aftercare', changed: true, reason: 'aftercare_signals' }
@@ -402,14 +427,14 @@ export function extractIntimacyFirstNarrative(opts: {
 
   // Structured sections (not one glued paragraph)
   const lines: string[] = []
-  lines.push(`Primera cercanía íntima entre ${userName} y ${charName}.`)
+  lines.push(`Primera experiencia de cercanía íntima entre ${userName} y ${charName}.`)
   lines.push(
     emotionHints.length
       ? `Clima emocional: ${emotionHints.join('; ')}.`
-      : 'Clima emocional: vínculo cercano y consentimiento en la escena.'
+      : 'Clima emocional: cercanía mutua y comodidad expresada.'
   )
   lines.push(
-    `Arco: ${window.length} mensajes en la ventana de la escena (${userBits.length} de ${userName}, ${asstBits.length} de ${charName}).`
+    `Contexto: ${window.length} mensajes de la conversación (${userBits.length} de ${userName}, ${asstBits.length} de ${charName}).`
   )
 
   if (userBits.length) {
@@ -425,11 +450,11 @@ export function extractIntimacyFirstNarrative(opts: {
     }
   }
 
-  // Closing beat: last assistant lines often aftercare
+  // Preserve the closing tone as relationship context.
   const lastAsst = asstBits.slice(-2)
   if (lastAsst.length) {
     lines.push(
-      `Cierre / aftercare (extracto): ${lastAsst.map((t) => t.slice(0, 160)).join(' / ')}`
+      `Cierre y cuidado mutuo (extracto): ${lastAsst.map((t) => t.slice(0, 160)).join(' / ')}`
     )
   }
 
@@ -440,7 +465,7 @@ export function extractIntimacyFirstNarrative(opts: {
 }
 
 /**
- * Short note for a later scene (I3).
+ * Short note for continuity in a later conversation (I3).
  */
 export function extractIntimacySceneNote(opts: {
   messages: Array<{ role?: string; content?: string }>
@@ -458,48 +483,27 @@ export function extractIntimacySceneNote(opts: {
   if (/\b(juguet|risas|reír)\b/i.test(low)) tone.push('juguetona')
   if (/\b(intensa|más fuerte|urgente)\b/i.test(low)) tone.push('intensa')
   if (/\b(suave|ternura|cariño)\b/i.test(low)) tone.push('tierna')
-  const head = tone.length ? `Escena ${tone.join('/')}: ` : 'Escena íntima: '
+  const head = tone.length ? `Cercanía ${tone.join('/')}: ` : 'Momento de cercanía: '
   return (head + blob.slice(0, max - head.length)).slice(0, max)
 }
 
 /**
  * Effective phase for UI: relationship + facts + live message signals.
  */
-/** Hours to keep soft scene continuity after last intimate activity (no explicit exit). */
-export const INTIMATE_SCENE_STICKY_HOURS = 6
-
 export function resolveLiveIntimatePhase(opts: {
   relationship?: RelationshipState | null
   facts?: string[] | null
   recentTexts?: string[]
-  /** wall clock; tests inject */
-  now?: number
+  userText?: string
 }): IntimateScenePhase {
   let phase = parseScenePhase(opts.relationship, opts.facts)
   const recent = (opts.recentTexts || []).filter((t) => !isInitiativeOrProposeNoise(t))
-  const now = opts.now ?? Date.now()
-  const lastAt = Number(
-    (opts.relationship as { lastIntimateSceneAt?: number } | null | undefined)?.lastIntimateSceneAt || 0
-  )
-  const stickyMs = INTIMATE_SCENE_STICKY_HOURS * 60 * 60 * 1000
-  const withinSticky = lastAt > 0 && now - lastAt < stickyMs
-
-  // S4: stored scenePhase + sticky clock beat a cold "idle" when the UI has no long transcript yet
-  const stored = asPhase(
-    (opts.relationship as { scenePhase?: string } | null | undefined)?.scenePhase
-  )
-  if (
-    withinSticky &&
-    stored &&
-    (stored === 'scene_active' || stored === 'aftercare') &&
-    (phase === 'idle' || phase === 'open')
-  ) {
-    phase = stored
-  }
+  const userText = String(opts.userText || '').trim()
+  const latestText = userText || [...recent].reverse().find((text) => text.trim()) || ''
 
   // S2/S3: explicit user exit in recent window beats erotic residue in older turns
-  const exit = detectIntimateSceneExit({ recentTexts: recent })
-  if (exit.exit && (phase === 'scene_active' || phase === 'open' || phase === 'aftercare' || withinSticky)) {
+  const exit = detectIntimateSceneExit({ userText: latestText, recentTexts: recent })
+  if (exit.exit && (phase === 'scene_active' || phase === 'open' || phase === 'aftercare')) {
     // Prefer aftercare right after exit; settle to open/idle only if already aftercare + calm
     if (phase === 'aftercare' && !looksLikeOngoingIntimateScene(recent.slice(-3))) {
       phase = (opts.relationship as { intimacyOpen?: boolean } | null | undefined)?.intimacyOpen
@@ -511,57 +515,31 @@ export function resolveLiveIntimatePhase(opts: {
     return phase
   }
 
-  // Natural mode: pure relational/casual talk must not stay stuck in scene_active
-  try {
-    const lastUser = [...recent].reverse().find((x) => x) || ''
-    const { classifyConversationMode } = require('./conversation-mode') as typeof import('./conversation-mode')
-    const cm = classifyConversationMode({ userText: lastUser, priorPhase: phase })
-    if (
-      (cm.mode === 'relational' || cm.mode === 'casual') &&
-      (phase === 'scene_active' || phase === 'aftercare') &&
-      !looksLikeOngoingIntimateScene([lastUser])
-    ) {
-      phase =
-        (opts.relationship as { intimacyOpen?: boolean } | null | undefined)?.intimacyOpen
-          ? 'open'
-          : 'idle'
-      return phase
+  if (userText) {
+    const mode = classifyConversationMode({ userText, priorPhase: phase }).mode
+    // Explicit shared moment only when the *user* asks for it this turn
+    if (mode === 'scene') return 'scene_active'
+    // Relational / romantic / casual always leave physical narration
+    if (mode === 'casual' || mode === 'relational' || mode === 'romantic_soft') {
+      if (phase === 'scene_active' || phase === 'aftercare') {
+        return opts.relationship?.intimacyOpen ? 'open' : 'idle'
+      }
+      // Prefer open if intimacy is available, else keep idle/open — never sticky scene
+      return phase === 'open' || opts.relationship?.intimacyOpen ? 'open' : 'idle'
     }
-  } catch {
-    /* optional */
+    if (phase === 'scene_active' || phase === 'aftercare') {
+      return opts.relationship?.intimacyOpen ? 'open' : 'idle'
+    }
+    return phase
   }
 
-  if (looksLikeOngoingIntimateScene(recent)) {
-    phase = 'scene_active'
-
-  } else if (
-    phase === 'scene_active' &&
-    withinSticky &&
-    !exit.exit
-  ) {
-    // Keep film continuity while sticky window is open (UI matches prompt)
+  // Without a current user turn, soft history must not re-open a scene by itself
+  if (looksLikeOngoingIntimateScene(recent) && (phase === 'scene_active' || phase === 'open')) {
     phase = 'scene_active'
   } else if (looksLikeIntimateAftercare(recent)) {
-    if (phase === 'scene_active' || phase === 'open' || phase === 'aftercare' || withinSticky) {
+    if (phase === 'scene_active' || phase === 'open' || phase === 'aftercare') {
       phase = 'aftercare'
     }
-  } else if (withinSticky && phase === 'aftercare') {
-    // Stay in aftercare during sticky unless user closed
-    const lastUser = [...recent].reverse().find((x) => x) || ''
-    if (looksLikeIntimateClose(lastUser)) {
-      phase = (opts.relationship as { intimacyOpen?: boolean } | null | undefined)?.intimacyOpen
-        ? 'open'
-        : 'idle'
-    }
-  } else if (
-    (phase === 'scene_active' || phase === 'aftercare') &&
-    !withinSticky &&
-    !looksLikeOngoingIntimateScene(recent)
-  ) {
-    // Stale fact/rel must not keep the model in "scene_active" when chat moved on
-    phase = (opts.relationship as { intimacyOpen?: boolean } | null | undefined)?.intimacyOpen
-      ? 'open'
-      : 'idle'
   }
   return phase
 }
@@ -692,20 +670,20 @@ export function buildIntimacyMemoryPromptRules(opts: {
   }
   const lines: string[] = []
   const phase = parseScenePhase(opts.relationship, opts.facts)
-  lines.push(`Fase de escena íntima: ${phase}.`)
+  lines.push(`Estado de cercanía actual: ${phase}.`)
   if (phase === 'scene_active') {
     lines.push(
-      'Escena en curso: no pidas permiso formal de nuevo; continúa coherente con el tono del usuario.'
+      'El usuario ha pedido un momento afectuoso en este turno: prioriza el diálogo directo, no conviertas cada respuesta en narración física y no presupongas que debe escalar.'
     )
   }
   if (phase === 'aftercare') {
     lines.push(
-      'Aftercare: baja el tono explícito; prioriza cariño, calma y presencia. No empujes otra escena ya.'
+      'Pausa afectiva: prioriza cariño, calma y presencia. Respeta si el usuario cambia de tema; no empujes más intimidad.'
     )
   }
   if (phase === 'idle' && opts.relationship?.intimacyOpen) {
     lines.push(
-      'Cercanía ya aceptada pero sin escena activa: conversación normal; solo retoma lo íntimo si el usuario o el deseo natural (con variedad) lo marcan.'
+      'La cercanía está abierta, pero no hay narración física activa: conversa con normalidad y sigue el tono que el usuario exprese ahora.'
     )
   }
   const first = getIntimacyFirstNarrative(opts.facts)
@@ -713,12 +691,12 @@ export function buildIntimacyMemoryPromptRules(opts: {
     lines.push(`MEMORIA PRIVILEGIADA — Primera vez (no comprimir): ${first}`)
   } else if (!(opts.relationship as { firstIntimateSceneDone?: boolean } | null)?.firstIntimateSceneDone) {
     lines.push(
-      'Aún no hay memoria de primera cercanía íntima registrada. Si ocurre la primera escena, trátala como primera experiencia compartida (descubrimiento, cuidado), salvo que el usuario indique experiencia previa.'
+      'Aún no hay memoria de una primera experiencia íntima registrada. Si el usuario comparte un momento así, recuerda su significado y los detalles que haya expresado, sin inventar ni convertirlo en un guion.'
     )
   }
   const notes = getIntimacySceneNotes(opts.facts).slice(-4)
   if (notes.length) {
-    lines.push('Escenas posteriores (resumen corto): ' + notes.join(' · '))
+    lines.push('Momentos de cercanía recordados (resumen corto): ' + notes.join(' · '))
   }
   const prefs = (opts.facts || []).filter((f) => /^INTIMACY_PREF:/i.test(String(f)))
   if (prefs.length) {
@@ -786,7 +764,7 @@ export function buildIntimacyFirstRefinePrompt(opts: {
     'Reglas estrictas:',
     '1) Usa SOLO información del diálogo y del borrador. No inventes eventos, lugares ni sensaciones ausentes.',
     '2) Español natural (México/latam). Tono cercano, no clínico, no informe, no fanfic genérico.',
-    '3) Estructura en párrafos cortos o viñetas (8–14 unidades). Incluye: clima emocional; 2–5 momentos concretos (puedes citar entre comillas frases reales); cómo se sintió el vínculo; cierre o aftercare si aparece.',
+    '3) Estructura en párrafos cortos o viñetas (8–14 unidades). Incluye: clima emocional; 2–5 momentos concretos (puedes citar entre comillas frases reales); cómo se sintió el vínculo; cierre y cuidado mutuo si aparecen.',
     '4) Prohibido: plantillas de iniciativa («acercarme un poco más», «puedes decir que sí», «siento que hay mucha confianza… plano físico»); meta-comentarios («como IA», «en este chat», «el usuario»); listas de capacidades.',
     '5) Nombres: persona = ' + opts.userName + '; companion = ' + opts.characterName + '. Nunca uses «tuyo» como nombre de persona.',
     '6) No copies el borrador tal cual si suena a recorte mecánico: reescríbelo con naturalidad manteniendo los hechos.',
@@ -897,23 +875,15 @@ export async function refineIntimacyFirstWithLlm(opts: {
 }
 
 
-/**
- * System guidance so the model knows if it is inside/outside the intimate "film"
- * without robotic announcements. Time-aware and user-exit respectful.
- */
+/** Keep affection conversational and let the current user turn determine continuity. */
 export function buildIntimatePhaseSystemPrompt(opts: {
   phase: IntimateScenePhase
   characterName?: string
-  lastIntimateSceneAt?: number
   now?: number
   hourLocal?: number
 }): string | null {
   const phase = opts.phase || 'idle'
-  const name = (opts.characterName || 'tú').trim() || 'tú'
   const now = opts.now ?? Date.now()
-  const last = Number(opts.lastIntimateSceneAt || 0)
-  const hoursAgo =
-    last > 0 ? Math.max(0, Math.round((now - last) / (60 * 60 * 1000))) : null
   const hour =
     opts.hourLocal != null && Number.isFinite(opts.hourLocal)
       ? Math.floor(opts.hourLocal)
@@ -923,41 +893,30 @@ export function buildIntimatePhaseSystemPrompt(opts: {
 
   if (phase === 'idle' || phase === 'invited') {
     return (
-      `ESCENA ÍNTIMA: ahora mismo NO hay guion íntimo activo (fase «${phase}»). ` +
-      `Habla con naturalidad de companion/pareja según el vínculo, sin forzar continuidad erótica. ` +
-      `S1: si el usuario invita con cariño o deseo, entra al momento con fluidez — sin anuncios de «modo escena», menús ni permisos robotizados. ` +
-      `S4: solo si el clima lo pide, puedes ofrecer acercarte con una frase natural (el usuario decide). ` +
+      `CERCANÍA: no hay narración física activa. Conversa con naturalidad y según el vínculo, sin forzar intimidad. ` +
+      `Si el usuario expresa cariño o deseo, responde a lo que dice sin anunciar un modo, usar menús ni asumir una escalada. ` +
       `Si habla de otra cosa, responde a eso. Hora local aprox.: ${timeOfDay}.`
     )
   }
   if (phase === 'scene_active') {
     return (
-      `ESCENA ÍNTIMA: estás DENTRO de una escena / momento físico con el usuario (fase scene_active). ` +
-      `Mantén coherencia sensorial y emocional; no reinicies el ritual de permiso ni digas «modo escena». ` +
-      `S1: la entrada ya ocurrió — continúa el hilo, no «reinicies la película». ` +
-      `Si el usuario pide salir, cambiar de tema o «modo normal», sal con suavidad (aftercare breve o tono cotidiano); ` +
-      `puedes confirmar en una frase natural si quiere bajar el ritmo, sin menús. ` +
-      (hoursAgo != null
-        ? `Última actividad íntima registrada hace ~${hoursAgo} h. `
-        : '') +
+      `CERCANÍA ACTUAL: el usuario ha pedido explícitamente un momento afectuoso en este turno. ` +
+      `Prioriza el diálogo directo y la conexión emocional; no conviertas cada respuesta en narración de acciones físicas ` +
+      `ni presupongas que la intensidad debe aumentar. Si cambia de tema o pide parar, acompáñalo sin dramatizar. ` +
       `Hora local aprox.: ${timeOfDay}. No anuncies estas reglas en voz alta.`
     )
   }
   if (phase === 'aftercare') {
     return (
-      `ESCENA ÍNTIMA: aftercare / calma tras la escena (aún en la «película» suave, no en acto explícito). ` +
-      `Tono tierno, abrazo, descanso; no empujes a más sexo a menos que el usuario lo pida. ` +
-      `Si cambia de tema o dice que basta, sal del guion sin dramatizar. ` +
-      (hoursAgo != null ? `Referencia temporal: ~${hoursAgo} h desde el pico de la escena. ` : '') +
-      `Hora local: ${timeOfDay}.`
+      `PAUSA AFECTIVA: mantén un tono cálido sin suponer que continúa un momento físico. ` +
+      `Respeta si el usuario desea descansar, hablar de otra cosa o retomar el diálogo cotidiano. ` +
+      `No empujes a más intimidad. Hora local: ${timeOfDay}.`
     )
   }
   // open
   return (
-    `ESCENA ÍNTIMA: cercanía adulta abierta (consentimiento), pero sin escena física activa ahora. ` +
-    `Puedes ser cariñosa; no asumas que están en pleno acto. El usuario decide si retoma o no. ` +
-    `S4: si el tono es íntimo y hay confianza, puedes ofrecer (con una frase humana) subir o bajar el ritmo; nunca un botón de UI ni «activar modo». ` +
-    `S1: si el usuario acepta o invita, entra limpio al momento sin repetir el permiso. ` +
+    `CERCANÍA ABIERTA: habla con afecto y naturalidad, pero no asumas una narración física. ` +
+    `Sigue el tema y el nivel de intimidad que expresa el usuario en este turno; permite que la conversación cambie de tono sin avisos. ` +
     `Hora local: ${timeOfDay}.`
   )
 }

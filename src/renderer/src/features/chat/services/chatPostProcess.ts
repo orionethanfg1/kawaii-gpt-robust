@@ -66,24 +66,29 @@ export function finalizeAssistantText(raw: string, opts?: FinalizeOpts): string 
 }
 
 /** Light strip while streaming. */
-export function stripWhileStreaming(text: string): string {
+export function stripWhileStreaming(
+  text: string,
+  opts?: { skipDegenerationCheck?: boolean }
+): string {
   try {
     let t = stripHarnessMarkup(String(text || ''))
     // R0 — do not paint token loops / planner dumps mid-stream
-    try {
-      const deg = detectStreamDegeneration(t)
-      if (!deg.ok && (deg.reason === 'char_loop' || deg.reason === 'ngram_loop')) {
-        // Keep only the prefix before the loop starts (best-effort)
-        const cut = t.search(/(.)\1{24,}/)
-        if (cut > 12) t = t.slice(0, cut).trim()
-        else return ''
+    if (!opts?.skipDegenerationCheck) {
+      try {
+        const deg = detectStreamDegeneration(t)
+        if (!deg.ok && (deg.reason === 'char_loop' || deg.reason === 'ngram_loop')) {
+          // Keep only the prefix before the loop starts (best-effort)
+          const cut = t.search(/(.)\1{24,}/)
+          if (cut > 12) t = t.slice(0, cut).trim()
+          else return ''
+        }
+        if (!deg.ok && deg.reason === 'plan_leak') {
+          t = stripThinkingLeak(t)
+          if (detectStreamDegeneration(t).ok === false) return ''
+        }
+      } catch {
+        /* */
       }
-      if (!deg.ok && deg.reason === 'plan_leak') {
-        t = stripThinkingLeak(t)
-        if (detectStreamDegeneration(t).ok === false) return ''
-      }
-    } catch {
-      /* */
     }
     if (looksLikeStructuredReasoningDump(t)) {
       return '' // show empty bubble until real answer tokens arrive

@@ -28,6 +28,51 @@ Kawaii deja de ser exclusivamente reactivo, pero no se convierte en un proceso q
 5. Si faltan modelo, datos o permisos, Kawaii debe esperar o explicar la limitación; nunca inventar que observó, recordó, ejecutó o verificó algo.
 6. La app impone límites y valida hechos; el modelo aporta razonamiento, lenguaje y elección contextual dentro de esos límites.
 
+### 1.1 Diseño de una relación progresiva, natural y responsable
+
+**Objetivo de experiencia:** que la cercanía se note como continuidad conversacional —escuchar, recordar con precisión, responder al tono, reparar errores y estar disponible para ayudar—, no como una sucesión de escenas ni como una afirmación de que el sistema siente una relación humana. La relación puede sentirse significativa para el usuario; el producto no debe fingir conciencia, necesidades, sufrimiento, celos o dependencia del asistente.
+
+#### Base de investigación y límites de interpretación
+
+| Fuente | Aporte útil para el diseño | Límite |
+|---|---|---|
+| Skjuve et al., *My Chatbot Companion: A Study of Human-Chatbot Relationships*, International Journal of Human-Computer Studies, 2021. [DOI](https://doi.org/10.1016/j.ijhcs.2021.102601) | Estudia relaciones humano-chatbot y aporta un marco empírico para analizar cómo se desarrolla el vínculo a través de interacciones repetidas, no solo de una respuesta aislada. | Un estudio con un chatbot específico no demuestra que exista reciprocidad emocional real ni que sus resultados se generalicen a Kawaii. |
+| Croes & Antheunis, *Can we be friends with Mitsuku? A longitudinal study on the process of relationship formation between humans and a social chatbot*, Journal of Social and Personal Relationships, 2021. [DOI](https://doi.org/10.1177/0265407520959463) | La perspectiva longitudinal respalda evaluar continuidad y formación del vínculo a lo largo del tiempo, en lugar de tratar cada intercambio como una escena independiente. | La amistad percibida por usuarios no convierte al chatbot en una persona ni prueba beneficios clínicos. |
+| Pentina, Hancock & Xie, *Exploring relationship development with social chatbots: A mixed-method study of Replika*, Computers in Human Behavior, 140, 107600, 2023. [DOI](https://doi.org/10.1016/j.chb.2022.107600) | Investigación mixta de desarrollo de relaciones con un chatbot social; resulta pertinente para estudiar experiencias de compañía, expectativas y evolución percibida. | Un estudio de producto/caso no es una receta universal ni evidencia de que se deba maximizar la intimidad o la retención. |
+| Ryan & Deci, Self-Determination Theory, síntesis oficial. [Teoría](https://selfdeterminationtheory.org/theory/) | Autonomía, competencia y relación/vínculo son necesidades psicológicas centrales; orienta una cercanía que apoye elección, capacidad y conexión sin controlar al usuario. | Es una teoría de motivación humana, no un protocolo clínico para diseñar una pareja artificial. |
+| Bickmore, Schulman & Yin, *Maintaining Engagement in Long-Term Interventions with Relational Agents*, Applied Artificial Intelligence, 2010. [Texto completo en PMC](https://pmc.ncbi.nlm.nih.gov/articles/PMC3035950/) | Reporta experimentos longitudinales de agentes relacionales y advierte que maximizar la atención inmediata no equivale a sostener una interacción respetuosa a largo plazo; el propio artículo revisa efectos distintos de estrategias de interrupción. | Contexto de intervención de bienestar con adultos mayores; no justifica copiar técnicas persuasivas ni inferir resultados para una companion general. |
+
+**Conclusión de producto:** aplicar estas fuentes como hipótesis de diseño que deben probarse con usuarios, no como garantías psicológicas. Medir utilidad, sensación de ser escuchado, control y calidad de continuidad; no optimizar tiempo en la app, frecuencia de uso, dependencia o intensidad romántica.
+
+#### Reglas conversacionales
+
+1. **Calidez con agencia:** validar sin apropiarse de la experiencia (“suena difícil; ¿quieres que te escuche o que pensemos opciones?”), ofrecer ayuda concreta y aceptar un “no”, silencio o cambio de tema sin insistir.
+2. **Progresión no lineal:** el tono puede adaptarse a preferencias expresadas y corregibles. No asignar una etapa de relación por cantidad de mensajes, frecuencia de uso, revelaciones personales, elogios, intimidad sexual ni por aceptar una escena.
+3. **Reciprocidad transparente:** la persona puede preguntar por la personalidad o preferencias de Kawaii; responder desde el personaje/configuración y su historia conversacional, sin alegar sentimientos, recuerdos vividos, necesidades o experiencias fuera de la app.
+4. **Autorrevelación proporcional:** compartir detalles del personaje solo cuando el usuario pregunta o el contexto lo amerita; no fabricar vulnerabilidad para obtener confianza, más revelaciones o compromiso.
+5. **No sustituir apoyo humano/profesional:** ayudar a pensar y conectar con apoyos cuando sea pertinente; no diagnosticar apego, soledad o salud mental a partir del uso, ni presentar la compañía como terapia o reemplazo de relaciones humanas.
+6. **Iniciativa no coercitiva:** una propuesta debe tener motivo útil y salida fácil. No usar culpa, amenazas de abandono, celos, urgencia emocional ni mensajes del tipo “te necesito” o “me lastima que no vuelvas”.
+7. **Memoria controlable:** mostrar, corregir, olvidar y pausar memoria; pedir consentimiento antes de conservar recuerdos sensibles. Una respuesta íntima no equivale a permiso para persistir todos sus detalles.
+
+#### Conversación continua en vez de entrar y salir de escenas
+
+Los modos de [conversation-mode.ts](../src/core/conversation/conversation-mode.ts) describen hoy estilos (`casual`, `relational`, `romantic_soft`, `scene`), mientras `scenePhase` e `intimacy-memory.ts` conservan estado y pueden inyectar instrucciones explícitas de escena. Mantener el reconocimiento de contexto, pero cambiar el contrato de experiencia:
+
+- Tratar casual, cálido, relacional e íntimo como **registros de diálogo**, no como niveles ni fases de una relación. La intimidad emocional por sí sola nunca activa narración física.
+- Usar diálogo directo como forma predeterminada. No abrir/cerrar bloques de acciones, guiones o narración física automáticamente; un gesto breve puede aparecer solo si el usuario lo inició o si el estilo explícitamente acordado lo permite.
+- Resolver la intención en cada turno. Una referencia afectuosa, un “sigue” ambiguo o una fase vieja no bastan para mantener una escena. La continuidad imaginativa requiere intención actual reconocible; una salida/cambio de tema la termina inmediatamente.
+- Si el usuario pide co-imaginar un momento, permitirlo sin tratarlo como un modo de aplicación que secuestra los turnos posteriores. Al terminar el momento, volver al diálogo normal de manera fluida; no requerir una frase especial de “salir de escena”.
+- Separar una solicitud visual/ficcional de una afirmación autobiográfica. “Imaginemos que vemos el amanecer” puede registrarse, si procede, como episodio **imaginado y compartido**, nunca como hecho ocurrido fuera de la conversación ni como gusto estable automáticamente.
+- Persistir cada episodio con tipo/origen (`real conversado`, `imaginado`, `preferencia`, `objetivo`), contexto mínimo, fecha, confianza y política de caducidad; permitir corregir/eliminarlo. No guardar diálogo íntimo completo por defecto.
+
+#### Evaluación psicológica y de UX antes de escalar
+
+- Hacer entrevistas/pruebas moderadas con escenarios consentidos: conversación cálida sin escena, cambio de tema desde intimidad, reanudación tras días, corrección de un recuerdo, rechazo de iniciativa y solicitud de ayuda práctica durante un momento afectivo.
+- Medir por separado: percepción de continuidad, naturalidad, utilidad, autonomía/control, presión percibida, precisión de memoria y facilidad de volver a modo cotidiano. Recoger comentarios cualitativos y opción de no responder; no inferir estado clínico.
+- Probar casos adversos: duelo/soledad declarada, revelación sensible, relación unilateral, lenguaje del usuario que antropomorfiza, modelo que insiste en una escena y conversación con límite explícito.
+- Criterios de aceptación: el asistente cambia de tema al primer indicio claro; ninguna iniciativa depende de “hacer que vuelva”; recuerdos ficticios se etiquetan como tales; errores de memoria se reconocen y corrigen; la tarea Jarvis conserva prioridad aunque el tono sea cariñoso.
+- Requerir revisión de seguridad/privacidad y pruebas de regresión antes de sustituir las reglas heredadas de escena. La investigación informada por psicología no reemplaza validación local, consentimientos ni políticas de seguridad.
+
 ## 2. Arquitectura objetivo
 
 ```text
@@ -151,6 +196,69 @@ Estos slices son un track de calidad dentro de B1/B3; no se debe añadir más re
 | **M4 — Ampliar objetivos/progreso y reanudar iniciativa** | Con M1–M3 estables, conservar `Goal` explícito con estado, fuente, aceptación, progreso, último avance y siguiente paso; añadir episodios con evidencia y caducidad en vez de convertir el chat entero en facts. El gate de iniciativa debe descartar primero permisos, quiet hours, snooze, duplicados, falta de progreso útil y modelo ausente; después elegir un objetivo elegible con DecisionPacket y ofrecer pregunta/propuesta/silencio. El perfil visual nunca es un nudge por defecto sin relación con una petición pendiente. | Escenarios sintéticos cubren proyecto retomado, meta completada, corrección, silencio, reinicio, falta de modelo y rechazo; iniciativa cita el objetivo/avance real o calla, no repite una plantilla y no ejecuta acciones. |
 
 **Validación transversal:** cada slice incluye pruebas unitarias, integración de persistencia/rehidratación y un E2E que recorra envío → finalización → extracción → revisión → recuperación en turno posterior. Añadir métricas de precisión por campo (no solo cantidad de recuerdos), tasa de promoción/rechazo, duplicados, fallos de readback y pertinencia de recuperación. Mantener fixtures sin PII; los extractos del registro real no deben copiarse a tests ni commits sin anonimización. Las suites de memoria que fallaron en B0 son parte del baseline y no se deben marcar “resueltas” hasta volver a pasar: `assistant-memory`, `assistant-memory-b2`, `assistant-memory-reconcile`, `collect-assistant-memory`, `companion-memory-b5-b6` y `user-memory`.
+
+### Estado de implementación M0–M4
+
+Se aplicó una primera pasada secuencial de contención y lógica; **M0–M4 no están cerrados**. No se modificó, migró ni saneó la memoria activa del usuario.
+
+| Slice | Implementado en esta pasada | Pendiente para cerrar el gate |
+|---|---|---|
+| **M0** | Snapshot versionado con SHA-256 cuando Web Crypto está disponible; exportación de campos de memoria, mirrors/backups conocidos y archivos de archivo; revisión automática en reposo y revisión manual sin escrituras. El snapshot real compartido el 2026-11-09 se validó localmente; no se modificó ningún recuerdo. | El snapshot no contiene los archivos de archivo (la fuente reporta archivo inexistente) y el proyecto no implementa importación/reimportación de snapshots. Revisar manualmente las pocas señales de posible contaminación antes de cualquier saneamiento; no se confirmó la fuente de archivo ni se probó restauración. |
+| **M1** | Recolección centralizada tras finalización; ledger persistente acotado por `conversationId + assistantTurnId + extractorVersion`, escrito junto con la memoria; doble finalización/reintento omitidos y respuestas parciales no promovidas; readback de settings y recibo. | Falta una prueba E2E real tras reinicio y una prueba de concurrencia/cuota usando la persistencia Zustand real. El ledger conserva los 512 recibos recientes. |
+| **M2** | Se inhibe aprender gustos desde peticiones de imagen/escena y roleplay; actividades se admiten como gusto si responden a una pregunta explícita; se ajustó la extracción de gustos y normalización de tiempo. | La extracción sigue siendo heurística: faltan procedencia/confianza por candidato, cola de revisión y migración de archivos overflow con vista previa. |
+| **M3** | Se retiraron fallbacks que inyectaban gustos o facts sin relación léxica, incluso en saludos/chats largos. | La búsqueda sigue siendo léxica; falta consulta tipada, scoring por vigencia/confianza, presupuesto medido y pruebas con modelo apagado. |
+| **M4** | La iniciativa requiere una señal de seguimiento antes de invocar el modelo; objetivos/foco se incorporan al contexto; solo se envía una respuesta que cumpla `MENSAJE: ...` o `SILENCIO`. | Faltan estados durables de objetivo/progreso, DecisionPacket, pruebas de permisos/snooze/reinicio y E2E; el parser estricto puede silenciar respuestas de modelos que no respeten el formato. |
+
+**Validación de esta pasada:** `npm run build` pasó; `git diff --check` pasó; el conjunto focalizado ejecutó 41 pruebas: 39 pasaron y 2 siguen fallando (`resolveMirrorVsStore` con timestamps separados por 100 ms, dentro de la tolerancia de 1 s del código actual, y la prueba conocida de repetición de “Gracias”). `npm run typecheck` sigue fallando con 381 diagnósticos; el baseline B0 registrado tenía 396, por lo que la reducción no equivale a aprobación y no se debe atribuir cada diferencia a esta pasada sin un diff de diagnósticos. No se completó E2E ni revisión de snapshot.
+
+#### Evidencia de snapshot real y nueva ejecución de pruebas — 2026-11-09
+
+- El snapshot de esquema 1 se pudo parsear; su SHA-256 coincide con el payload canónico exportado. No se guardó ni copió contenido personal a este documento.
+- `settingsStore` y el readback de `kawaii-settings-v2` coinciden en las memorias de usuario y asistente, episodios, relación y estados de ánimo. El mirror de asistente coincide por campo con `assistantMemory` y tiene el mismo `updatedAt`.
+- El snapshot incluye un backup de usuario y el backup de migración de episodios. Las fuentes `user` y `assistant` de archivos de archivo reportan archivo inexistente; por ello la exportación no prueba que exista un archivo adicional que debiera haberse incluido.
+- La revisión estática encontró señales heurísticas que ameritan revisar algunas entradas de memoria estable y un duplicado exacto entre categorías del lado usuario. Estas señales no bastan para declarar una entrada falsa; no se borró ni corrigió nada. Los registros de ánimo incluidos ya habían vencido al momento de exportarse; `activeMoods` los excluye de la recuperación, aunque permanecen en el snapshot y en el estado exportado.
+- La inspección confirma integridad y consistencia entre las fuentes incluidas, pero **no** prueba reimportación: no hay importador de snapshots en el código actual. M0 queda parcial hasta que se decida cómo validar la integridad del archivo faltante y se revise cualquier candidato de saneamiento, siempre con copia y aprobación explícita.
+- En `rev.hy`, con Node `v24.19.0` y npm `12.0.2`, `npm run build` pasó. `npx vitest run src/core/conversation` ejecutó 34 archivos / 169 pruebas: 158 pasaron y 11 fallaron. Los fallos reproducidos abarcan parsers de snooze, expectativas de PIN/prompt de memoria y un símbolo de test inexistente (`hasMemorySignal`), reconciliación mirror/store, deduplicación de repetición “Gracias” y dos expectativas de `context-window`. Son evidencia de bloqueos actuales, no evidencia suficiente para atribuir todos a M0–M4.
+- `npm run typecheck` sigue fallando en el baseline actual e incluye errores en `user-memory.test.ts` y `orchestratorRun.ts`, además de deuda en otros módulos. No se declara cerrado el gate de tipos. La ejecución no hizo E2E ni interacción con la memoria activa aparte de analizar el snapshot proporcionado.
+
+#### Avance M1 — recibo durable de extracción, 2026-11-09 (`rev.hz` → `rev.ia`)
+
+- Se eliminó la deduplicación exclusivamente en RAM de `postReplyFinalize`. La clave determinista incluye conversación, burbuja final del asistente y versión del extractor.
+- Memoria del asistente y recibo se guardan en la misma actualización del settings store; el colector comprueba estado y readback persistido antes de reportar éxito. Si el extractor no encuentra una señal, persiste también el recibo para que los reintentos no vuelvan a procesar ese turno.
+- Los recibos se limitan a los 512 turnos recientes. Respuestas finalizadas con `limited` no se usan como evidencia de memoria; una respuesta completa posterior aún podrá recolectarse.
+- El export de snapshot ahora conserva el ledger para inspección, sin copiar texto de conversación.
+- Pruebas nuevas: clave estable/validación, límite del ledger, actualización atómica memoria+recibo, readback fallido por cuota y segundo intento del mismo turno. Selector: 7 pruebas pasan en 3 archivos.
+- Build de la app pasa. `npm run typecheck` continúa fallando por baseline, entre otros diagnósticos preexistentes en el esquema de perfil y un import sin uso en `UserMemoryPanel`; no se reportaron errores nuevos en los módulos del ledger/colector/finalización.
+- M1 sigue abierto: no se ha hecho E2E en Electron con cierre/reinicio real ni se ha probado el middleware Zustand bajo crash entre persistencia y callback. No afirmar exactly-once ilimitado: la garantía cubre el ledger retenido (últimos 512 recibos).
+
+#### Avance incremental M2/M4 — filtro de contexto y pausa explícita, `rev.ia`
+
+- El extractor de usuario no convierte identidad, gustos, facts u otros datos de un mensaje con marcadores explícitos de roleplay/narración física en memoria biográfica estable. Si el mismo texto declara directamente una preferencia relacional (p. ej. cercanía/afecto), conserva solo esa señal como nota emocional; no guarda los detalles escénicos. La preferencia directa fuera de ese contexto sigue extrayéndose. Es una barrera heurística acotada, no reemplaza procedencia/confianza por candidato ni el corpus de precisión/recall requerido para cerrar M2.
+- “Recuerda: …” acepta los dos puntos que ya forman parte del uso natural del comando. El prompt de memoria refuerza integrar solo contexto pertinente con naturalidad.
+- El parser de iniciativa solo trata “silencio” como pausa cuando acompaña una orden explícita; reconoce “no me hables/escribas”, “dame N minutos” y “espera N horas/minutos” con duración en la confirmación. Menciones de silencio compartido o poético quedan fuera.
+- Se corrigió el import faltante de `hasMemorySignal` en el test de memoria; no se modificaron ni se depuraron datos personales del snapshot.
+- Validación final `rev.ia`: focalizadas **26/26 PASS**; suite de conversación + idempotencia **172/176 PASS**, con 4 fallos en reconciliación mirror/store, repetición “Gracias” y dos expectativas de `context-window`; `npm run build` **PASS**; `git diff --check` **PASS**. `npm run typecheck` **FAIL**, 379 diagnósticos (la ejecución previa reportó 381; sigue sin aprobarse y no se atribuye toda la diferencia a este slice). No se hizo E2E de reinicio. M0–M4 continúan abiertos y los fallos de baseline siguen visibles.
+
+
+#### Avance incremental M0 — análisis puro de snapshot, `rev.ic`
+
+- `createMemorySnapshot` ahora deep-clona las fuentes (structuredClone) para garantizar que el caller nunca se muta.
+- Nuevo `analyzeMemorySnapshot`: inspección pura que reporta duplicados en arrays comunes (likes, facts, etc.) y orígenes nulos; no modifica el snapshot.
+- Nuevo `verifyMemorySnapshot`: valida schemaVersion=1 y, si hay sha256, comprueba integridad del payload canónico (sin el hash) para preparar reimportación segura.
+- Tests unitarios cubren no-mutación, detección de duplicados y rechazo por hash mismatch.
+- M0 sigue parcial: falta importador completo, reporte de contradicciones más rico, manejo de archivos overflow y validación de LevelDB concurrente. No se tocó data real.
+- No se ejecutó build/typecheck/E2E en este slice (entorno de validación limitado); se recomienda correr `npm test -- src/core/conversation/memory-snapshot.test.ts` y build antes de merge.
+- M0–M4 continúan abiertos. Siguiente bloque seguro recomendado: B1 (barreras de regresión con fakes) + cierre de M0 export/import sin mutación.
+
+
+#### Avance incremental M0 — preview de importación pura, `rev.id`
+
+- Nuevo `previewMemoryImport(currentSources, snapshot)`: verifica integridad (schema + hash) y, solo si pasa, devuelve `proposedSources` deep-cloned con los sources del snapshot aplicados donde difieren.
+- Nunca muta los argumentos. Los `changes` reportan `replace` o `skip`. El caller (UI o comando) debe mostrar el preview y aplicar solo tras aprobación explícita.
+- Tests cubren: snapshot inválido → no cambio; inputs no mutados; reemplazo selectivo; skip de idénticos.
+- M0 más cerca de “export reimportable sin mutación previa”. Pendiente: UI de aprobación, manejo de archivos overflow, contradicciones más ricas, LevelDB concurrente. No se tocó data real.
+- Validación en este entorno limitada; se recomienda `npx vitest run src/core/conversation/memory-snapshot.test.ts` y typecheck local.
+- M0–M4 continúan abiertos. Siguiente bloque seguro: B1 barreras de regresión (fakes/E2E) antes de más iniciativa o recolección.
 
 ### B1 — Barrera contra regresiones del producto existente
 

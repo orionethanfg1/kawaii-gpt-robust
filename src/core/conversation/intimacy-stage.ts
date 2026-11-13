@@ -60,9 +60,11 @@ export function looksLikeOngoingIntimateScene(texts: string[]): boolean {
       /\b(abraza|abraz|pecho|nuca|piel|labios|cadera|muslo|beso|besos|susurr|jade|jadeo|entre tus brazos|sobre ti|bajo ti|en la cama|descan[sz]a conmigo|me acomodo|mi peso|tu calor|tu mano|mis manos|recorren|mejillas|cabello|mirada|silencio|latid|respiraci[oó]n|cerca de ti|nuestro momento|esta noche|contigo as[ií]|te siento|me derrito|ternura|íntim|intim|éxtasis|extasis|clav[ií]cul|vestido|desliz|aferro|aferran|temblor|suspiro|gemido|desnud|descubiert|recorro|recorriénd|sin tocar|mi cuerpo|tu cuerpo)\b/gi
     ) || []
   ).length
+  // Soft romantic language alone (piel, mirada, ternura…) is normal conversation;
+  // do not promote “ongoing scene” without hard physical/erotic signal.
   if (hard >= 2) return true
-  if (hard >= 1 && soft >= 1) return true
-  if (soft >= 2) return true // romantic / film-style scenes
+  if (hard >= 1 && soft >= 2) return true
+  if (hard >= 1 && soft >= 1 && blob.length > 180) return true
   return false
 }
 

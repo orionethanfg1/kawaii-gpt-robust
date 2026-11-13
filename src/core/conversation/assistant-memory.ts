@@ -150,7 +150,7 @@ export function mergeAssistantMemory(
 /** Short system block — assistant identity only */
 /** User is asking about the assistant's own tastes / self (not the user's). */
 export function asksAboutAssistantSelf(userText?: string): boolean {
-  const q = String(userText || "").toLowerCase()
+  const q = String(userText || '').toLowerCase()
   if (!q || q.length < 4) return false
   // Explicit "you / to you" preference questions
   if (
@@ -167,7 +167,16 @@ export function asksAboutAssistantSelf(userText?: string): boolean {
   }
   if (/\b(tus gustos|tu favorito|lo que a ti|sobre ti)\b/i.test(q)) return true
   if (/\bdime algo que te guste\b/i.test(q)) return true
+  if (/\bc[oó]mo te gusta que te (llamen|diga|digan)\b/i.test(q)) return true
   return false
+}
+
+/**
+ * Alias used by the memory collector: when true, schedule optional LLM enrich
+ * after a heuristic write (user asked about the assistant's preferences).
+ */
+export function isAssistantPreferenceQuestion(userText?: string): boolean {
+  return asksAboutAssistantSelf(userText)
 }
 
 export function buildAssistantMemoryPrompt(
@@ -256,7 +265,7 @@ function cleanPhrase(raw: string, max = 96): string {
   let s = String(raw || '').trim()
   // Prefer the head of the preference (em-dash / clause breaks)
   s = s.split(/\s*[—–]\s*/)[0] || s
-  s = s.split(/[.;!?…\n]|,\s+(?:y|pero|aunque|de verdad|en serio|la verdad)\s+/i)[0] || s
+  s = s.split(/[.;!?…\n]|,\s+(?:y|pero|aunque|cuando|mientras|de verdad|en serio|la verdad)\s+/i)[0] || s
   s = s.replace(/,\s*(?:de verdad|en serio|la verdad|sabes|eh)\s*$/i, '').trim()
   s = s.replace(/[.,;!?…]+$/g, '').trim()
   s = s.replace(/^(es|son|era|eran)\s+/i, '')
@@ -367,8 +376,8 @@ export function classifyAssistantLikePhrase(obj: string): LikeClass {
   const c = String(obj || '').trim()
   if (!c || c.length < 2) return 'skip'
   if (isTemporaryStatePhrase(c)) return 'skip'
-  if (isUserDirectedObject(c)) return 'skip'
   if (isRelationalPreferencePhrase(c)) return 'relational'
+  if (isUserDirectedObject(c)) return 'skip'
   // Weak residue from bad cuts («me ha inspirado» alone)
   if (/^(me ha inspirado|siempre me ha inspirado)$/i.test(c)) return 'skip'
   // Heuristic path: high precision only — LLM path can add richer tastes later
@@ -379,14 +388,36 @@ export function classifyAssistantLikePhrase(obj: string): LikeClass {
 function pushLike(
   likes: string[],
   relational: string[],
-  raw: string
+  raw: string,
+  acceptExplicitActivity = false
 ): void {
-  const c = cleanPhrase(raw)
+  const c = cleanPhrase(raw).replace(
+    /\s+(?:por|en)\s+(?:(?:la|el)\s+)?(?:ma[nñ]ana|noche|tarde|madrugada|las ma[nñ]anas|las noches)$/i,
+    ''
+  )
   if (!c) return
   const kind = classifyAssistantLikePhrase(c)
-  if (kind === 'skip') return
+  if (kind === 'skip') {
+    if (acceptExplicitActivity && isPreferenceActivityPhrase(c)) {
+      likes.push(c)
+    }
+    return
+  }
   if (kind === 'relational') relational.push(c)
   else likes.push(c)
+}
+
+export function isPreferenceActivityPhrase(raw: string): boolean {
+  const phrase = String(raw || '').trim()
+  const words = phrase.split(/\s+/).filter(Boolean)
+  return (
+    words.length >= 3 &&
+    words.length <= 8 &&
+    /^(?:ver|mirar|escuchar|leer|aprender|cocinar|caminar|pintar|escribir|hablar)\b/i.test(
+      phrase
+    ) &&
+    !/\b(?:yo|t[uú]|ti|usuario|mientras|ahora|hoy)\b/i.test(phrase)
+  )
 }
 
 
@@ -397,6 +428,18 @@ function pushLike(
 export function extractAssistantSelfFacts(text: string, userText?: string): AssistantExtracted {
   const t = String(text || '').trim()
   if (!t || t.length < 8) return {}
+  const prompt = String(userText || '')
+  if (
+    /\b(?:genera|crea|haz|dibuja|edita|imagina|describe|contin[uú]a)\b.{0,100}\b(?:escena|foto|imagen|selfie|retrato)\b/i.test(
+      prompt
+    ) ||
+    /\b(?:escena|foto|imagen|selfie|retrato)\b.{0,100}\b(?:genera|crea|haz|dibuja|edita|imagina|describe)\b/i.test(
+      prompt
+    ) ||
+    /\b(?:role[\s-]?play|interpreta(?:me)?|act[uú]a como)\b/i.test(prompt)
+  ) {
+    return {}
+  }
   const out: AssistantExtracted = {}
 
   // Skip pure tool/harness dumps
@@ -416,50 +459,62 @@ export function extractAssistantSelfFacts(text: string, userText?: string): Assi
 
   const likes: string[] = []
   const relational: string[] = []
+  const explicitPreferenceQuestion = isAssistantPreferenceQuestion(userText)
   let m: RegExpExecArray | null
 
   // Optional comma: «me encantan, aunque…» / «A mí me gusta…»
   const likeRe =
-    /(?:(?:a m[ií]\s+)?me gusta(?:n)?|(?:a m[ií]\s+)?me encanta(?:n)?|me apasiona|me fascina|me encantar[ií]a|prefiero|disfruto|adoro)[,:]?\s+(.{2,48}?)(?=\s*[.,;!?…]|\s+(?:pero|aunque|porque|cuando|y\s+me|y\s+también)|$)/gi
-  while ((m = likeRe.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+    /(?:(?:a m[ií]\s+)?me gusta(?:n)?|(?:a m[ií]\s+)?me encanta(?:n)?|me apasiona|me fascina|prefiero|disfruto|adoro)[,:]?\s+(.{2,48}?)(?=\s*[.,;!?…]|\s+(?:pero|aunque|porque|cuando|y(?:\s+(?:me|también))?)|$)/gi
+  while ((m = likeRe.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
   const passionRe =
     /(?:lo que m[aá]s me (?:apasiona|gusta|encanta)(?:\s+es)?)\s+(.{3,60})/gi
-  while ((m = passionRe.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+  while ((m = passionRe.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
   const favRe =
     /(?:mi (?:color |cosa |tema |lugar |m[uú]sica |comida )?favorit[oa]s?(?:\s+es|\s+son)?|favorit[oa]s?\s+(?:es|son))\s+(.{2,40})/gi
-  while ((m = favRe.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+  while ((m = favRe.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
   const favSubj =
     /([A-ZÁÉÍÓÚÑa-záéíóúñ][\wáéíóúñ\s]{1,35}?)\s+es\s+(?:mi\s+(?:color\s+)?favorit[oa]|de\s+mis\s+favorit[oa]s)/gi
-  while ((m = favSubj.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+  while ((m = favSubj.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
   const fanRe = /soy(?:\s+\w+){0,2}\s+fan\s+(?:de(?:l| la| los| las)?\s+)?(.{2,40})/gi
-  while ((m = fanRe.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+  while ((m = fanRe.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
   const mueroRe =
     /me (?:muero por|vuelve loc[oa](?:\s+el|\s+la|\s+los|\s+las)?)\s+(.{2,40})/gi
-  while ((m = mueroRe.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+  while ((m = mueroRe.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
   const felizRe = /me hace (?:feliz|bien|sentir[^\n.]{0,20})\s+(.{2,40})/gi
-  while ((m = felizRe.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+  while ((m = felizRe.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
   const lateRe = /me (?:late|cae)\s+(?:muy\s+|mucho\s+)?(?:bien\s+)?(.{2,40})/gi
-  while ((m = lateRe.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+  while ((m = lateRe.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
   const unaDe =
     /(?:una de las cosas que m[aá]s me (?:gusta|gustan|encanta)(?:\s+es)?)\s+(.{3,50})/gi
-  while ((m = unaDe.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+  while ((m = unaDe.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
   const gozoRe = /(?:gozo|disfruto)\s+(?:mucho\s+)?(?:de\s+|con\s+)?(.{2,40})/gi
-  while ((m = gozoRe.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+  while ((m = gozoRe.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
 
   // Topic after "especialmente el/la X" when opened by me encanta/me fascina nearby
   const especialRe =
     /(?:me (?:encanta(?:n)?|fascina|apasiona|gusta(?:n)?)[^.!?]{0,80}?especialmente\s+(?:el|la|los|las)?\s*)(.{2,40})/gi
-  while ((m = especialRe.exec(tSelf)) !== null) pushLike(likes, relational, m[1])
+  while ((m = especialRe.exec(tSelf)) !== null)
+    pushLike(likes, relational, m[1], explicitPreferenceQuestion)
 
   if (likes.length) out.likes = dedupe(likes, 8)
   const favs = favoritesToStrings(extractFavorites(tSelf))
@@ -486,7 +541,7 @@ export function extractAssistantSelfFacts(text: string, userText?: string): Assi
 
   const habits: string[] = []
   const habRe =
-    /(?:siempre|suel[eo]|acostumbro a|tengo la costumbre de|me dedico a|a veces me dedico a|cuando tengo tiempo libre[, ]*)(.{3,70})/gi
+    /(?:siempre|suel[eo]|acostumbro a|tengo la costumbre de|me dedico a|cuando tengo tiempo libre[, ]*)(.{3,70})/gi
   while ((m = habRe.exec(tSelf)) !== null) {
     const c = cleanPhrase(m[1], 72)
     if (c) habits.push(c)
@@ -605,7 +660,7 @@ function looksLikeAddressName(s: string): boolean {
   // Stage directions / markdown emphasis from RP
   if (/[*_~`]/.test(t)) return false
   if (/\s{3,}/.test(t)) return false
-  if (/^(tú|tu|usted)$/i.test(t)) return false
+  if (/^(tú|tu|tuyo|tuya|tuyos|tuyas|usted|mío|mía|suyo|suya)$/i.test(t)) return false
   if (/[.!?¿¡:;]/.test(t)) return false
   const spaces = (t.match(/\s+/g) || []).length
   if (spaces > 3) return false // «Mi princesa Celta» ok; frases largas no

@@ -4,6 +4,7 @@ import {
   shouldInjectFullDocument,
   buildEvictedDocMemoryBlock,
   stripHeavyDocSystemMessages,
+  stripDocumentTurnsFromHistory,
   stripImagePayloadsFromMessages,
   budgetForContextTurn
 } from './context-eviction'
@@ -29,12 +30,12 @@ describe('context-eviction', () => {
     expect(shouldInjectFullDocument(k)).toBe(true)
   })
 
-  it('chat normal with book memory → doc_memory', () => {
+  it('keeps unrelated chat general when a document reading state exists', () => {
     const k = classifyContextTurn({
       userText: 'qué tal tu día?',
       hasDocReadingState: true
     })
-    expect(k).toBe('doc_memory')
+    expect(k).toBe('general')
     expect(shouldInjectFullDocument(k)).toBe(false)
   })
 
@@ -64,6 +65,40 @@ describe('context-eviction', () => {
     ])
     expect(out).toHaveLength(2)
     expect(out.some((m) => String(m.content).includes('LECTURA'))).toBe(false)
+  })
+
+  it('omits old document app instructions and their large assistant excerpts from later turns', () => {
+    const history = [
+      { role: 'user' as const, content: 'Lee el siguiente capítulo.' },
+      {
+        role: 'system' as const,
+        content:
+          '[INSTRUCCIÓN DE LA APP — no es un mensaje del usuario]\nContinúa la lectura del documento adjunto.'
+      },
+      { role: 'assistant' as const, content: 'x'.repeat(800) },
+      { role: 'assistant' as const, content: 'y'.repeat(800) },
+      { role: 'user' as const, content: 'Sí mi amor, aquí estoy.' },
+      { role: 'assistant' as const, content: 'Me alegra que estés aquí.' }
+    ]
+
+    expect(stripDocumentTurnsFromHistory(history)).toEqual([
+      history[0],
+      history[4],
+      history[5]
+    ])
+  })
+
+  it('keeps short assistant replies after a document instruction', () => {
+    const shortReply = { role: 'assistant' as const, content: 'Claro, sigo leyendo.' }
+    expect(
+      stripDocumentTurnsFromHistory([
+        {
+          role: 'system',
+          content: '[INSTRUCCIÓN DE LA APP] Continúa la lectura del documento adjunto.'
+        },
+        shortReply
+      ])
+    ).toEqual([shortReply])
   })
 
   it('strips image_url from history multimodal messages', () => {

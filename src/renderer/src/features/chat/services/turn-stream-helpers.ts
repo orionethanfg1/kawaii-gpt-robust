@@ -32,6 +32,40 @@ export type ContinueTurnTexts = {
   turnExtraSystem: string
 }
 
+const DOC_APP_SYS =
+  /lectura del documento|continuar la lectura|MAP-REDUCE LECTURA|es lectura de archivo|documento adjunto/i
+
+/**
+ * When continuing *writing* (not doc), collapse repeated APP doc-continue system
+ * turns so the model does not re-enter progressive reading mid-chat.
+ */
+export function sanitizeMessagesForWriteContinue<
+  T extends { role?: string; content?: string }
+>(messages: T[]): T[] {
+  if (!messages?.length) return messages
+  let keptDocSys = 0
+  const out: T[] = []
+  for (const m of messages) {
+    const role = String(m.role || '')
+    const content = String(m.content || '')
+    if (role === 'system' && DOC_APP_SYS.test(content)) {
+      keptDocSys += 1
+      // Keep at most one short marker so the model knows a book existed, not full chain
+      if (keptDocSys > 1) continue
+      out.push({
+        ...m,
+        content:
+          '[INSTRUCCIÓN DE LA APP] Hubo lectura de archivo más arriba en el hilo. ' +
+          'Este turno es CONTINUAR ESCRITURA de la última respuesta visible, no el siguiente capítulo. ' +
+          'No avances la lectura salvo que el texto cortado fuera claramente un comentario de lectura incompleto.'
+      } as T)
+      continue
+    }
+    out.push(m)
+  }
+  return out
+}
+
 /** Build system + stand-in user text for APP continue / doc continue. */
 export function buildAppContinueTurnTexts(
   kind: AppContinueKind,
@@ -50,10 +84,13 @@ export function buildAppContinueTurnTexts(
         '- PRIORIDAD 1: si la última frase quedó a medias (coma, puntos suspensivos, «…», sin punto final, palabra cortada), COMPLÉTACELA antes de abrir un párrafo nuevo.\n' +
         '- NO saltes palabras ni dejes uniones rotas del tipo «enredada,… tienen» (falta el sujeto o el verbo de enlace).\n' +
         '- NO repitas párrafos ni frases ya presentes en «FINAL YA ESCRITO».\n' +
-        '- NO reinicies la escena, NO resumas lo anterior, NO digas que esperas o que te quedas en silencio.\n' +
-        '- Misma voz, tono, persona y escena; continúa el hilo narrativo/íntimo en curso.',
+        '- NO reinicies el tema, NO resumas lo anterior, NO digas que esperas o que te quedas en silencio.\n' +
+        '- Misma voz y tono del último mensaje visible.\n' +
+        '- PROHIBIDO retomar lectura de archivo, capítulos, extractos o «continuar la lectura» salvo que el texto cortado fuera claramente un comentario de lectura a medias.\n' +
+        '- PROHIBIDO abrir o forzar narración física / formato de escena (rayas —…—) solo porque el historial tenga tramos de lectura o cariño.\n' +
+        '- Si el hilo era conversación cercana, completa en diálogo natural, sin libro ni guion.',
       turnUserText:
-        '(Continúa pegado al último carácter de tu respuesta anterior. Primero cierra cualquier frase incompleta; luego sigue el mismo hilo, sin reiniciar.)'
+        '(Continúa pegado al último carácter de tu respuesta anterior. Primero cierra cualquier frase incompleta; luego sigue el mismo hilo, sin reiniciar y sin cambiar a lectura de documento.)'
     }
   }
   if (kind === 'app-doc-continue') {
@@ -61,8 +98,10 @@ export function buildAppContinueTurnTexts(
       turnExtraSystem:
         '[INSTRUCCIÓN DE LA APP — no es un mensaje del usuario]\n' +
         (instr || 'Continúa la lectura del documento adjunto.') +
-        '\nNo inventes un mensaje del usuario; actúa como lectora del archivo.',
-      turnUserText: '(La app solicita continuar la lectura del documento adjunto. Resume el siguiente tramo y opina.)'
+        '\nNo inventes un mensaje del usuario; actúa como lectora del archivo. ' +
+        'Esto NO es escena íntima: es lectura de archivo. No mezcles abrazos/besos con el siguiente tramo salvo que el usuario lo pida en el mismo mensaje.',
+      turnUserText:
+        '(La app solicita continuar la lectura del documento adjunto. Resume el siguiente tramo y opina; no reinicies una escena íntima.)'
     }
   }
   return {

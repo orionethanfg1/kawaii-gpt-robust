@@ -1,10 +1,75 @@
+## 0.12.0-beta rev.ih
+
+- **Rendimiento de streaming:** la detección de degeneración sobre el texto acumulado se limita a intervalos de 120 ms o 256 caracteres nuevos; el pintado evita repetir ese análisis completo.
+- El render incremental queda limitado a ~30 actualizaciones por segundo; la barra de cercanía solo observa el último texto del usuario, no la lista completa de mensajes.
+- **Documentos a demanda:** charla normal ya no escanea adjuntos históricos ni rehidrata/reextrae documentos. Solo se consulta el origen al adjuntar un documento o pedir explícitamente su lectura/continuación.
+- El contexto excluye directivas APP de lectura antiguas y sus extractos largos; el tramo actual se vuelve a inyectar solo cuando la lectura está activa.
+
+## 0.12.0-beta rev.ig
+
+- **Lectura de documento no se cuela en charla/continuación:**
+  - `Continuar escribiendo` ya no fuerza escena íntima ni el siguiente capítulo.
+  - `sanitizeMessagesForWriteContinue` colapsa la cadena de sistemas APP de lectura en el historial.
+  - Chat puro o write-continue suspende UI de lectura; «sigue» solo avanza el libro si la lectura no está suspendida.
+
+## 0.12.0-beta rev.if
+
+- **Tiempo de hilo en iniciativas:** pivote = fin de la última respuesta del asistente (`stream-done`), no el inicio del stream.
+  - `resolveThreadTimeAnchors` / `buildThreadTimeGapOneLiner` en `local-time-context.ts`.
+  - N1 + mensaje de iniciativa reciben `hoursSinceAssistantDone` + hint de silencio real.
+
+## 0.12.0-beta rev.ie
+
+- **Chat coherente (sin basura de continuación/escena):**
+  - `shouldOfferContinueWriting`: no «Continuar» en burbujas cortas que terminan en coma hablada; solo cortes reales.
+  - Escena: el turno casual/relacional/romántico baja la fase; soft-tokens del historial ya no reabren narración física solos.
+
+## 0.12.0-beta rev.id
+
+- **M0 incremental — Import preview pure (no mutation):**
+  - Nuevo `previewMemoryImport`: verifica snapshot y propone `proposedSources` deep-cloned; nunca muta inputs.
+  - Caller aplica solo tras aprobación explícita; cambios reportados (replace/skip).
+  - Tests cubren rechazo de snapshot inválido, no-mutación y reemplazo selectivo.
+  - M0 más cercano a cierre de export/import sin side-effects; M0–M4 siguen abiertos. Siguiente bloque seguro: B1 barreras de regresión.
+
+
+## 0.12.0-beta rev.ic
+
+- **M0 incremental — Snapshot analysis pure:**
+  - `createMemorySnapshot` deep-clones sources (nunca muta al caller).
+  - Nuevo `analyzeMemorySnapshot`: reporta duplicados en likes/facts/etc. sin tocar datos.
+  - Nuevo `verifyMemorySnapshot`: comprueba schema + hash para reimportación segura.
+  - Tests cubren no-mutación, detección de duplicados y verificación de integridad.
+  - Siguiente: B1 barreras de regresión + corpus M2; M0–M4 siguen abiertos.
+
 ## 0.12.0-beta rev.ib
 
 - **Iniciativas reparadas (E2E lógico):**
   - Separados cooldown real (`lastInitiativeSentRef`) y ancla de agenda (`scheduleAnchorRef`); ya no se reinicia el cooldown en cada respuesta del asistente.
-  - N1 acepta `MENSAJE:` y texto libre del modelo (antes se descartaba el mensaje etiquetado).
+  - N1 acepta `MENSAJE:` y texto libre del modelo (antes se descartaba el mensaje sin etiqueta estricta).
   - Si el LLM no responde: presencia mínima (`pickInitiativeNudge`), no silencio eterno.
   - Política pura en `initiative.ts`; timer/envío en el hook (modular).
+
+## 0.12.0-beta rev.ia
+
+- **M2 — Memoria del usuario:** el extractor no promociona identidad, gustos ni datos estables desde texto que identifica explícitamente roleplay o narración física; una preferencia relacional explícita se conserva como nota emocional, no como biografía.
+- **M4 — Pausa de iniciativa:** los comandos explícitos de espera y silencio reconocen duración; menciones conversacionales de “silencio” ya no pausan iniciativas por accidente.
+- El prompt de memoria pide integrar los recuerdos pertinentes con naturalidad.
+- **M1 — Idempotencia durable:** cada extracción de memoria del asistente guarda un recibo por conversación/turno/versión junto con la memoria, con readback de `kawaii-settings-v2`.
+- Reintentos y doble finalización del mismo turno se omiten; respuestas marcadas como parciales no promueven recuerdos.
+- El snapshot de memoria incluye el ledger de recibos para facilitar auditoría y restauración futura.
+
+## 0.12.0-beta rev.hz
+
+- **M1 — Idempotencia durable:** cada extracción de memoria del asistente guarda un recibo por conversación/turno/versión junto con la memoria, con readback de `kawaii-settings-v2`.
+- Reintentos y doble finalización del mismo turno se omiten; respuestas marcadas como parciales no promueven recuerdos.
+- El snapshot de memoria incluye el ledger de recibos para facilitar auditoría y restauración futura.
+
+## 0.12.0-beta rev.hy
+
+- **Cercanía conversacional:** el turno actual determina si continúa un momento afectuoso; mensajes previos ya no mantienen una escena física activa.
+- **Interfaz:** reemplazadas las etiquetas y acciones de “escena” por cercanía, pausa afectiva y retorno al chat.
+- **Prompts y persistencia:** priorizan diálogo natural y no reactivan narración física solo por señales antiguas.
 
 ## 0.12.0-beta rev.hx
 
@@ -1359,3 +1424,11 @@ Futuro (ingresos): respaldos en nube / disco externo — fuera de alcance ahora.
 - ROADMAP reorientado: ingeniería antes que features nuevas
 - package.json kawaiiRevision alineado a b
 
+## 0.12.0-beta rev.ic
+
+- **M0 incremental — snapshot puro:**
+  - `createMemorySnapshot` deep-clona fuentes (`structuredClone`) — caller nunca mutado.
+  - `analyzeMemorySnapshot`: inspección pura de duplicados en arrays comunes y orígenes nulos.
+  - `verifyMemorySnapshot`: valida schema y hash de integridad para reimport seguro.
+  - Tests cubren no-mutación, detección y rechazo por mismatch.
+  - M0 parcial; sin importador completo ni data real tocada.

@@ -3,7 +3,7 @@
 | Campo | Valor |
 |-------|--------|
 | Versión | **0.12.0-beta** |
-| Revisión | **rev.gk** |
+| Revisión | **rev.ih** |
 | Un residente LLM | **rev.gj + rev.gk** (sin reload por Auto suave) |
 
-Última actualización docs: **rev.gk**.
+Última actualización docs: **rev.ih**.

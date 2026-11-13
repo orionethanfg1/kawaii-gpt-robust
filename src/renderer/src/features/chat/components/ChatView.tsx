@@ -41,10 +41,14 @@ function IntimateScenePhaseChip() {
   const facts = useSettingsStore((s) => s.settings.userMemory?.facts)
   const adult = useSettingsStore((s) => s.settings.adultIntimacyOptIn)
   const stage = String(rel?.stage || '')
-  const messages = useChatStore((s) => {
+  const lastUserText = useChatStore((s) => {
     const id = s.activeId
     const c = s.conversations.find((x) => x.id === id)
-    return c?.messages || []
+    const messages = c?.messages || []
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return String(messages[i].content || '')
+    }
+    return ''
   })
   // Hide for professional / non-intimate relationships unless open or adult opt-in
   // Discrete: hide in professional / early stages unless intimacy is actually open
@@ -63,14 +67,11 @@ function IntimateScenePhaseChip() {
 
   let phase = 'idle'
   try {
-    const lastUserText =
-      [...messages].reverse().find((message: { role?: string }) => message.role === 'user')
-        ?.content || ''
     phase = resolveLiveIntimatePhase({
       relationship: rel,
       facts: facts || [],
-      userText: String(lastUserText),
-      recentTexts: lastUserText ? [String(lastUserText)] : []
+      userText: lastUserText,
+      recentTexts: lastUserText ? [lastUserText] : []
     })
   } catch {
     phase = String((rel as { scenePhase?: string } | undefined)?.scenePhase || 'idle')

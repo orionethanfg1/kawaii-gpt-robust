@@ -44,6 +44,53 @@ export function looksIncompleteAssistantText(text: string): boolean {
   return false
 }
 
+/**
+ * UI / auto-continue gate: only offer «Continuar escribiendo» when the cut is real.
+ * Short replies that end with a soft «,» or «:» (estilo hablado) are NOT treated as
+ * truncated — continuing them causes repetition and a second incoherent bubble.
+ */
+export function shouldOfferContinueWriting(
+  text: string,
+  opts?: { finishReason?: string | null; minChars?: number }
+): boolean {
+  const t = String(text || '').trim()
+  if (!t) return false
+  const minChars = opts?.minChars ?? 120
+  if (t.length < minChars) return false
+  if (!looksIncompleteAssistantText(t)) return false
+
+  const lastLine = (t.split(/\n/).filter((x) => x.trim()).pop() || t).trim()
+  let core = lastLine.replace(/\s+$/u, '')
+  // strip trailing emoji for end check
+  while (core.length) {
+    const cp = core.codePointAt(core.length - 1)!
+    if (
+      cp === 0xfe0f ||
+      cp === 0x200d ||
+      (cp >= 0x1f300 && cp <= 0x1faff) ||
+      (cp >= 0x2600 && cp <= 0x27bf)
+    ) {
+      core = core.slice(0, cp > 0xffff ? -2 : -1)
+      continue
+    }
+    break
+  }
+  core = core.trim()
+
+  const hardCut =
+    /\.{2,}$|…$/u.test(core) ||
+    (/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]$/u.test(core) && !/[.!?…»"')\]]$/u.test(core))
+  const softCommaOnly = /[,:;]$/u.test(core) && !hardCut
+  const providerLength = String(opts?.finishReason || '').toLowerCase() === 'length'
+
+  // Soft spoken ending on a short/medium bubble → do not force a second turn
+  if (softCommaOnly && !providerLength && t.length < 420) return false
+  // Mid-word / ellipsis / provider length always qualify when incomplete
+  if (hardCut || providerLength) return true
+  // Longer incomplete (open quote, etc.)
+  return t.length >= 280
+}
+
 /** Longest overlap of suffix(prev) with prefix(next), chars */
 function overlapLen(a: string, b: string, max = 800): number {
   const n = Math.min(max, a.length, b.length)

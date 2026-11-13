@@ -39,13 +39,15 @@ import { stripHarnessMarkup } from '@core/agent'
 import { mergeStreamToken, stripWhileStreaming } from './chatPostProcess'
 import {
   looksIncompleteAssistantText,
+  shouldOfferContinueWriting,
   extractContinueFragment,
   buildContinuedContent
 } from '@core/chat/stitch-continuation'
 import {
   detectAppContinueKind,
   buildAppContinueTurnTexts,
-  splitVisibleAndThinking
+  splitVisibleAndThinking,
+  sanitizeMessagesForWriteContinue
 } from './turn-stream-helpers'
 import { globalCircuitBreaker } from '@core/resilience'
 import { ensureVisualDescriptionFromAvatar } from '@features/settings/ensureVisualDescription'
@@ -95,7 +97,8 @@ export type ChatOrchestrationTurnCtx = {
 
 /** Per-turn stream paint batching (module scope — this is not a React hook). */
 const streamAccRef: { current: Record<string, string> } = { current: {} }
-const streamPaintAtRef: { current: Record<string, number> } = { current: {} }
+const streamCheckAtRef: { current: Record<string, number> } = { current: {} }
+const streamCheckLenRef: { current: Record<string, number> } = { current: {} }
 const streamPaintTimerRef: {
   current: Record<string, ReturnType<typeof setTimeout> | undefined>
 } = { current: {} }
@@ -133,7 +136,8 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
   {
     const k = `${convId}:${assistantId}`
     streamAccRef.current[k] = ''
-    streamPaintAtRef.current[k] = 0
+    streamCheckAtRef.current[k] = 0
+    streamCheckLenRef.current[k] = 0
     if (streamPaintTimerRef.current[k]) {
       clearTimeout(streamPaintTimerRef.current[k])
       streamPaintTimerRef.current[k] = undefined
@@ -206,7 +210,10 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
         const { getDocReadingStatesForConv } = await import('./documentReadingStore')
         const { isDocReadingComplete } = await import('@core/chat/document-reading-state')
         const states = getDocReadingStatesForConv(convId)
-        hasOpenDocReading = states.some((s) => !isDocReadingComplete(s))
+        // Only "open for advance" if not UI-suspended (user moved to pure chat)
+        hasOpenDocReading = states.some(
+          (s) => !isDocReadingComplete(s) && !(s as { uiSuspended?: boolean }).uiSuspended
+        )
       } catch {
         hasOpenDocReading = docHeavy
       }
@@ -215,10 +222,12 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
         .filter((m) => m.role === 'user')
         .slice(-1)[0] as { meta?: { kind?: string } } | undefined
       const mk = lastUserMeta?.meta?.kind
+      // Bare «sigue/continúa» only advances the book when reading UI is active — not mid-scene chat
+      const bareContinue = /^(sigue|contin[uú]a)(\s+por\s+fa(vor)?)?\.?$/i.test(trimmed.trim())
       forceDocContinue =
         mk === 'app-doc-continue' ||
         /\[APP\].*lectura del documento/i.test(trimmed) ||
-        (hasOpenDocReading && /^(sigue|contin[uú]a)(\s+por\s+fa(vor)?)?\.?$/i.test(trimmed.trim()))
+        (hasOpenDocReading && bareContinue)
       const hasImageAttachment = Boolean(
         hasAtt && attachments?.some((a) => a.mimeType?.startsWith('image/'))
       )
@@ -262,6 +271,28 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
       }
     }
 
+    // Pure chat / write-continue: suspend «Continuar lectura» so bare «sigue» and model habit
+    // do not advance the book while the user is talking about the relationship.
+    try {
+      const lastKind = String(
+        ((getActive()?.messages || []).filter((m) => m.role === 'user').slice(-1)[0] as
+          | { meta?: { kind?: string } }
+          | undefined)?.meta?.kind || ''
+      )
+      const isDocish =
+        lastKind === 'app-doc-continue' ||
+        /\[APP\].*lectura/i.test(trimmed) ||
+        /\b(cap[ií]tulo|leer|lectura|siguiente tramo|continuar la lectura)\b/i.test(trimmed)
+      const isWriteCont =
+        Boolean(streamPrefix && String(streamPrefix).trim()) || lastKind === 'app-continue'
+      if (!isDocish || isWriteCont) {
+        const { suspendDocReadingUi } = await import('./documentReadingStore')
+        suspendDocReadingUi(convId)
+      }
+    } catch {
+      /* */
+    }
+
     const controller = new AbortController()
     abortRef.current = controller
     // hitDegenerate / degenerateReason declared at function scope (R1/R2)
@@ -302,6 +333,26 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
         role: 'assistant',
         content: String(streamPrefix).trim()
       })
+    }
+
+    // Write-continue must not re-enter progressive document reading via stacked APP systems
+    try {
+      const lastU = (conv?.messages || [])
+        .filter((m) => m.role === 'user')
+        .slice(-1)[0] as { meta?: { kind?: string }; content?: string } | undefined
+      const contKind = detectAppContinueKind(
+        lastU?.meta?.kind,
+        String(lastU?.content || trimmed || '')
+      )
+      const isWriteContinue =
+        Boolean(streamPrefix && String(streamPrefix).trim()) || contKind === 'app-continue'
+      if (isWriteContinue && contKind !== 'app-doc-continue') {
+        const cleaned = sanitizeMessagesForWriteContinue(history)
+        history.length = 0
+        history.push(...cleaned)
+      }
+    } catch {
+      /* sanitize optional */
     }
 
     let apiKey = ''
@@ -613,6 +664,7 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
       extraSystem = await applyDocumentTurnPath({
         convId,
         trimmed,
+        forceDocContinue: Boolean(decisionPacket?.inject.docs),
         attachments,
         settings,
         getMessages: () => getActive()?.messages || [],
@@ -796,13 +848,16 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
             // behind as if the model were still writing.
             const accKey = `${convId}:${assistantId}`
             const prevAcc = (streamAccRef.current[accKey] as string) || ''
-            const current = useChatStore
-              .getState()
-              .conversations.find((c) => c.id === convId)
-              ?.messages.find((m) => m.id === assistantId)
             // With streamPrefix (Continuar), accumulator is ONLY the new fragment —
             // never seed from current.content (that is the prior reply).
-            const base = prevAcc || (streamPrefix ? '' : current?.content || '')
+            const base =
+              prevAcc ||
+              (streamPrefix
+                ? ''
+                : useChatStore
+                    .getState()
+                    .conversations.find((c) => c.id === convId)
+                    ?.messages.find((m) => m.id === assistantId)?.content || '')
             const next = mergeStreamToken(base, String(token || ''))
             if (!next || next === base) return
             streamAccRef.current[accKey] = next
@@ -811,7 +866,18 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
             // fragment (plan_leak on a short continue fragment was wiping good continuations).
             try {
               const prefMid = String(streamPrefix || '').trim()
-              const verdict = detectStreamDegeneration(next)
+              const now = Date.now()
+              const lastCheckAt = streamCheckAtRef.current[accKey] || 0
+              const lastCheckLength = streamCheckLenRef.current[accKey] || 0
+              const checkDue =
+                !lastCheckAt ||
+                now - lastCheckAt >= 120 ||
+                next.length - lastCheckLength >= 256
+              const verdict = checkDue ? detectStreamDegeneration(next) : { ok: true as const }
+              if (checkDue) {
+                streamCheckAtRef.current[accKey] = now
+                streamCheckLenRef.current[accKey] = next.length
+              }
               const hardLoop =
                 !verdict.ok &&
                 (verdict.reason === 'char_loop' || verdict.reason === 'ngram_loop')
@@ -821,6 +887,10 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
                 ? hardLoop || (softLeak && next.length > 600)
                 : !verdict.ok
               if (shouldAbort) {
+                const current = useChatStore
+                  .getState()
+                  .conversations.find((c) => c.id === convId)
+                  ?.messages.find((m) => m.id === assistantId)
                 hitDegenerate = true
                 degenerateReason = verdict.ok ? 'unknown' : verdict.reason
                 try {
@@ -849,14 +919,13 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
               /* detector must not break stream */
             }
 
-            // Perf: one React update per animation frame (not per token)
+            // Cap stream-driven React work near 30 paints/sec; text remains responsive.
             const flush = () => {
               streamPaintTimerRef.current[accKey] = undefined
               const text = streamAccRef.current[accKey]
               if (text == null) return
-              streamPaintAtRef.current[accKey] = Date.now()
               {
-                const body = stripWhileStreaming(text)
+                const body = stripWhileStreaming(text, { skipDegenerationCheck: true })
                 const pref = String(streamPrefix || '')
                 let painted = body
                 if (pref) {
@@ -870,14 +939,7 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
               }
             }
             if (!streamPaintTimerRef.current[accKey]) {
-              const raf =
-                typeof requestAnimationFrame === 'function'
-                  ? requestAnimationFrame
-                  : (cb: FrameRequestCallback) =>
-                      setTimeout(cb, 32) as unknown as number
-              streamPaintTimerRef.current[accKey] = raf(() => flush()) as unknown as ReturnType<
-                typeof setTimeout
-              >
+              streamPaintTimerRef.current[accKey] = setTimeout(flush, 32)
             }
           },
           onThinking: (chunk) => {
@@ -885,11 +947,7 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
             const prev = (streamAccRef.current[accThink] as string) || ''
             streamAccRef.current[accThink] = prev + String(chunk || '')
             if (streamPaintTimerRef.current[accThink]) return
-            const raf =
-              typeof requestAnimationFrame === 'function'
-                ? requestAnimationFrame
-                : (cb: FrameRequestCallback) => setTimeout(cb, 48) as unknown as number
-            streamPaintTimerRef.current[accThink] = raf(() => {
+            streamPaintTimerRef.current[accThink] = setTimeout(() => {
               streamPaintTimerRef.current[accThink] = undefined
               const thinkText = streamAccRef.current[accThink] || ''
               const current = useChatStore
@@ -905,7 +963,7 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
                   hasThinking: true
                 }
               })
-            }) as unknown as ReturnType<typeof setTimeout>
+            }, 48)
           },
           onRoute: (info) => {
             const prevRoute = routeSnapshot.current
@@ -1210,7 +1268,8 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
                 }
               }
               delete streamAccRef.current[paintKey]
-              delete streamPaintAtRef.current[paintKey]
+              delete streamCheckAtRef.current[paintKey]
+              delete streamCheckLenRef.current[paintKey]
               delete streamAccRef.current[`${paintKey}:think`]
               delete streamPaintTimerRef.current[`${paintKey}:think`]
               // Hide all open «Continuando…» chips in this conversation once reply is done
@@ -1387,20 +1446,18 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
                 ?.messages.find((m) => m.id === assistantId)
               const prevMeta = (cur?.meta || {}) as Record<string, unknown>
               const bodyNow = String(cur?.content || '').trim()
-              // UI «Continuar escribiendo» only when the visible text itself looks cut off.
-              // Provider finishReason=length alone is not enough if the bubble ends cleanly.
+              // UI «Continuar escribiendo» solo con corte real (no comas suaves en burbujas cortas).
               let limitedNow = false
-              if (bodyNow.length > 40) {
-                try {
-                  limitedNow = looksIncompleteAssistantText(bodyNow)
-                } catch {
-                  limitedNow =
-                    /(?:\.{2,}|…)\s*$/u.test(bodyNow) ||
-                    ((bodyNow.slice(-400).match(/"/g) || []).length % 2) === 1
-                }
+              try {
+                limitedNow = shouldOfferContinueWriting(bodyNow, {
+                  finishReason: meta.finishReason
+                })
+              } catch {
+                limitedNow =
+                  bodyNow.length > 120 &&
+                  (looksIncompleteAssistantText(bodyNow) ||
+                    /(?:\.{2,}|…)\s*$/u.test(bodyNow))
               }
-              // Soft signal for memory/telemetry only
-              const providerLimited = Boolean(meta.limited)
               updateMessage(convId!, assistantId, {
                 isStreaming: false,
                 meta: {
@@ -1666,7 +1723,8 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
           const k = `${convId}:${assistantId}`
           streamAccRef.current[k] = ''
           streamAccRef.current[`${k}:think`] = ''
-          streamPaintAtRef.current[k] = 0
+          streamCheckAtRef.current[k] = 0
+          streamCheckLenRef.current[k] = 0
         } catch {
           /* */
         }

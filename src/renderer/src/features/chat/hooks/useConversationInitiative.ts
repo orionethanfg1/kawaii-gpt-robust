@@ -8,6 +8,7 @@ import {
   buildInitiativeLlmMessages,
   buildInitiativeDecisionMessages,
   parseInitiativeDecision,
+  hasInitiativeFollowUpSignal,
   detectInitiativeTone,
   generateInitiativeWithLocalLlm,
   initiativeMinutesForTone,
@@ -253,10 +254,9 @@ export function useConversationInitiative(enabledGate: boolean) {
       })
       const fixedMin = fixedMinutes()
       // CV1: after harness/tool bubbles, don't force the full idle window again
-      // Fijo: 35% del intervalo (mín. 8s). Adaptativo: 45s de silencio real.
       let minUserIdleMs =
         fixedMin != null
-          ? Math.max(8_000, Math.floor(fixedMin * 60_000 * 0.35))
+          ? Math.max(10_000, Math.floor(fixedMin * 60_000 * 0.35))
           : 45_000
       if (lastRaw && isHarnessNoise(lastRaw)) {
         minUserIdleMs = Math.min(minUserIdleMs, fixedMin != null ? 15_000 : 45_000)
@@ -339,10 +339,45 @@ export function useConversationInitiative(enabledGate: boolean) {
             const who = m.role === 'user' ? userName || 'Usuario' : charName
             return who + ': ' + (m.content || '').slice(0, 180)
           })
+        const recentUserLines = conv.messages
+          .filter((m) => m.role === 'user' && !isHarnessNoise(m))
+          .slice(-6)
+          .map((m) => String(m.content || '').slice(0, 240))
+        const activeGoals = (s.userMemory?.goals || [])
+          .map((goal) => String(goal || '').trim())
+          .filter(Boolean)
+          .slice(0, 4)
+        const currentFocus = String(s.userMemory?.currentFocus || '').trim()
+        const hasFollowUpContext = hasInitiativeFollowUpSignal({
+          goals: activeGoals,
+          currentFocus,
+          recentUserLines
+        })
         const lastUser = [...conv.messages].reverse().find((m) => m.role === 'user')
-        const hoursSince = lastUser?.createdAt
-          ? (Date.now() - lastUser.createdAt) / 3_600_000
-          : undefined
+        const lastAsstMsg = [...conv.messages]
+          .reverse()
+          .find((m) => m.role === 'assistant' && !m.isStreaming && !isHarnessNoise(m))
+        const streamDoneAt = getAssistantStreamDoneAt(String(convId || ''))
+        let hoursSince: number | undefined
+        let hoursSinceAssistantDone: number | undefined
+        try {
+          const { resolveThreadTimeAnchors } = await import('@core/conversation/local-time-context')
+          const anchors = resolveThreadTimeAnchors({
+            lastUserAt: lastUser?.createdAt,
+            lastAssistantDoneAt: streamDoneAt,
+            lastAssistantMsgAt: lastAsstMsg?.createdAt
+          })
+          hoursSince =
+            anchors.sinceUserMs > 0 ? anchors.sinceUserMs / 3_600_000 : undefined
+          hoursSinceAssistantDone =
+            anchors.silenceSinceAssistantMs > 0
+              ? anchors.silenceSinceAssistantMs / 3_600_000
+              : undefined
+        } catch {
+          hoursSince = lastUser?.createdAt
+            ? (Date.now() - lastUser.createdAt) / 3_600_000
+            : undefined
+        }
 
         let text: string | null = null
         let initiativeWebHitsForMeta = 0
@@ -354,7 +389,7 @@ export function useConversationInitiative(enabledGate: boolean) {
           (s as { lastEffectiveLocalModel?: string }).lastEffectiveLocalModel ||
           ''
         // Prefer the model that last replied in this chat (same resident as conversation)
-        if (!modelRaw) {
+        if (hasFollowUpContext && !modelRaw) {
           try {
             const lastAsst = [...(conv.messages || [])]
               .reverse()
@@ -400,17 +435,28 @@ export function useConversationInitiative(enabledGate: boolean) {
             (/1234|1235|4891/.test(base) ? base : 'http://127.0.0.1:1234')
         }
 
-                // S6 short time line for decision + message
+                // S6 + thread gap (pivot = assistant stream done)
         let timeLine = ''
         try {
-          const { buildLocalTimeOneLiner } = await import('@core/conversation/local-time-context')
-          timeLine = buildLocalTimeOneLiner()
+          const {
+            buildLocalTimeOneLiner,
+            buildThreadTimeGapOneLiner,
+            resolveThreadTimeAnchors
+          } = await import('@core/conversation/local-time-context')
+          const clock = buildLocalTimeOneLiner()
+          const anchors = resolveThreadTimeAnchors({
+            lastUserAt: lastUser?.createdAt,
+            lastAssistantDoneAt: streamDoneAt,
+            lastAssistantMsgAt: lastAsstMsg?.createdAt
+          })
+          const gap = buildThreadTimeGapOneLiner(anchors)
+          timeLine = [clock, gap].filter(Boolean).join(' · ')
         } catch {
           /* */
         }
 
         // LMS: stick to single resident — never initiative-load a second model
-        if (modelRaw && !looksOllama) {
+        if (modelRaw && hasFollowUpContext && !looksOllama) {
           try {
             const { preferLmStudioResidentId, ensureLmStudioSingleResident } = await import(
               '@core/providers/lmstudio-lifecycle'
@@ -432,7 +478,7 @@ export function useConversationInitiative(enabledGate: boolean) {
           }
         }
 
-if (modelRaw) {
+if (modelRaw && hasFollowUpContext) {
           // N1 — ask model whether to speak (transparent; no user bubble)
           try {
             const decMsgs = buildInitiativeDecisionMessages({
@@ -444,8 +490,11 @@ if (modelRaw) {
               tone,
               userName,
               hoursSinceLastUser: hoursSince,
+              hoursSinceAssistantDone,
               unansweredInitiatives: ignoredCountRef.current,
               recentLines,
+              activeGoals,
+              currentFocus,
               relationshipStage: s.relationshipState?.stage,
               timeHint: timeLine || undefined
             })
@@ -456,14 +505,14 @@ if (modelRaw) {
               timeoutMs: 18_000
             })
             const decision = parseInitiativeDecision(decRaw || '')
-            // MENSAJE: … o texto libre del modelo
             if (decision.speak && decision.text) {
               text = decision.text
               if (typeof console !== 'undefined' && console.debug) {
-                console.debug('[initiative] N1 approved message')
+                console.debug('[initiative] N1 approved contextual follow-up')
               }
             } else if (!decision.speak) {
               const explicitSilence = /^\s*SILENCIO\b/i.test(decRaw || '')
+              // Empty / failed format: do NOT skip — generate a real message below
               if (explicitSilence) {
                 if (typeof console !== 'undefined' && console.debug) {
                   console.debug('[initiative] N1 SILENCIO', {
@@ -488,17 +537,10 @@ if (modelRaw) {
           // One LMS job when decision already wrote the message (avoids 2× token streams)
           if (!text) {
           const mem = s.userMemory
-          const aMem = s.assistantMemory
           const memoryBlock = [
             mem?.preferredName ? 'usuario se llama ' + mem.preferredName : '',
-            mem?.currentFocus ? 'enfoque del usuario: ' + mem.currentFocus : '',
-            mem?.likes?.[0] ? 'le gusta al usuario: ' + mem.likes[0] : '',
-            mem?.goals?.[0] ? 'meta: ' + mem.goals[0] : '',
-            mem?.people?.[0]?.name ? 'persona cercana: ' + mem.people[0].name : '',
-            aMem?.favorites?.[0] ? 'tu favorito: ' + aMem.favorites[0] : '',
-            aMem?.likes?.[0] ? 'a TI te gusta: ' + aMem.likes[0] : '',
-            aMem?.likes?.[1] ? 'también te gusta: ' + aMem.likes[1] : '',
-            aMem?.relational?.[0] ? 'vínculo: ' + aMem.relational[0] : ''
+            ...activeGoals.map((goal) => 'objetivo activo: ' + goal),
+            currentFocus ? 'enfoque del usuario: ' + currentFocus : ''
           ]
             .filter(Boolean)
             .join(' · ')
@@ -517,9 +559,7 @@ if (modelRaw) {
               )
               const q = suggestInitiativeSearchQuery({
                 recentLines,
-                focus: mem?.currentFocus,
-                likes: mem?.likes,
-                favorites: aMem?.favorites || aMem?.likes
+                focus: currentFocus
               })
               if (q) {
                 const max = Math.min(4, Number(s.webSearchMaxResults) || 4)
@@ -562,10 +602,14 @@ if (modelRaw) {
             recentLines,
             tone,
             hoursSinceLastUser: hoursSince,
+            hoursSinceAssistantDone,
             memoryBlock: memoryBlock || undefined,
             focus: mem?.currentFocus,
             webContext,
-            unansweredInitiatives: ignoredCountRef.current
+            unansweredInitiatives: ignoredCountRef.current,
+            activeGoals,
+            currentFocus,
+            timeHint: timeLine || undefined
           })
           const generated = await generateInitiativeWithLocalLlm({
             baseUrl: base,
@@ -573,10 +617,8 @@ if (modelRaw) {
             messages: msgs,
             timeoutMs: 28_000
           })
-          {
-            const gd = parseInitiativeDecision(generated || '')
-            text = gd.speak ? gd.text || null : null
-          }
+          const generatedDecision = parseInitiativeDecision(generated || '')
+          text = generatedDecision.speak ? generatedDecision.text || null : null
           initiativeWebHitsForMeta = initiativeWebHits
           if (!text) {
             const alt =
@@ -590,10 +632,11 @@ if (modelRaw) {
                 messages: msgs,
                 timeoutMs: 18_000
               })
-              const ad = parseInitiativeDecision(alternate || '')
-              text = ad.speak ? ad.text || null : null
+              const alternateDecision = parseInitiativeDecision(alternate || '')
+              text = alternateDecision.speak ? alternateDecision.text || null : null
             }
           }
+          // No alternate-model retry: loading a second LLM for initiative wastes VRAM/RAM
           if (text && recentNudgesRef.current.some((r) => r && text!.includes(r.slice(0, 40)))) {
             text = null
           }
@@ -888,7 +931,8 @@ if (modelRaw) {
               scenePhase = resolveLiveIntimatePhase({
                 relationship: s.relationshipState,
                 facts: s.userMemory?.facts,
-                recentTexts: rt
+                recentTexts: rt,
+                userText: recentUserLines[recentUserLines.length - 1]
               })
             } catch {
               /* */
@@ -960,27 +1004,20 @@ if (modelRaw) {
           /* intimacy propose optional */
         }
 
-        // Preferencia: LLM. Si falla (modelo caído / timeout), presencia mínima para no quedar muda.
+        // Si el LLM no produjo texto útil: presencia mínima (no silencio eterno).
         let usedTemplate = false
         if (!text) {
           text = pickInitiativeNudge({
             tone,
-            name: charName,
-            userName,
-            recentTexts: recentNudgesRef.current,
-            focus: s.userMemory?.currentFocus,
+            userName: userName || undefined,
             hoursSinceUser: hoursSince,
-            memoryHint:
-              s.userMemory?.goals?.[0] ||
-              s.userMemory?.likes?.[0] ||
-              s.userMemory?.people?.[0]?.name
+            focus: currentFocus || undefined
           })
-          usedTemplate = Boolean(text)
+          usedTemplate = true
           if (typeof console !== 'undefined' && console.debug) {
-            console.debug('[initiative] presence fallback', {
+            console.debug('[initiative] LLM empty — presencia mínima', {
               model: modelRaw || null,
-              base,
-              usedTemplate
+              base
             })
           }
         }
@@ -1117,7 +1154,7 @@ if (modelRaw) {
         const isH =
           last.meta?.model === 'harness-host' ||
           /harness/i.test(String(last.meta?.model || ''))
-        // Solo ancla de agenda — no cuenta como iniciativa enviada
+        // Timer starts from assistant completion, not from user send
         scheduleAnchorRef.current = Math.max(scheduleAnchorRef.current, Date.now())
         schedule(isH ? 'post-harness' : 'assistant-done')
       }
@@ -1152,4 +1189,3 @@ if (modelRaw) {
     }
   }, [enabledGate])
 }
-

@@ -9,7 +9,9 @@ import {
   emptyAssistantMemory,
   isAssistantMemoryEmpty,
   partitionAssistantLikes,
-  classifyAssistantLikePhrase
+  classifyAssistantLikePhrase,
+  isAssistantPreferenceQuestion,
+  isPreferenceActivityPhrase
 } from './assistant-memory'
 
 /** Schema version written on every successful persist */
@@ -230,7 +232,9 @@ export function reconcileAssistantMemory(
       // classify likes into relational if needed
       if (key === 'likes') {
         const kind = classifyAssistantLikePhrase(val)
-        if (kind === 'skip') {
+        const explicitActivity =
+          isAssistantPreferenceQuestion(opts?.userText) && isPreferenceActivityPhrase(val)
+        if (kind === 'skip' && !explicitActivity) {
           ops.push({ kind: 'reject', field: key, value: val, reason: 'skip-class' })
           continue
         }

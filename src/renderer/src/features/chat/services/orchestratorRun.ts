@@ -225,6 +225,7 @@ export function createChatRunners(ctx: ChatRunContext) {
     try {
       const {
         stripHeavyDocSystemMessages,
+        stripDocumentTurnsFromHistory,
         stripImagePayloadsFromMessages,
         budgetForContextTurn
       } = await import('@core/chat/context-eviction')
@@ -234,7 +235,7 @@ export function createChatRunners(ctx: ChatRunContext) {
         packSystems = stripHeavyDocSystemMessages(systemMessages)
         if (!packSystems.length) packSystems = systemMessages.slice(0, 4)
       }
-      packHistory = stripImagePayloadsFromMessages(history)
+      packHistory = stripImagePayloadsFromMessages(stripDocumentTurnsFromHistory(history))
     } catch {
       if (visionTurn) {
         packBudget = {
