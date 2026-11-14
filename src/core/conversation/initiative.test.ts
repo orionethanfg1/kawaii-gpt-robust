@@ -4,6 +4,7 @@ import {
   detectInitiativeTone,
   initiativeMinutesForTone,
   buildInitiativeDecisionMessages,
+  buildInitiativeLlmMessages,
   buildInitiativeCompositionMessages,
   parseInitiativeDecision,
   parseInitiativeSnooze
@@ -61,9 +62,20 @@ describe('initiative core', () => {
       recentLines: ['Usuario: me falta terminar el catálogo']
     })
     expect(system.content).toContain('No exijas que haya objetivos guardados')
-    expect(system.content).toContain('El tiempo solo NO justifica escribir')
+    expect(system.content).toContain('El tiempo solo no basta para escribir')
     expect(system.content).toContain('no menciones la foto/avatar')
     expect(user.content).toContain('me falta terminar el catálogo')
+  })
+
+  it('allows natural proactive conversation without persisted tasks', () => {
+    const [system, user] = buildInitiativeLlmMessages({
+      characterName: 'Niamh',
+      recentLines: ['Usuario: Hoy fue un día largo, pero terminé el diseño.'],
+      hoursSinceAssistantDone: 4
+    })
+    expect(system.content).toContain('iniciar conversación con naturalidad')
+    expect(system.content).toContain('la falta de una tarea pendiente tampoco te obliga a callar')
+    expect(user.content).toContain('Hoy fue un día largo')
   })
 
   it('asks the LLM to write proposal copy and preserve consent without template text', () => {

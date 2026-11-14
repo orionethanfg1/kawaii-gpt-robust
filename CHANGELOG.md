@@ -1,3 +1,9 @@
+## 0.12.0-beta rev.il
+
+- **Iniciativas con continuidad propia:** aunque no haya metas guardadas, el LLM puede iniciar una conversación natural desde el historial y la relación; la ausencia de tareas ya no equivale a silencio obligatorio.
+- **Enrutamiento local corregido:** las iniciativas usan el runtime configurado y su endpoint correcto (`localOpenAIBaseUrl` para LM Studio o `localBaseUrl` para Ollama). Se elimina el fallback cruzado que enviaba `/v1/chat/completions` a Ollama y provocaba 404; además se sanea UTF-16 inválido antes de serializar mensajes, como ya hace el proveedor OpenAI-compatible.
+- **Diagnóstico persistente y privado:** la app guarda eventos del timer, gates y solicitudes/respuestas HTTP locales de LM Studio/Ollama en `userData/diagnostics/local-runtime.jsonl`. No incluye prompts, respuestas ni cuerpos de error; el archivo rota al superar 512 KB y está listado en rutas de diagnóstico.
+
 ## 0.12.0-beta rev.ik
 
 - **Iniciativas desacopladas de la memoria de metas:** el ciclo LLM ya no se omite si otro sistema limpia `goals` o `currentFocus`; decide con el contexto reciente y puede guardar silencio si no hay seguimiento concreto.

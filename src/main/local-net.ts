@@ -2,7 +2,9 @@
  * Proxy localhost fetches for the renderer (avoids CORS on LM Studio / Ollama).
  * Only 127.0.0.1 / localhost are allowed.
  */
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
+import { appendFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 function isLocalUrl(url: string): boolean {
   try {
@@ -21,6 +23,136 @@ export type LocalFetchResult = {
   headers: Record<string, string>
   bodyText: string
   error?: string
+}
+
+type LocalRuntimeDiagnostic = {
+  source: 'initiative' | 'provider'
+  event: string
+  provider?: 'ollama' | 'lmstudio' | 'openai-compatible' | 'app'
+  model?: string
+  endpoint?: string
+  status?: number
+  durationMs?: number
+  delayMs?: number
+  reason?: string
+  errorCode?: string
+}
+
+const LOCAL_RUNTIME_LOG = 'local-runtime.jsonl'
+const LOCAL_RUNTIME_LOG_MAX_BYTES = 512 * 1024
+const LOCAL_RUNTIME_LOG_KEEP_BYTES = 384 * 1024
+const LOCAL_RUNTIME_ENDPOINTS = new Set([
+  '/v1/chat/completions',
+  '/api/chat',
+  '/api/generate',
+  '/api/tags',
+  '/api/ps',
+  '/v1/models',
+  '/api/v0/models'
+])
+
+function safeToken(value: unknown, maxLength = 100): string | undefined {
+  const token = String(value || '').trim()
+  return token && /^[\w./:-]+$/i.test(token) ? token.slice(0, maxLength) : undefined
+}
+
+function localProviderForUrl(url: URL): LocalRuntimeDiagnostic['provider'] {
+  if (url.port === '11434') return 'ollama'
+  if (url.port === '1234' || url.port === '1235') return 'lmstudio'
+  if (url.pathname.startsWith('/api/')) return 'ollama'
+  return 'openai-compatible'
+}
+
+async function appendLocalRuntimeDiagnostic(
+  input: LocalRuntimeDiagnostic
+): Promise<{ ok: boolean; path: string; error?: string }> {
+  const path = join(app.getPath('userData'), 'diagnostics', LOCAL_RUNTIME_LOG)
+  try {
+    const event = safeToken(input.event, 48)
+    if (!event || !['initiative', 'provider'].includes(input.source)) {
+      return { ok: false, path, error: 'Invalid diagnostic entry' }
+    }
+    const entry: LocalRuntimeDiagnostic & { at: string } = {
+      at: new Date().toISOString(),
+      source: input.source,
+      event,
+      ...(input.provider &&
+      ['ollama', 'lmstudio', 'openai-compatible', 'app'].includes(String(input.provider))
+        ? { provider: input.provider }
+        : {}),
+      ...(safeToken(input.model, 120) ? { model: safeToken(input.model, 120) } : {}),
+      ...(safeToken(input.endpoint, 48) ? { endpoint: safeToken(input.endpoint, 48) } : {}),
+      ...(Number.isInteger(input.status) && input.status! >= 0 && input.status! <= 599
+        ? { status: input.status }
+        : {}),
+      ...(Number.isFinite(input.durationMs)
+        ? { durationMs: Math.max(0, Math.min(1_800_000, Math.round(input.durationMs!))) }
+        : {}),
+      ...(Number.isFinite(input.delayMs)
+        ? { delayMs: Math.max(0, Math.min(86_400_000, Math.round(input.delayMs!))) }
+        : {}),
+      ...(safeToken(input.reason, 80) ? { reason: safeToken(input.reason, 80) } : {}),
+      ...(safeToken(input.errorCode, 48)
+        ? { errorCode: safeToken(input.errorCode, 48) }
+        : {})
+    }
+    const line = JSON.stringify(entry) + '\n'
+    const dir = join(app.getPath('userData'), 'diagnostics')
+    await mkdir(dir, { recursive: true })
+    let size = 0
+    try {
+      size = (await stat(path)).size
+    } catch {
+      /* new log */
+    }
+    if (size + Buffer.byteLength(line) > LOCAL_RUNTIME_LOG_MAX_BYTES) {
+      try {
+        const existing = await readFile(path, 'utf8')
+        const tail = existing.slice(-LOCAL_RUNTIME_LOG_KEEP_BYTES)
+        const firstNewline = tail.indexOf('\n')
+        await writeFile(path, firstNewline >= 0 ? tail.slice(firstNewline + 1) : '', 'utf8')
+      } catch {
+        /* continue with a new log if the old one cannot be read */
+      }
+    }
+    await appendFile(path, line, 'utf8')
+    return { ok: true, path }
+  } catch (error) {
+    return {
+      ok: false,
+      path,
+      error: error instanceof Error ? error.message.slice(0, 120) : 'Log write failed'
+    }
+  }
+}
+
+async function logLocalProviderRequest(
+  url: string,
+  startedAt: number,
+  status: number,
+  error?: unknown
+): Promise<void> {
+  try {
+    const parsed = new URL(url)
+    if (!isLocalUrl(url) || !LOCAL_RUNTIME_ENDPOINTS.has(parsed.pathname)) return
+    const code =
+      error instanceof Error
+        ? error.name
+        : status >= 400
+          ? `HTTP_${status}`
+          : undefined
+    await appendLocalRuntimeDiagnostic({
+      source: 'provider',
+      event: error || status >= 400 ? 'request-failed' : 'request-completed',
+      provider: localProviderForUrl(parsed),
+      endpoint: parsed.pathname,
+      status,
+      durationMs: Date.now() - startedAt,
+      errorCode: code
+    })
+  } catch {
+    /* diagnostics must not affect local inference */
+  }
 }
 
 export async function localFetchImpl(
@@ -49,6 +181,7 @@ export async function localFetchImpl(
     1_800_000, // hard cap 30 min
     Math.max(1_000, init?.timeoutMs ?? fallback)
   )
+  const startedAt = Date.now()
   try {
     const res = await fetch(url, {
       method: init?.method || 'GET',
@@ -61,6 +194,7 @@ export async function localFetchImpl(
     res.headers.forEach((v, k) => {
       headers[k] = v
     })
+    await logLocalProviderRequest(url, startedAt, res.status, res.ok ? undefined : `HTTP_${res.status}`)
     return {
       ok: res.ok,
       status: res.status,
@@ -69,6 +203,7 @@ export async function localFetchImpl(
       bodyText
     }
   } catch (err) {
+    await logLocalProviderRequest(url, startedAt, 0, err)
     return {
       ok: false,
       status: 0,
@@ -81,6 +216,13 @@ export async function localFetchImpl(
 }
 
 export function registerLocalNetIpc(): void {
+  ipcMain.handle('diagnostics:appendLocalRuntimeLog', async (_event, entry?: LocalRuntimeDiagnostic) => {
+    if (!entry || typeof entry !== 'object') {
+      return { ok: false, error: 'Invalid diagnostic entry' }
+    }
+    return appendLocalRuntimeDiagnostic(entry)
+  })
+
   ipcMain.handle(
     'net:localFetch',
     async (
@@ -167,6 +309,12 @@ export function registerLocalNetIpc(): void {
         })
         if (!res.ok || !res.body) {
           const bodyText = await res.text().catch(() => '')
+          await logLocalProviderRequest(
+            url,
+            startedAt,
+            res.status,
+            res.ok ? undefined : `HTTP_${res.status}`
+          )
           return {
             ok: res.ok,
             status: res.status,
@@ -196,6 +344,7 @@ export function registerLocalNetIpc(): void {
         } catch {
           /* */
         }
+        await logLocalProviderRequest(url, startedAt, res.status)
         return {
           ok: true,
           status: res.status,
@@ -204,6 +353,7 @@ export function registerLocalNetIpc(): void {
           bodyText
         } satisfies LocalFetchResult
       } catch (err) {
+        await logLocalProviderRequest(url, startedAt, 0, err)
         try {
           event.sender.send('net:localStreamChunk', {
             streamId,

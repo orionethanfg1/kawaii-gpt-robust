@@ -21,6 +21,19 @@ export interface OllamaStatus {
   pid?: number
 }
 
+export interface LocalRuntimeDiagnosticInput {
+  source: 'initiative' | 'provider'
+  event: string
+  provider?: 'ollama' | 'lmstudio' | 'openai-compatible' | 'app'
+  model?: string
+  endpoint?: string
+  status?: number
+  durationMs?: number
+  delayMs?: number
+  reason?: string
+  errorCode?: string
+}
+
 export interface OllamaPullProgress {
   model: string
   status: string
@@ -178,6 +191,9 @@ export interface KawaiiAPI {
     content?: string
     subdir?: string
   }) => Promise<{ ok: boolean; filePath?: string; dir?: string }>
+  localRuntimeLogAppend: (
+    entry: LocalRuntimeDiagnosticInput
+  ) => Promise<{ ok: boolean; path?: string; error?: string }>
   filesOpenPath: (filePath: string) => Promise<{ ok: boolean; path?: string; error?: string }>
   settingsBackupList: () => Promise<{ ok: boolean; files?: Array<{ name: string; path: string; mtimeMs: number; size: number }>; dir?: string; error?: string }>
   settingsBackupRead: (fileName?: string) => Promise<{ ok: boolean; content?: string; path?: string; error?: string }>
@@ -848,6 +864,8 @@ const api: KawaiiAPI = {
   diagnosticsListPaths: () => ipcRenderer.invoke('diagnostics:listPaths'),
   diagnosticsWriteTextFile: (payload) =>
     ipcRenderer.invoke('diagnostics:writeTextFile', payload),
+  localRuntimeLogAppend: (entry) =>
+    ipcRenderer.invoke('diagnostics:appendLocalRuntimeLog', entry),
   filesOpenPath: (filePath: string) => ipcRenderer.invoke('files:openPath', filePath),
   filesListKnownDirs: () => ipcRenderer.invoke('files:listKnownDirs'),
   filesListWardrobe: () => ipcRenderer.invoke('files:listWardrobe'),

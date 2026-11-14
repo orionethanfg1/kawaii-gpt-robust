@@ -42,6 +42,36 @@ export function useConversationInitiative(enabledGate: boolean) {
 
     let disposed = false
     let runTick: (() => void) | undefined
+    const diagnosticTimes = new Map<string, number>()
+    const logRuntime = (
+      event: string,
+      details: {
+        provider?: 'ollama' | 'lmstudio' | 'openai-compatible' | 'app'
+        model?: string
+        delayMs?: number
+        durationMs?: number
+        reason?: string
+        errorCode?: string
+      } = {},
+      throttleMs = 0
+    ) => {
+      const key = `${event}:${details.reason || ''}`
+      const now = Date.now()
+      if (throttleMs > 0 && now - (diagnosticTimes.get(key) || 0) < throttleMs) return
+      diagnosticTimes.set(key, now)
+      try {
+        void window.kawaii
+          .localRuntimeLogAppend({ source: 'initiative', event, ...details })
+          .then((result) => {
+            if (!result.ok) {
+              console.warn('[initiative] diagnostic log write failed', result.error || result.path)
+            }
+          })
+          .catch((error) => console.warn('[initiative] diagnostic log IPC failed', error))
+      } catch (error) {
+        console.warn('[initiative] diagnostic log unavailable', error)
+      }
+    }
     const clear = () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current)
@@ -138,6 +168,13 @@ export function useConversationInitiative(enabledGate: boolean) {
       if (useActivityStore.getState().mode !== 'none') return
       const delay = resolveDelayMs()
       if (delay == null) return
+      if (
+        ['mount', 'settings-initiative', 'user-msg', 'assistant-done', 'activity-end', 'switch-conv'].includes(
+          String(reason || '')
+        )
+      ) {
+        logRuntime('timer-scheduled', { delayMs: delay, reason })
+      }
       if (typeof console !== 'undefined' && console.debug) {
         console.debug('[initiative] schedule', Math.round(delay / 1000) + 's', reason || '')
       }
@@ -145,12 +182,17 @@ export function useConversationInitiative(enabledGate: boolean) {
     }
 
     const tick = async () => {
+      logRuntime('timer-fired', {}, 30_000)
       if (useActivityStore.getState().mode !== 'none') {
+        logRuntime('blocked', { reason: 'activity-mode' }, 30_000)
         schedule('activity')
         return
       }
       const s = useSettingsStore.getState().settings
-      if (!s.conversationInitiativeEnabled) return
+      if (!s.conversationInitiativeEnabled) {
+        logRuntime('blocked', { reason: 'disabled' }, 30_000)
+        return
+      }
       if ((s.conversationInitiativeSnoozeUntil || 0) > Date.now()) {
         schedule('snooze')
         return
@@ -159,22 +201,26 @@ export function useConversationInitiative(enabledGate: boolean) {
       const store = useChatStore.getState()
       const convId = store.activeId
       if (!convId) {
+        logRuntime('blocked', { reason: 'no-active-conversation' }, 30_000)
         schedule('no-conv')
         return
       }
       const conv = store.conversations.find((c) => c.id === convId)
       if (!conv || conv.messages.length < 1) {
+        logRuntime('blocked', { reason: 'empty-conversation' }, 30_000)
         schedule('empty')
         return
       }
 
       // Never interrupt main chat, progressive doc read, or any streaming bubble
       if (isChatBusy()) {
+        logRuntime('blocked', { reason: 'chat-busy' }, 30_000)
         retry(8000)
         return
       }
       const anyStreaming = (conv.messages || []).some((m) => m.isStreaming)
       if (anyStreaming) {
+        logRuntime('blocked', { reason: 'streaming' }, 30_000)
         retry(5000)
         return
       }
@@ -307,6 +353,7 @@ export function useConversationInitiative(enabledGate: boolean) {
 
       // Adaptive quiet hours only when not fixed
       if (!gate.ok) {
+        logRuntime('gate-blocked', { reason: gate.reason }, 30_000)
         if (typeof console !== 'undefined' && console.debug) {
           console.debug('[initiative] gate block', gate.reason)
         }
@@ -318,6 +365,7 @@ export function useConversationInitiative(enabledGate: boolean) {
       if (s.conversationInitiativeMode !== 'fixed') {
         const { isQuietHours } = await import('@core/conversation/initiative')
         if (isQuietHours()) {
+          logRuntime('blocked', { reason: 'quiet-hours' }, 30_000)
           schedule('quiet')
           return
         }
@@ -423,13 +471,22 @@ export function useConversationInitiative(enabledGate: boolean) {
             }
           }
         }
-        const looksOllama = Boolean(modelRaw && !modelRaw.includes('/'))
-        let base = (s.localBaseUrl || 'http://127.0.0.1:11434').replace(/\/$/, '')
-        // LM Studio / path-style ids always use OpenAI-compatible port
-        if (modelRaw.includes('/')) {
-          base =
-            (s as { lmStudioBaseUrl?: string }).lmStudioBaseUrl?.replace(/\/$/, '') ||
-            (/1234|1235|4891/.test(base) ? base : 'http://127.0.0.1:1234')
+        const runtimePreference = String(s.localRuntimePreference || 'auto')
+        const runtime: 'ollama' | 'openai-compatible' =
+          runtimePreference === 'ollama'
+            ? 'ollama'
+            : runtimePreference === 'openai-compatible' || modelRaw.includes('/')
+              ? 'openai-compatible'
+              : 'ollama'
+        const looksOllama = runtime === 'ollama'
+        const ollamaBase = String(s.localBaseUrl || 'http://127.0.0.1:11434').replace(/\/+$/, '')
+        const openAIBase =
+          String(s.localOpenAIBaseUrl || '').trim() ||
+          String((s as { lmStudioBaseUrl?: string }).lmStudioBaseUrl || '').trim() ||
+          (/:(?:1234|1235)\b/.test(ollamaBase) ? ollamaBase : 'http://127.0.0.1:1234')
+        const base = looksOllama ? ollamaBase : openAIBase
+        if (!modelRaw) {
+          logRuntime('blocked', { provider: runtime, reason: 'no-local-model' }, 30_000)
         }
 
         // S6 + thread gap (pivot = assistant stream done)
@@ -452,7 +509,7 @@ export function useConversationInitiative(enabledGate: boolean) {
           /* */
         }
 
-        // LMS: stick to single resident — never initiative-load a second model
+        // LM Studio: keep the current resident; initiative must not load a second model.
         if (modelRaw && !looksOllama) {
           try {
             const { preferLmStudioResidentId, ensureLmStudioSingleResident } = await import(
@@ -498,17 +555,27 @@ export function useConversationInitiative(enabledGate: boolean) {
             const decRaw = await generateInitiativeWithLocalLlm({
               baseUrl: base,
               model: modelRaw,
+              runtime,
               messages: decMsgs,
               timeoutMs: 18_000
             })
             const decision = parseInitiativeDecision(decRaw || '')
             if (decision.speak && decision.text) {
               text = decision.text
+              logRuntime('llm-approved-message', {
+                provider: looksOllama ? 'ollama' : 'lmstudio',
+                model: modelRaw
+              })
               if (typeof console !== 'undefined' && console.debug) {
                 console.debug('[initiative] N1 approved contextual follow-up')
               }
             } else if (!decision.speak) {
               const explicitSilence = /^\s*SILENCIO\b/i.test(decRaw || '')
+              logRuntime(
+                explicitSilence ? 'llm-chose-silence' : 'llm-decision-empty',
+                { provider: looksOllama ? 'ollama' : 'lmstudio', model: modelRaw },
+                30_000
+              )
               // Empty / failed format: do NOT skip — generate a real message below
               if (explicitSilence) {
                 if (typeof console !== 'undefined' && console.debug) {
@@ -611,29 +678,18 @@ export function useConversationInitiative(enabledGate: boolean) {
           const generated = await generateInitiativeWithLocalLlm({
             baseUrl: base,
             model: modelRaw,
+            runtime,
             messages: msgs,
             timeoutMs: 28_000
           })
           const generatedDecision = parseInitiativeDecision(generated || '')
           text = generatedDecision.speak ? generatedDecision.text || null : null
+          logRuntime(
+            text ? 'llm-generated-message' : 'llm-returned-no-message',
+            { provider: looksOllama ? 'ollama' : 'lmstudio', model: modelRaw },
+            30_000
+          )
           initiativeWebHitsForMeta = initiativeWebHits
-          if (!text) {
-            const alt =
-              base.includes('11434')
-                ? 'http://127.0.0.1:1234'
-                : 'http://127.0.0.1:11434'
-            if (alt !== base) {
-              const alternate = await generateInitiativeWithLocalLlm({
-                baseUrl: alt,
-                model: modelRaw,
-                messages: msgs,
-                timeoutMs: 18_000
-              })
-              const alternateDecision = parseInitiativeDecision(alternate || '')
-              text = alternateDecision.speak ? alternateDecision.text || null : null
-            }
-          }
-          // No alternate-model retry: loading a second LLM for initiative wastes VRAM/RAM
           if (text && recentNudgesRef.current.some((r) => r && text!.includes(r.slice(0, 40)))) {
             text = null
           }
@@ -1018,6 +1074,7 @@ export function useConversationInitiative(enabledGate: boolean) {
           const composed = await generateInitiativeWithLocalLlm({
             baseUrl: base,
             model: modelRaw,
+            runtime,
             messages: compositionMessages,
             timeoutMs: 18_000
           })
@@ -1025,6 +1082,11 @@ export function useConversationInitiative(enabledGate: boolean) {
           text = compositionDecision.speak ? compositionDecision.text || null : null
         }
         if (!text) {
+          logRuntime('initiative-not-sent', {
+            provider: modelRaw ? (looksOllama ? 'ollama' : 'lmstudio') : 'app',
+            ...(modelRaw ? { model: modelRaw } : {}),
+            reason: templateDraft ? 'llm-composition-empty' : modelRaw ? 'llm-empty' : 'no-local-model'
+          })
           if (typeof console !== 'undefined' && console.debug) {
             console.debug('[initiative] no LLM message; nothing sent', {
               model: modelRaw || null,
@@ -1094,6 +1156,10 @@ export function useConversationInitiative(enabledGate: boolean) {
         if (typeof console !== 'undefined' && console.debug) {
           console.debug('[initiative] sent', text?.slice(0, 60))
         }
+        logRuntime('initiative-sent', {
+          provider: looksOllama ? 'ollama' : 'lmstudio',
+          model: modelRaw
+        })
       } finally {
         generatingRef.current = false
         schedule('after-send')

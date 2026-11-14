@@ -280,6 +280,11 @@ ipcMain.handle('diagnostics:listPaths', async () => {
       { id: 'generated-images', label: 'Imágenes (generated-images)', path: join(root, 'generated-images') },
       { id: 'sd-workspace', label: 'Workspace SD / Forge', path: join(root, 'sd-workspace') },
       { id: 'diagnostics', label: 'Diagnósticos exportados', path: join(root, 'diagnostics') },
+      {
+        id: 'local-runtime-log',
+        label: 'Log local de LM Studio / Ollama',
+        path: join(root, 'diagnostics', 'local-runtime.jsonl')
+      },
       { id: 'machine-profile', label: 'Perfil de máquina', path: join(root, 'machine-profile.json') }
     ]
   }

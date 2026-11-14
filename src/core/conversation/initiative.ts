@@ -8,6 +8,7 @@
  */
 
 import { localHttp } from '../providers/local-http'
+import { sanitizeLoneSurrogates } from '../chat/sanitize-utf16'
 
 export type InitiativeTone = 'warm' | 'playful' | 'calm' | 'intense' | 'neutral'
 
@@ -178,11 +179,12 @@ export function buildInitiativeDecisionMessages(opts: {
     (opts.currentFocus ? `Enfoque actual: ${opts.currentFocus.slice(0, 160)}\n` : '') +
     (opts.timeHint ? `Tiempo del hilo: ${opts.timeHint}\n` : '') +
     `Responde SOLO con una línea:\n` +
-    `- SILENCIO  (si no hay un seguimiento concreto y útil, el asunto ya terminó, o el usuario pidió no molestar)\n` +
+    `- SILENCIO (si el usuario pidió no molestar o no puedes aportar nada natural)\n` +
     `- MENSAJE: <texto breve en personaje>\n` +
     `El pivote temporal es cuando terminaste de responder, no cuando empezaste a generar. ` +
-    `No exijas que haya objetivos guardados: si faltan, evalúa las líneas recientes para encontrar continuidad concreta y confirmada. ` +
-    `El tiempo solo NO justifica escribir. Prioriza SILENCIO si no puedes vincular el mensaje a un objetivo pendiente o a una señal reciente concreta.\n` +
+    `No exijas que haya objetivos guardados: si faltan, evalúa la historia reciente y la relación para iniciar una conversación con sentido. ` +
+    `El tiempo solo no basta para escribir, pero la falta de una tarea pendiente tampoco obliga a guardar silencio. ` +
+    `Puedes retomar con naturalidad un tema compartido o preguntar cómo va algo que el usuario contó; no inventes pendientes ni progreso.\n` +
     `No envíes saludos genéricos, no preguntes solo si el usuario sigue ahí y no menciones la foto/avatar salvo que el seguimiento lo requiera.\n` +
     `Máx. 2 frases; si eliges hablar, menciona el objetivo/señal real sin inventar progreso.`
   const userMsg =
@@ -290,7 +292,8 @@ export function buildInitiativeLlmMessages(opts: {
   const sys =
     `Eres ${name}. Silencio real desde que terminaste de escribir: ~${hoursDone.toFixed(2)} h ` +
     `(último mensaje del usuario: ~${hoursUser.toFixed(2)} h). ` +
-    `Genera un mensaje solo si aporta un seguimiento concreto y útil; si no, responde SILENCIO.\n` +
+    `Tu función incluye iniciar conversación con naturalidad, no solo contestar ni esperar una tarea abierta. ` +
+    `Genera un mensaje proactivo cuando aporte cercanía, continuidad o utilidad; no uses texto prefabricado.\n` +
     `Personalidad: ${(opts.personality || '').slice(0, 320)}\n` +
     `Estilo: ${(opts.style || '').slice(0, 180)}\n` +
     `Rol vínculo: ${opts.relationshipRole || ''}. Reacción típica: ${(opts.relationshipReaction || '').slice(0, 120)}\n` +
@@ -309,8 +312,9 @@ export function buildInitiativeLlmMessages(opts: {
     (opts.webContext ? `Contexto web (opcional, no inventes): ${opts.webContext.slice(0, 400)}\n` : '') +
     (opts.timeHint ? opts.timeHint + '\n' : '') +
     `El pivote temporal es el fin de tu última respuesta (no el inicio del stream). ` +
-    `No exijas que haya una meta persistida: también puedes dar continuidad a una señal concreta del historial reciente, sin inventar pendientes. ` +
-    `El tiempo sin mensajes nunca es motivo suficiente para intervenir. No uses saludos genéricos ni menciones foto/avatar si no está relacionado con el objetivo. Si no hay contexto accionable, responde SILENCIO.\n` +
+    `No exijas que haya una meta persistida: también puedes retomar con naturalidad un tema compartido o interesarte por algo que el usuario contó. ` +
+    `El tiempo sin mensajes no basta por sí solo, pero la falta de una tarea pendiente tampoco te obliga a callar. ` +
+    `No inventes progreso, no uses saludos genéricos ni preguntes solo si el usuario sigue ahí. Si no puedes aportar nada natural, responde SILENCIO.\n` +
     (hoursDone >= 2 ? 'El seguimiento debe ser respetuoso y sin presión.\n' : '')
   const userMsg =
     'Últimas líneas del chat:\n' +
@@ -325,25 +329,22 @@ export function buildInitiativeLlmMessages(opts: {
 export async function generateInitiativeWithLocalLlm(opts: {
   baseUrl: string
   model: string
+  runtime?: 'ollama' | 'openai-compatible'
   messages: Array<{ role: string; content: string }>
   timeoutMs?: number
 }): Promise<string | null> {
-  const model = String(opts.model || '').trim()
+  const model = sanitizeLoneSurrogates(String(opts.model || '')).trim()
   if (!model) return null
+  const messages = opts.messages.map(({ role, content }) => ({
+    role: sanitizeLoneSurrogates(role),
+    content: sanitizeLoneSurrogates(content)
+  }))
   const timeoutMs = opts.timeoutMs ?? 28_000
-  const primary = String(opts.baseUrl || '').replace(/\/$/, '')
-  const candidates = Array.from(
-    new Set(
-      [
-        primary,
-        model.includes('/') ? 'http://127.0.0.1:1234' : '',
-        model.includes('/') ? 'http://127.0.0.1:1235' : '',
-        !model.includes('/') ? 'http://127.0.0.1:11434' : '',
-        'http://127.0.0.1:1234',
-        'http://127.0.0.1:11434'
-      ].filter(Boolean)
-    )
-  )
+  const runtime = opts.runtime || (model.includes('/') ? 'openai-compatible' : 'ollama')
+  const base = String(opts.baseUrl || '')
+    .replace(/\/+$/, '')
+    .replace(/\/v1$/i, '')
+  if (!base) return null
 
   async function tryOpenAi(base: string): Promise<string | null> {
     try {
@@ -352,7 +353,7 @@ export async function generateInitiativeWithLocalLlm(opts: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
-          messages: opts.messages,
+          messages,
           temperature: 0.88,
           max_tokens: 280,
           stream: false
@@ -377,7 +378,7 @@ export async function generateInitiativeWithLocalLlm(opts: {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
-          messages: opts.messages,
+          messages,
           stream: false,
           options: { temperature: 0.88, num_predict: 280 }
         }),
@@ -392,15 +393,7 @@ export async function generateInitiativeWithLocalLlm(opts: {
     }
   }
 
-  for (const base of candidates) {
-    const a = await tryOpenAi(base)
-    if (a) return a
-    if (!model.includes('/')) {
-      const b = await tryOllama(base)
-      if (b) return b
-    }
-  }
-  return null
+  return runtime === 'ollama' ? tryOllama(base) : tryOpenAi(base)
 }
 
 /** Parse user phrases that pause initiatives. */
