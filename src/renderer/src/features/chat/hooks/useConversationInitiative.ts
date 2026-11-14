@@ -9,7 +9,6 @@ import {
   buildInitiativeDecisionMessages,
   buildInitiativeCompositionMessages,
   parseInitiativeDecision,
-  hasInitiativeFollowUpSignal,
   detectInitiativeTone,
   generateInitiativeWithLocalLlm,
   initiativeMinutesForTone,
@@ -41,11 +40,18 @@ export function useConversationInitiative(enabledGate: boolean) {
   useEffect(() => {
     if (!enabledGate) return
 
+    let disposed = false
+    let runTick: (() => void) | undefined
     const clear = () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current)
         timerRef.current = null
       }
+    }
+    const retry = (delayMs: number) => {
+      if (disposed) return
+      clear()
+      timerRef.current = setTimeout(() => runTick?.(), delayMs)
     }
 
     const isHarnessNoise = (m: {
@@ -128,15 +134,14 @@ export function useConversationInitiative(enabledGate: boolean) {
 
     const schedule = (reason?: string) => {
       clear()
+      if (disposed) return
       if (useActivityStore.getState().mode !== 'none') return
       const delay = resolveDelayMs()
       if (delay == null) return
       if (typeof console !== 'undefined' && console.debug) {
         console.debug('[initiative] schedule', Math.round(delay / 1000) + 's', reason || '')
       }
-      timerRef.current = setTimeout(() => {
-        void tick()
-      }, delay)
+      timerRef.current = setTimeout(() => runTick?.(), delay)
     }
 
     const tick = async () => {
@@ -165,14 +170,12 @@ export function useConversationInitiative(enabledGate: boolean) {
 
       // Never interrupt main chat, progressive doc read, or any streaming bubble
       if (isChatBusy()) {
-        clear()
-        timerRef.current = setTimeout(() => void tick(), 8000)
+        retry(8000)
         return
       }
       const anyStreaming = (conv.messages || []).some((m) => m.isStreaming)
       if (anyStreaming) {
-        clear()
-        timerRef.current = setTimeout(() => void tick(), 5000)
+        retry(5000)
         return
       }
       try {
@@ -186,8 +189,7 @@ export function useConversationInitiative(enabledGate: boolean) {
             /* */
           }
         } else if (chain > 0) {
-          clear()
-          timerRef.current = setTimeout(() => void tick(), 12_000)
+          retry(12_000)
           return
         }
       } catch {
@@ -195,13 +197,11 @@ export function useConversationInitiative(enabledGate: boolean) {
       }
       const lastRaw = conv.messages[conv.messages.length - 1]
       if (lastRaw?.isStreaming) {
-        clear()
-        timerRef.current = setTimeout(() => void tick(), 4000)
+        retry(4000)
         return
       }
       if (generatingRef.current) {
-        clear()
-        timerRef.current = setTimeout(() => void tick(), 3000)
+        retry(3000)
         return
       }
       // Skip initiative right after app-doc-continue chips
@@ -348,11 +348,6 @@ export function useConversationInitiative(enabledGate: boolean) {
           .filter(Boolean)
           .slice(0, 4)
         const currentFocus = String(s.userMemory?.currentFocus || '').trim()
-        const hasFollowUpContext = hasInitiativeFollowUpSignal({
-          goals: activeGoals,
-          currentFocus,
-          recentUserLines
-        })
         const lastUser = [...conv.messages].reverse().find((m) => m.role === 'user')
         const lastAsstMsg = [...conv.messages]
           .reverse()
@@ -391,7 +386,7 @@ export function useConversationInitiative(enabledGate: boolean) {
           (s as { lastEffectiveLocalModel?: string }).lastEffectiveLocalModel ||
           ''
         // Prefer the model that last replied in this chat (same resident as conversation)
-        if (hasFollowUpContext && !modelRaw) {
+        if (!modelRaw) {
           try {
             const lastAsst = [...(conv.messages || [])]
               .reverse()
@@ -437,7 +432,7 @@ export function useConversationInitiative(enabledGate: boolean) {
             (/1234|1235|4891/.test(base) ? base : 'http://127.0.0.1:1234')
         }
 
-                // S6 + thread gap (pivot = assistant stream done)
+        // S6 + thread gap (pivot = assistant stream done)
         let timeLine = ''
         try {
           const {
@@ -458,7 +453,7 @@ export function useConversationInitiative(enabledGate: boolean) {
         }
 
         // LMS: stick to single resident — never initiative-load a second model
-        if (modelRaw && hasFollowUpContext && !looksOllama) {
+        if (modelRaw && !looksOllama) {
           try {
             const { preferLmStudioResidentId, ensureLmStudioSingleResident } = await import(
               '@core/providers/lmstudio-lifecycle'
@@ -480,7 +475,7 @@ export function useConversationInitiative(enabledGate: boolean) {
           }
         }
 
-if (modelRaw && hasFollowUpContext) {
+        if (modelRaw) {
           // N1 — ask model whether to speak (transparent; no user bubble)
           try {
             const decMsgs = buildInitiativeDecisionMessages({
@@ -1105,6 +1100,18 @@ if (modelRaw && hasFollowUpContext) {
       }
     }
 
+    runTick = () => {
+      void tick().catch((error) => {
+        generatingRef.current = false
+        console.error('[initiative] tick failed; rescheduling', error)
+        try {
+          retry(30_000)
+        } catch (scheduleError) {
+          console.error('[initiative] reschedule failed', scheduleError)
+        }
+      })
+    }
+
     schedule('mount')
     const onStreamDone = (ev: Event) => {
       try {
@@ -1128,7 +1135,13 @@ if (modelRaw && hasFollowUpContext) {
       en: useSettingsStore.getState().settings.conversationInitiativeEnabled,
       mode: useSettingsStore.getState().settings.conversationInitiativeMode,
       min: useSettingsStore.getState().settings.conversationInitiativeMinutes,
-      snooze: useSettingsStore.getState().settings.conversationInitiativeSnoozeUntil
+      snooze: useSettingsStore.getState().settings.conversationInitiativeSnoozeUntil,
+      model: useSettingsStore.getState().settings.localModel,
+      ollama: useSettingsStore.getState().settings.localBaseUrl,
+      openAI: useSettingsStore.getState().settings.localOpenAIBaseUrl,
+      lmStudio: (useSettingsStore.getState().settings as { lmStudioBaseUrl?: string }).lmStudioBaseUrl,
+      runtime: useSettingsStore.getState().settings.localRuntimePreference,
+      disabledModels: (useSettingsStore.getState().settings.disabledLocalModels || []).join('\0')
     }
     const unsub = useSettingsStore.subscribe(() => {
       const s = useSettingsStore.getState().settings
@@ -1136,13 +1149,25 @@ if (modelRaw && hasFollowUpContext) {
         en: s.conversationInitiativeEnabled,
         mode: s.conversationInitiativeMode,
         min: s.conversationInitiativeMinutes,
-        snooze: s.conversationInitiativeSnoozeUntil
+        snooze: s.conversationInitiativeSnoozeUntil,
+        model: s.localModel,
+        ollama: s.localBaseUrl,
+        openAI: s.localOpenAIBaseUrl,
+        lmStudio: (s as { lmStudioBaseUrl?: string }).lmStudioBaseUrl,
+        runtime: s.localRuntimePreference,
+        disabledModels: (s.disabledLocalModels || []).join('\0')
       }
       if (
         next.en !== prevInit.en ||
         next.mode !== prevInit.mode ||
         next.min !== prevInit.min ||
-        next.snooze !== prevInit.snooze
+        next.snooze !== prevInit.snooze ||
+        next.model !== prevInit.model ||
+        next.ollama !== prevInit.ollama ||
+        next.openAI !== prevInit.openAI ||
+        next.lmStudio !== prevInit.lmStudio ||
+        next.runtime !== prevInit.runtime ||
+        next.disabledModels !== prevInit.disabledModels
       ) {
         prevInit = next
         schedule('settings-initiative')
@@ -1194,6 +1219,7 @@ if (modelRaw && hasFollowUpContext) {
     })
 
     return () => {
+      disposed = true
       clear()
       unsub()
       unsubChat()

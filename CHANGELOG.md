@@ -1,3 +1,8 @@
+## 0.12.0-beta rev.ik
+
+- **Iniciativas desacopladas de la memoria de metas:** el ciclo LLM ya no se omite si otro sistema limpia `goals` o `currentFocus`; decide con el contexto reciente y puede guardar silencio si no hay seguimiento concreto.
+- Cambios del modelo/runtime local reprograman la evaluación de iniciativas. Errores inesperados del ciclo se registran y reprograman el timer para que no quede detenido.
+
 ## 0.12.0-beta rev.ij
 
 - **Memoria del usuario más selectiva:** saludos y preguntas no relacionadas ya no reciben inventarios de gustos, metas, personas, apariencia ni anclas irrelevantes; las instrucciones estables se limitan y los datos repetidos entre identidad, foco y continuidad se reducen.

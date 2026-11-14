@@ -3,10 +3,16 @@
 | Campo | Valor |
 |-------|--------|
 | Versión | **0.12.0-beta** |
-| Revisión | **rev.ij** |
+| Revisión | **rev.ik** |
 | Un residente LLM | **rev.gj + rev.gk** (sin reload por Auto suave) |
 
-Última actualización docs: **rev.ij**.
+Última actualización docs: **rev.ik**.
+
+## Rev.ik — Iniciativas independientes
+
+- El timer de iniciativas y la evaluación LLM ya no dependen de que la memoria del usuario conserve metas o enfoque; el modelo recibe el contexto reciente para decidir si existe un seguimiento natural.
+- Cambiar modelo, runtime o endpoints locales reprograma la evaluación.
+- Un error inesperado ya no deja el ciclo sin timer: se registra y se intenta programar de nuevo.
 
 ## Rev.ij — Memoria contextual
 

@@ -33,22 +33,6 @@ export type ShouldSendInitiativeInput = {
 
 export type ShouldSendResult = { ok: true } | { ok: false; reason: string }
 
-export function hasInitiativeFollowUpSignal(input: {
-  goals?: string[]
-  currentFocus?: string
-  recentUserLines?: string[]
-}): boolean {
-  if ((input.goals || []).some((goal) => String(goal || '').trim().length >= 4)) return true
-  if (String(input.currentFocus || '').trim().length >= 4) return true
-  return (input.recentUserLines || [])
-    .slice(-6)
-    .some((line) =>
-      /\b(?:mi (?:meta|objetivo|proyecto)|estoy (?:trabajando|avanzando|buscando)|me falta|tengo pendiente|quiero (?:terminar|completar|retomar)|retomemos|no he podido terminar)\b/i.test(
-        String(line || '')
-      )
-    )
-}
-
 export function isQuietHours(
   now: Date = new Date(),
   startH = 23,
@@ -197,6 +181,7 @@ export function buildInitiativeDecisionMessages(opts: {
     `- SILENCIO  (si no hay un seguimiento concreto y útil, el asunto ya terminó, o el usuario pidió no molestar)\n` +
     `- MENSAJE: <texto breve en personaje>\n` +
     `El pivote temporal es cuando terminaste de responder, no cuando empezaste a generar. ` +
+    `No exijas que haya objetivos guardados: si faltan, evalúa las líneas recientes para encontrar continuidad concreta y confirmada. ` +
     `El tiempo solo NO justifica escribir. Prioriza SILENCIO si no puedes vincular el mensaje a un objetivo pendiente o a una señal reciente concreta.\n` +
     `No envíes saludos genéricos, no preguntes solo si el usuario sigue ahí y no menciones la foto/avatar salvo que el seguimiento lo requiera.\n` +
     `Máx. 2 frases; si eliges hablar, menciona el objetivo/señal real sin inventar progreso.`
@@ -324,7 +309,8 @@ export function buildInitiativeLlmMessages(opts: {
     (opts.webContext ? `Contexto web (opcional, no inventes): ${opts.webContext.slice(0, 400)}\n` : '') +
     (opts.timeHint ? opts.timeHint + '\n' : '') +
     `El pivote temporal es el fin de tu última respuesta (no el inicio del stream). ` +
-    `El tiempo sin mensajes nunca es motivo suficiente para intervenir. No uses saludos genéricos ni menciones foto/avatar si no está relacionado con el objetivo. Si el objetivo está resuelto, vencido o no se entiende, responde SILENCIO.\n` +
+    `No exijas que haya una meta persistida: también puedes dar continuidad a una señal concreta del historial reciente, sin inventar pendientes. ` +
+    `El tiempo sin mensajes nunca es motivo suficiente para intervenir. No uses saludos genéricos ni menciones foto/avatar si no está relacionado con el objetivo. Si no hay contexto accionable, responde SILENCIO.\n` +
     (hoursDone >= 2 ? 'El seguimiento debe ser respetuoso y sin presión.\n' : '')
   const userMsg =
     'Últimas líneas del chat:\n' +

@@ -3,12 +3,10 @@ import {
   shouldSendInitiative,
   detectInitiativeTone,
   initiativeMinutesForTone,
-  hasInitiativeFollowUpSignal,
   buildInitiativeDecisionMessages,
   buildInitiativeCompositionMessages,
   parseInitiativeDecision,
-  parseInitiativeSnooze,
-  isQuietHours
+  parseInitiativeSnooze
 } from './initiative'
 
 describe('initiative core', () => {
@@ -57,24 +55,15 @@ describe('initiative core', () => {
     ).toBe('warm')
   })
 
-  it('requires a concrete follow-up signal rather than elapsed time alone', () => {
-    expect(hasInitiativeFollowUpSignal({ recentUserLines: ['Usuario: ¿Qué hora es?'] })).toBe(false)
-    expect(hasInitiativeFollowUpSignal({ goals: ['Completar el catálogo de Michoacán'] })).toBe(true)
-    expect(
-      hasInitiativeFollowUpSignal({
-        recentUserLines: ['Estoy trabajando en la colección y me falta terminar el catálogo']
-      })
-    ).toBe(true)
-  })
-
-  it('provides goals and rejects time-only generic messages in the decision prompt', () => {
-    const [system] = buildInitiativeDecisionMessages({
-      activeGoals: ['Completar los bocetos pendientes'],
-      hoursSinceLastUser: 3
+  it('evaluates recent context without requiring persisted goals', () => {
+    const [system, user] = buildInitiativeDecisionMessages({
+      hoursSinceLastUser: 3,
+      recentLines: ['Usuario: me falta terminar el catálogo']
     })
-    expect(system.content).toContain('Completar los bocetos pendientes')
+    expect(system.content).toContain('No exijas que haya objetivos guardados')
     expect(system.content).toContain('El tiempo solo NO justifica escribir')
     expect(system.content).toContain('no menciones la foto/avatar')
+    expect(user.content).toContain('me falta terminar el catálogo')
   })
 
   it('asks the LLM to write proposal copy and preserve consent without template text', () => {
