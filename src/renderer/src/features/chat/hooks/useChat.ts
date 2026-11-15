@@ -773,6 +773,12 @@ export function useChat() {
 
   const continueWriting = useCallback(
     async (assistantMsgId: string) => {
+      try {
+        const { cancelPendingDocAutoContinue } = await import('../services/documentReadingStore')
+        cancelPendingDocAutoContinue('continue-writing')
+      } catch {
+        /* */
+      }
       // Stuck lock: if no bubble is streaming, allow Continuar even if inFlight lagged
       if (inFlightRef.current) {
         try {

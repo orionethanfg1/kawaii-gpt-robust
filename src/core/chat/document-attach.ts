@@ -14,7 +14,10 @@ import {
   makeContentFingerprint,
   markSliceRead,
   buildRollingReadingBlock,
-  makeDocReadingKey
+  makeDocReadingKey,
+  docReadingKeyCandidates,
+  preserveCompletedReading,
+  isDocReadingComplete
 } from './document-reading-state'
 
 import {
@@ -307,14 +310,27 @@ export function buildDocumentsWithState(
     const key = makeDocReadingKey(convId, d.name, full.length)
     const srcFp = makeContentFingerprint(full)
     let sourceVersionChanged = false
-    let state =
-      priorMap.get(key) ||
-      priorMap.get(convId + '::name::' + d.name.toLowerCase()) ||
-      emptyDocReadingState(convId, d.name, full.length, chapters.length, {
+    let state: DocReadingState | undefined
+    for (const k of docReadingKeyCandidates(convId, d.name, full.length)) {
+      state = priorMap.get(k)
+      if (state) break
+    }
+    if (!state) state = priorMap.get(convId + '::name::' + d.name.toLowerCase())
+    if (!state) {
+      for (const s of opts?.priorStates || []) {
+        if (s?.fileName && d.name && s.fileName.toLowerCase() === d.name.toLowerCase() && s.convId === convId) {
+          state = s
+          break
+        }
+      }
+    }
+    if (!state) {
+      state = emptyDocReadingState(convId, d.name, full.length, chapters.length, {
         fingerprint: srcFp
       })
+    }
+    const priorForPreserve = state
 
-    // Delta: revised file (content hash / length) → restart progressive reading
     if (state.sourceFingerprint && documentSourceChanged(state, full)) {
       sourceVersionChanged = true
       state = emptyDocReadingState(convId, d.name, full.length, chapters.length, {
@@ -323,14 +339,11 @@ export function buildDocumentsWithState(
     } else if (!state.sourceFingerprint) {
       state = { ...state, sourceFingerprint: srcFp }
     } else if (state.sourceFingerprint !== srcFp) {
-      // migrate legacy len:0 fingerprints to content hash without forced restart
-      // if length matches and we already progressed — only update fp when unread
       if (!state.readTitles?.length && !(state.streamOffset || 0)) {
         state = { ...state, sourceFingerprint: srcFp }
       }
     }
 
-    // Soft name match when totalChars changed (partial extract → full hydrate)
     if ((!state.readTitles?.length && !state.streamOffset) || state.totalChars !== full.length) {
       const byName = priorMap.get(convId + '::name::' + d.name.toLowerCase())
       if (
@@ -349,8 +362,23 @@ export function buildDocumentsWithState(
       }
     }
 
-    // Refresh chapter count if structure changed
     state = { ...state, chapterCount: chapters.length, totalChars: full.length, key }
+
+    if (!sourceVersionChanged) {
+      state = preserveCompletedReading(priorForPreserve, state)
+      for (const s of opts?.priorStates || []) {
+        if (
+          s &&
+          isDocReadingComplete(s) &&
+          s.fileName &&
+          d.name &&
+          s.fileName.toLowerCase() === d.name.toLowerCase()
+        ) {
+          state = preserveCompletedReading(s, state)
+          break
+        }
+      }
+    }
 
     // ——— Modo «Leer y recordar»: ingesta silenciosa + una opinión; seek puntual ———
     {

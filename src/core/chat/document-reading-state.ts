@@ -48,9 +48,44 @@ export type DocReadingState = {
   lastDocTurnAt?: number
 }
 
-export function makeDocReadingKey(convId: string, fileName: string, totalChars: number): string {
+export function makeDocReadingKey(convId: string, fileName: string, totalChars?: number): string {
   const name = (fileName || 'documento').toLowerCase().replace(/\s+/g, '_').slice(0, 64)
-  return `${convId}::${name}::${totalChars}`
+  return `${convId}::${name}`
+}
+
+export function docReadingKeyCandidates(
+  convId: string,
+  fileName: string,
+  totalChars?: number
+): string[] {
+  const name = (fileName || 'documento').toLowerCase().replace(/\s+/g, '_').slice(0, 64)
+  const base = `${convId}::${name}`
+  const out = [base]
+  if (totalChars != null && totalChars > 0) out.push(`${base}::${totalChars}`)
+  return out
+}
+
+export function preserveCompletedReading(
+  prior: DocReadingState | null | undefined,
+  next: DocReadingState,
+  opts?: { forceRestart?: boolean }
+): DocReadingState {
+  if (!prior || opts?.forceRestart) return next
+  if (!isDocReadingComplete(prior)) return next
+  const count = Math.max(1, Number(next.chapterCount) || Number(prior.chapterCount) || 1)
+  const total = Math.max(Number(next.totalChars) || 0, Number(prior.totalChars) || 0)
+  return {
+    ...next,
+    readTitles: prior.readTitles?.length ? prior.readTitles : next.readTitles,
+    rollingSummary: prior.rollingSummary || next.rollingSummary,
+    chapterVisitCounts: prior.chapterVisitCounts || next.chapterVisitCounts,
+    chapterIndex: Math.max(count, Number(prior.chapterIndex) || 0),
+    chapterCount: count,
+    streamOffset: Math.max(total, Number(prior.streamOffset) || 0, Number(next.streamOffset) || 0),
+    totalChars: total || next.totalChars,
+    sourceFingerprint: next.sourceFingerprint || prior.sourceFingerprint,
+    updatedAt: Date.now()
+  }
 }
 
 /** size:mtimeMs — cheap change detector without hashing whole book (legacy / disk meta). */
@@ -93,8 +128,14 @@ export function documentSourceChanged(
       ? makeContentFingerprint(sizeOrText)
       : makeSourceFingerprint(sizeOrText, mtimeMs)
   if (next === state.sourceFingerprint) return false
-  // Legacy fingerprints were "len:0" — any real content hash at same length counts as change
-  // when the second half is not "0", so revised same-size docs are detected.
+  if (typeof sizeOrText === 'string' && isDocReadingComplete(state)) {
+    const prevLen = Number(String(state.sourceFingerprint).split(':')[0]) || Number(state.totalChars) || 0
+    const newLen = sizeOrText.length
+    if (prevLen > 0 && newLen > 0) {
+      const ratio = Math.abs(newLen - prevLen) / prevLen
+      if (ratio <= 0.02) return false
+    }
+  }
   return true
 }
 

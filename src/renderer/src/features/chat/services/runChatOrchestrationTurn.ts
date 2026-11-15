@@ -17,7 +17,9 @@ import {
   isUnusableAssistantVisible
 } from '@core/chat/stream-degeneration'
 import {
-  getDocReadingStatesForConv
+  getDocReadingStatesForConv,
+  cancelPendingDocAutoContinue,
+  scheduleDocAutoContinue
 } from './documentReadingStore'
 import { markDocReadingActive, setChatBusy } from './chatBusy'
 import {
@@ -166,17 +168,25 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
     } catch {
       /* */
     }
-    // Disarm stale doc auto-chain on pure chat (e.g. user said «en el libro» casually)
+    // Disarm + cancel pending auto-doc timer on pure chat / write-continue.
+    // Stale setTimeout was injecting «continuar lectura» mid-conversation.
     try {
       const isExplicitDoc =
-        /\[APP\].*lectura|continuar la lectura|sigue\s+leyendo|contin[uú]a\s+leyendo/i.test(
+        /\[APP\].*lectura|continuar la lectura|sigue\s+leyendo|contin[uú]a\s+leyendo|Continuaci[oó]n autom[aá]tica de lectura/i.test(
           String(trimmed || '')
-        ) || Boolean(attachments?.some((a) => a.textContent || /\.(pdf|docx?|txt|md)$/i.test(a.name || '')))
-      if (!isExplicitDoc) {
-        const g = globalThis as unknown as { __kawaiiDocAuto?: { convId?: string; armed?: boolean } }
-        if (g.__kawaiiDocAuto && g.__kawaiiDocAuto.convId === convId) {
-          g.__kawaiiDocAuto = { ...g.__kawaiiDocAuto, armed: false, incomplete: false } as never
-        }
+        ) ||
+        Boolean(
+          attachments?.some(
+            (a) => a.textContent || /\.(pdf|docx?|txt|md)$/i.test(a.name || '')
+          )
+        )
+      const isWriteContinue =
+        Boolean(streamPrefix && String(streamPrefix).trim()) ||
+        /Continúa pegado al último carácter|continuar la respuesta porque se cortó|Final ya escrito/i.test(
+          String(trimmed || '')
+        )
+      if (!isExplicitDoc || isWriteContinue) {
+        cancelPendingDocAutoContinue(isWriteContinue ? 'write-continue' : 'pure-chat')
       }
     } catch {
       /* */
@@ -1343,34 +1353,58 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
               markRemedyWorked('PROVIDER_MODEL_NOT_FOUND', routeSnapshot.current.target)
             }
 
-            // Auto-continue: 3 tramos extra (4 lecturas en total contando la primera), luego manual
+            // Auto-continue lectura: solo si ESTE turno fue lectura explícita (no write-continue)
             try {
               const DOC_AUTO_MAX = 3
-              const flag = (globalThis as unknown as { __kawaiiDocAuto?: { convId: string; incomplete: boolean; fileName?: string } }).__kawaiiDocAuto
+              const flag = (
+                globalThis as unknown as {
+                  __kawaiiDocAuto?: {
+                    convId: string
+                    incomplete: boolean
+                    fileName?: string
+                    armed?: boolean
+                  }
+                }
+              ).__kawaiiDocAuto
               const chainKey = 'kawaii-doc-auto-chain:' + convId
               const pauseKey = 'kawaii-doc-auto-paused:' + convId
-              // Only auto-chain when this turn armed progressive reading (not casual «libro»)
+              const thisTurnIsDoc =
+                /\[APP\].*lectura|continuar la lectura|Continuaci[oó]n autom[aá]tica de lectura/i.test(
+                  String(trimmed || '')
+                )
+              const thisTurnIsWriteContinue =
+                Boolean(streamPrefix && String(streamPrefix).trim()) ||
+                /Continúa pegado al último carácter|Final ya escrito|continuar la respuesta/i.test(
+                  String(trimmed || '')
+                )
               const allowAuto = Boolean(
-                flag &&
+                !thisTurnIsWriteContinue &&
+                  thisTurnIsDoc &&
+                  flag &&
                   flag.convId === convId &&
                   flag.incomplete &&
-                  ((flag as { armed?: boolean }).armed === true ||
-                    /\[APP\].*lectura|continuar la lectura/i.test(String(trimmed || '')))
+                  flag.armed === true
               )
               if (allowAuto) {
                 const paused = sessionStorage.getItem(pauseKey) === '1'
                 const n = Number(sessionStorage.getItem(chainKey) || '0') || 0
                 if (!paused && n < DOC_AUTO_MAX) {
                   sessionStorage.setItem(chainKey, String(n + 1))
+                  try {
+                    sessionStorage.setItem('kawaii-doc-auto-chain-at:' + convId, String(Date.now()))
+                  } catch {
+                    /* */
+                  }
                   const fileHint = flag.fileName ? ` «${flag.fileName}»` : ''
                   try {
                     markDocReadingActive(120_000)
                   } catch {
                     /* */
                   }
-                  // Longer gap so inFlight/clearLoading finish before the next send
-                  window.setTimeout(() => {
+                  // Sync helper — onDone is NOT async; never use await here.
+                  scheduleDocAutoContinue(() => {
                     try {
+                      if (sessionStorage.getItem(pauseKey) === '1') return
                       window.dispatchEvent(
                         new CustomEvent('kawaii:auto-doc-continue', {
                           detail: {

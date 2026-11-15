@@ -1,3 +1,8 @@
+## 0.12.0-beta rev.io
+
+- **Build fix:** `scheduleDocAutoContinue` / `cancelPendingDocAutoContinue` por import estático — `onDone` no es async; se eliminó `await import` que rompía Vite/esbuild.
+- Incluye rev.im (cancelar auto-lectura en charla/write-continue) y rev.in (lectura completa no se reinicia sola).
+
 ## 0.12.0-beta rev.il
 
 - **Iniciativas con continuidad propia:** aunque no haya metas guardadas, el LLM puede iniciar una conversación natural desde el historial y la relación; la ausencia de tareas ya no equivale a silencio obligatorio.

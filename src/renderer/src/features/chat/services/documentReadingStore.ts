@@ -215,3 +215,47 @@ export function summarizePendingDocReadings(max = 5): string {
   const more = list.length > max ? ` (+${list.length - max})` : ''
   return `${list.length} lectura(s) pendiente(s): ${head}${more}`
 }
+
+
+type DocAutoGlobal = {
+  __kawaiiDocAuto?: unknown
+  __kawaiiDocAutoGen?: number
+  __kawaiiDocAutoTimer?: ReturnType<typeof setTimeout>
+}
+
+/** Cancel pending auto-doc-continue (pure chat / write-continue). */
+export function cancelPendingDocAutoContinue(_reason?: string): void {
+  const g = globalThis as unknown as DocAutoGlobal
+  g.__kawaiiDocAutoGen = (g.__kawaiiDocAutoGen || 0) + 1
+  if (g.__kawaiiDocAutoTimer != null) {
+    try {
+      clearTimeout(g.__kawaiiDocAutoTimer)
+    } catch {
+      /* */
+    }
+    g.__kawaiiDocAutoTimer = undefined
+  }
+  g.__kawaiiDocAuto = undefined
+}
+
+/** Schedule auto-doc-continue; cancelled by cancelPendingDocAutoContinue. */
+export function scheduleDocAutoContinue(fn: () => void, delayMs: number): void {
+  const g = globalThis as unknown as DocAutoGlobal
+  const gen = g.__kawaiiDocAutoGen || 0
+  if (g.__kawaiiDocAutoTimer != null) {
+    try {
+      clearTimeout(g.__kawaiiDocAutoTimer)
+    } catch {
+      /* */
+    }
+  }
+  g.__kawaiiDocAutoTimer = setTimeout(() => {
+    if ((g.__kawaiiDocAutoGen || 0) !== gen) return
+    g.__kawaiiDocAutoTimer = undefined
+    try {
+      fn()
+    } catch {
+      /* */
+    }
+  }, delayMs)
+}
