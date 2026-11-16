@@ -1,3 +1,12 @@
+## 0.12.0-beta rev.iq
+
+- **Persistencia de ajustes (prioridad):**
+  - `lastUserEditAt` en cada `update` de settings.
+  - Recovery ya no pisa ediciones del usuario con backups “más ricos” visualmente.
+  - `isNearDefaultWipe` / `mergeSettingsPreferRecent`: la personalidad y texto reciente ganan.
+  - `backupSettingsNow` en cada edición explícita (último cambio primero).
+- **Chats:** `remove(id, { archiveToMemory: true })` compacta y guarda `CHAT_ARCHIVO` en userMemory (base modular; UI puede ofrecer la opción).
+
 ## 0.12.0-beta rev.ip
 
 - **B1 + M0 (bloque seguro):**

@@ -117,7 +117,7 @@ interface ChatState {
   conversations: Conversation[]
   activeId: string | null
   create: (title?: string) => string
-  remove: (id: string) => void
+  remove: (id: string, opts?: { archiveToMemory?: boolean }) => void
   setActive: (id: string | null) => void
   rename: (id: string, title: string) => void
   setPrivate: (id: string, isPrivate: boolean) => void
@@ -165,13 +165,41 @@ export const useChatStore = create<ChatState>()(
         return id
       },
 
-      remove: (id) =>
+      remove: (id, opts) => {
+        if (opts?.archiveToMemory) {
+          try {
+            const conv = get().conversations.find((c) => c.id === id)
+            if (conv) {
+              void import('@core/conversation/chat-archive').then(async ({ buildChatArchiveEntry, archiveEntryToMemoryFact }) => {
+                const entry = buildChatArchiveEntry(conv)
+                const fact = archiveEntryToMemoryFact(entry)
+                const { useSettingsStore } = await import('./settingsStore')
+                const s = useSettingsStore.getState().settings
+                const facts = [...(s.userMemory?.facts || [])]
+                const key = `CHAT_ARCHIVO «${entry.title}»`
+                const idx = facts.findIndex((f) => String(f).startsWith(key) || String(f).includes(entry.id))
+                if (idx >= 0) facts[idx] = fact
+                else facts.push(fact)
+                useSettingsStore.getState().update({
+                  userMemory: {
+                    ...(s.userMemory || { facts: [] }),
+                    facts: facts.slice(-60),
+                    updatedAt: Date.now()
+                  }
+                })
+              })
+            }
+          } catch {
+            /* archive optional */
+          }
+        }
         set((s) => {
           const next = s.conversations.filter((c) => c.id !== id)
           const activeId =
             s.activeId === id ? (next[0]?.id ?? null) : s.activeId
           return { conversations: next, activeId }
-        }),
+        })
+      },
 
       setActive: (id) => {
         void import('@core/routing/intimate-sticky')

@@ -502,7 +502,13 @@ export const SettingsSchema = z.object({
    * If true: voice only during mini-games (aventura/ajedrez).
    * Main chat stays silent unless the user presses the speaker button.
    */
-  voiceTtsActivitiesOnly: z.boolean().default(false)
+  voiceTtsActivitiesOnly: z.boolean().default(false),
+
+  /**
+   * Epoch ms of last explicit user edit (settings UI / personality / prefs).
+   * Recovery and backups MUST prefer higher lastUserEditAt over visual "richness".
+   */
+  lastUserEditAt: z.number().optional()
 })
 
 export type Settings = z.infer<typeof SettingsSchema>

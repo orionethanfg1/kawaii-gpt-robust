@@ -112,11 +112,12 @@ export function collectBackupCandidates(): Array<{
   source: string
   settings: Settings
   score: number
+  at?: number
 }> {
-  const out: Array<{ source: string; settings: Settings; score: number }> = []
+  const out: Array<{ source: string; settings: Settings; score: number; at?: number }> = []
   const seen = new Set<string>()
 
-  const push = (source: string, s: Settings | null) => {
+  const push = (source: string, s: Settings | null, at?: number) => {
     if (!s) return
     const sc = scoreSettings(s)
     if (sc.score < 5) return
@@ -124,7 +125,8 @@ export function collectBackupCandidates(): Array<{
     const sig = [s.character?.name || "", img, s.localModel || "", String(sc.galleryCount)].join("|")
     if (seen.has(sig)) return
     seen.add(sig)
-    out.push({ source, settings: s, score: sc.score })
+    const stamp = at || (typeof s.lastUserEditAt === "number" ? s.lastUserEditAt : undefined)
+    out.push({ source, settings: s, score: sc.score, at: stamp })
   }
 
   for (const key of LEGACY_KEYS) {
@@ -150,14 +152,25 @@ export function collectBackupCandidates(): Array<{
     const metaRaw = lsGet(BACKUP_META)
     const meta = metaRaw ? (JSON.parse(metaRaw) as { ids?: string[] }) : null
     const ids = Array.isArray(meta?.ids) ? meta!.ids! : []
+    const pushBackupRaw = (key: string, raw: string | null) => {
+      if (!raw) return
+      let at: number | undefined
+      try {
+        const j = JSON.parse(raw) as { at?: number; settings?: unknown }
+        if (typeof j.at === "number") at = j.at
+      } catch {
+        /* */
+      }
+      push(key, parseMaybeSettings(raw), at)
+    }
     for (const id of ids) {
-      push(BACKUP_PREFIX + id, parseMaybeSettings(lsGet(BACKUP_PREFIX + id)))
+      pushBackupRaw(BACKUP_PREFIX + id, lsGet(BACKUP_PREFIX + id))
     }
     if (typeof localStorage !== "undefined") {
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i)
-        if (k && k.startsWith(BACKUP_PREFIX)) {
-          push(k, parseMaybeSettings(lsGet(k)))
+        if (k && k.startsWith(BACKUP_PREFIX) && k !== BACKUP_META) {
+          pushBackupRaw(k, lsGet(k))
         }
       }
     }
@@ -165,7 +178,7 @@ export function collectBackupCandidates(): Array<{
     /* */
   }
 
-  out.sort((a, b) => b.score - a.score)
+  out.sort((a, b) => (b.at || 0) - (a.at || 0) || b.score - a.score)
   return out
 }
 
@@ -196,6 +209,85 @@ function mirrorSettingsToDisk(settings: Settings, payload?: string): void {
     }
   } catch {
     /* */
+  }
+}
+
+
+/** True when loaded settings look like a factory wipe, not a deliberate lean edit. */
+export function isNearDefaultWipe(s: Settings | null | undefined): boolean {
+  if (!s) return true
+  const rich = scoreSettings(s)
+  if (rich.score >= 25) return false
+  const c = s.character || DEFAULT_SETTINGS.character
+  const def = DEFAULT_SETTINGS.character
+  const pers = (c.personality || "").trim()
+  const style = (c.style || "").trim()
+  const name = (c.name || "").trim()
+  const defName = (def.name || "").trim()
+  // User typed a custom personality/style — never treat as wipe
+  if (pers.length > 20 && pers !== (def.personality || "").trim()) return false
+  if (style.length > 10 && style !== (def.style || "").trim()) return false
+  if (name && name !== defName) return false
+  if ((s.localModel || "").trim()) return false
+  return rich.score < 15
+}
+
+function editTimeOf(s: Settings | null | undefined, backupAt?: number): number {
+  const u = typeof s?.lastUserEditAt === "number" ? s.lastUserEditAt : 0
+  const b = typeof backupAt === "number" ? backupAt : 0
+  return Math.max(u, b)
+}
+
+/** Prefer user text from `prefer` when present; keep visuals from `base` if stronger. */
+export function mergeSettingsPreferRecent(
+  current: Settings,
+  candidate: Settings,
+  opts?: { candidateAt?: number }
+): Settings {
+  const curT = editTimeOf(current)
+  const candT = editTimeOf(candidate, opts?.candidateAt)
+  // If candidate is strictly older and current is not a wipe → keep current as authority for text
+  const currentWinsText = !isNearDefaultWipe(current) && curT >= candT
+  const textKeys = [
+    "personality",
+    "style",
+    "tagline",
+    "relationshipRole",
+    "relationshipReaction",
+    "name",
+    "visualDescription"
+  ] as const
+  const baseChar = { ...candidate.character, ...current.character }
+  const prefer = currentWinsText ? current.character : candidate.character
+  const other = currentWinsText ? candidate.character : current.character
+  for (const k of textKeys) {
+    const v = (prefer as Record<string, unknown>)?.[k]
+    if (typeof v === "string" && v.trim()) {
+      ;(baseChar as Record<string, unknown>)[k] = v
+    } else {
+      const o = (other as Record<string, unknown>)?.[k]
+      if (typeof o === "string" && o.trim()) (baseChar as Record<string, unknown>)[k] = o
+    }
+  }
+  if (Array.isArray(prefer?.traits) && prefer.traits.length) baseChar.traits = prefer.traits
+  // Visuals: keep whichever has paths/gallery
+  const curGal = current.character?.visualGallery || []
+  const candGal = candidate.character?.visualGallery || []
+  if (candGal.length > curGal.length) baseChar.visualGallery = candGal
+  else if (curGal.length) baseChar.visualGallery = curGal
+  const curUrl = (current.character?.visualImageUrl || "").trim()
+  const candUrl = (candidate.character?.visualImageUrl || "").trim()
+  if (curUrl) baseChar.visualImageUrl = curUrl
+  else if (candUrl) baseChar.visualImageUrl = candUrl
+
+  const lastUserEditAt = Math.max(curT, candT, current.lastUserEditAt || 0, candidate.lastUserEditAt || 0) || undefined
+  return {
+    ...candidate,
+    ...current,
+    character: baseChar,
+    lastUserEditAt,
+    // Prefer more recent non-default local model
+    localModel: (current.localModel || "").trim() || candidate.localModel
   }
 }
 
@@ -277,37 +369,34 @@ export function autoRecoverIfWiped(loaded: Settings): {
   recovered: boolean
   source?: string
 } {
-  const cur = scoreSettings(loaded)
-  if (cur.score >= 40 || (cur.hasAvatar && cur.hasCustomName)) {
+  // Never overwrite deliberate user edits with an older "richer" backup
+  if (!isNearDefaultWipe(loaded)) {
     return { settings: loaded, recovered: false }
   }
 
+  const cur = scoreSettings(loaded)
   const candidates = collectBackupCandidates()
   if (!candidates.length) return { settings: loaded, recovered: false }
 
-  const best = candidates[0]
-  if (best.score <= cur.score + 10) {
-    return { settings: loaded, recovered: false }
-  }
-
-  const pick =
-    candidates.find((c) => scoreSettings(c.settings).hasAvatar) ||
-    candidates.find((c) => scoreSettings(c.settings).hasCustomName) ||
-    best
-
-  if (scoreSettings(pick.settings).score <= cur.score) {
-    return { settings: loaded, recovered: false }
-  }
-
-  const recovered: Settings = {
-    ...loaded,
-    ...pick.settings,
-    character: {
-      ...loaded.character,
-      ...pick.settings.character
+  // Prefer most recent edit time, then score
+  let best = candidates[0]
+  let bestKey = editTimeOf(best.settings, (best as { at?: number }).at) * 1e6 + scoreSettings(best.settings).score
+  for (const c of candidates) {
+    const key = editTimeOf(c.settings, (c as { at?: number }).at) * 1e6 + scoreSettings(c.settings).score
+    if (key > bestKey) {
+      best = c
+      bestKey = key
     }
   }
-  return { settings: recovered, recovered: true, source: pick.source }
+
+  if (scoreSettings(best.settings).score <= cur.score + 5) {
+    return { settings: loaded, recovered: false }
+  }
+
+  const recovered = mergeSettingsPreferRecent(loaded, best.settings, {
+    candidateAt: (best as { at?: number }).at
+  })
+  return { settings: recovered, recovered: true, source: best.source }
 }
 
 
@@ -380,16 +469,33 @@ export async function runFullSettingsRecovery(
   const before = scoreSettings(current)
   let best = current
   let bestScore = before.score
+  let bestTime = editTimeOf(current)
   let source = "current"
 
-  const consider = (label: string, s: Settings | null | undefined) => {
+  // User has real edits → never replace whole settings with an older rich snapshot.
+  // Only fill missing visuals from candidates via mergeSettingsPreferRecent at the end.
+  const protectUserEdits = !isNearDefaultWipe(current)
+
+  const consider = (label: string, s: Settings | null | undefined, at?: number) => {
     if (!s) return
     const sc = scoreSettings(s)
-    if (sc.score > bestScore) {
+    const tEdit = editTimeOf(s, at)
+    if (protectUserEdits) {
+      // Only note richer candidates; do not switch "best" away from current
+      if (sc.score > bestScore) {
+        notes.push("Candidato más rico (no aplica: hay ediciones de usuario): " + label + " score " + sc.score)
+      }
+      return
+    }
+    // Wipe path: prefer recency, then score
+    const better =
+      tEdit > bestTime || (tEdit === bestTime && sc.score > bestScore)
+    if (better) {
       best = s
       bestScore = sc.score
+      bestTime = tEdit
       source = label
-      notes.push("Mejor candidato: " + label + " (score " + sc.score + ")")
+      notes.push("Mejor candidato: " + label + " (t=" + tEdit + ", score " + sc.score + ")")
     } else if (sc.score >= 25) {
       notes.push("Candidato " + label + " score " + sc.score + " (no supera al actual)")
     }
@@ -397,7 +503,7 @@ export async function runFullSettingsRecovery(
 
   // 1) localStorage backups + legacy
   for (const c of collectBackupCandidates()) {
-    consider(c.source, c.settings)
+    consider(c.source, c.settings, (c as { at?: number }).at)
   }
 
   // 2) disk backups via main

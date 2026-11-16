@@ -4,7 +4,8 @@ import { Settings, DEFAULT_SETTINGS, SettingsSchema } from '../../types/settings
 import { resolveModelId, resolveModelIdForProvider } from '@core/models/free-cloud-catalog'
 import {
   autoRecoverIfWiped,
-  maybeBackupSettings
+  maybeBackupSettings,
+  backupSettingsNow
 } from '../settings-backup'
 import { sanitizeAssistantMemoryLists } from '@core/conversation/assistant-memory'
 import {
@@ -250,6 +251,7 @@ export const useSettingsStore = create<SettingsState>()(
           const next = {
             ...state.settings,
             ...patch,
+            lastUserEditAt: Date.now(),
             character: patch.character
               ? {
                   ...state.settings.character,
@@ -389,7 +391,7 @@ export const useSettingsStore = create<SettingsState>()(
                   /* optional */
                 })
             }
-            maybeBackupSettings(saved)
+            backupSettingsNow(saved)
           } catch {
             /* */
           }
