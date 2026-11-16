@@ -177,6 +177,59 @@ export async function previewMemoryImport(
   return { ok: true, proposedSources: proposed, changes }
 }
 
+export type ApplyImportResult = {
+  ok: boolean
+  reason?: string
+  /** New sources object; never the same reference as currentSources when ok. */
+  appliedSources: Record<string, unknown>
+  changes: ImportChange[]
+}
+
+/**
+ * Apply a verified import preview. Requires explicit confirm=true.
+ * Never mutates currentSources, snapshot, or preview.proposedSources.
+ * Without confirm, returns current deep-clone and ok:false.
+ */
+export async function applyMemoryImport(
+  currentSources: Record<string, unknown>,
+  snapshot: MemorySnapshot,
+  opts: { confirm: boolean; preview?: ImportPreview }
+): Promise<ApplyImportResult> {
+  if (!opts.confirm) {
+    return {
+      ok: false,
+      reason: 'confirmation required',
+      appliedSources: structuredClone(currentSources),
+      changes: []
+    }
+  }
+  const preview =
+    opts.preview ?? (await previewMemoryImport(currentSources, snapshot))
+  if (!preview.ok) {
+    return {
+      ok: false,
+      reason: preview.reason || 'preview rejected',
+      appliedSources: structuredClone(currentSources),
+      changes: preview.changes || []
+    }
+  }
+  // Re-verify snapshot so a stale preview cannot apply tampered data
+  const verify = await verifyMemorySnapshot(snapshot)
+  if (!verify.ok) {
+    return {
+      ok: false,
+      reason: verify.reason || 'snapshot invalid',
+      appliedSources: structuredClone(currentSources),
+      changes: []
+    }
+  }
+  return {
+    ok: true,
+    appliedSources: structuredClone(preview.proposedSources),
+    changes: preview.changes.map((c) => ({ ...c }))
+  }
+}
+
 function countLeaves(v: unknown): number {
   if (v == null || typeof v !== 'object') return 1
   if (Array.isArray(v)) return v.reduce((n, x) => n + countLeaves(x), 0)

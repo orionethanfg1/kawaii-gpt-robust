@@ -121,3 +121,42 @@ describe('previewMemoryImport', () => {
     expect(preview.proposedSources).toEqual(current)
   })
 })
+
+
+describe('applyMemoryImport', () => {
+  it('refuses without confirm and does not mutate current', async () => {
+    const { applyMemoryImport, createMemorySnapshot } = await import('./memory-snapshot')
+    const current = { userMemory: { likes: ['a'] } }
+    const snap = await createMemorySnapshot({
+      appVersion: 't',
+      sources: { userMemory: { likes: ['b'] } }
+    })
+    const before = JSON.stringify(current)
+    const res = await applyMemoryImport(current, snap, { confirm: false })
+    expect(res.ok).toBe(false)
+    expect(res.reason).toMatch(/confirm/i)
+    expect(JSON.stringify(current)).toBe(before)
+    expect(res.appliedSources).toEqual(current)
+  })
+
+  it('applies proposed sources only with confirm and deep-clones', async () => {
+    const { applyMemoryImport, createMemorySnapshot, previewMemoryImport } = await import(
+      './memory-snapshot'
+    )
+    const current = { userMemory: { likes: ['a'] }, other: { x: 1 } }
+    const snap = await createMemorySnapshot({
+      appVersion: 't',
+      sources: { userMemory: { likes: ['b'] } }
+    })
+    const preview = await previewMemoryImport(current, snap)
+    expect(preview.ok).toBe(true)
+    const res = await applyMemoryImport(current, snap, { confirm: true, preview })
+    expect(res.ok).toBe(true)
+    expect(res.appliedSources.userMemory).toEqual({ likes: ['b'] })
+    expect(res.appliedSources.other).toEqual({ x: 1 })
+    // inputs untouched
+    expect(current.userMemory).toEqual({ likes: ['a'] })
+    // not same reference as preview
+    expect(res.appliedSources).not.toBe(preview.proposedSources)
+  })
+})

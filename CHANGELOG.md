@@ -1,3 +1,10 @@
+## 0.12.0-beta rev.ip
+
+- **B1 + M0 (bloque seguro):**
+  - `applyMemoryImport`: aplica preview solo con `confirm: true`; deep-clone; no muta inputs ni snapshot.
+  - Tests de regresión B1: lectura completa preservada, clave estable, auto-doc timer cancelable.
+  - No amplía iniciativa ni recolección automática.
+
 ## 0.12.0-beta rev.io
 
 - **Build fix:** `scheduleDocAutoContinue` / `cancelPendingDocAutoContinue` por import estático — `onDone` no es async; se eliminó `await import` que rompía Vite/esbuild.
