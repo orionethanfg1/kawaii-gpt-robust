@@ -1,7 +1,9 @@
 /**
  * M3 — LayersPanel
  */
+import { useEffect } from 'react'
 import { useSettingsUi } from './SettingsUiContext'
+import { useDebouncedCommit } from '@shared/lib/hooks/useDebouncedCommit'
 import { Button } from '@shared/ui/Button'
 import { Download, Play, RefreshCw, Loader2, Image as ImageIcon, Music2, Video } from 'lucide-react'
 import { SdWorkspacePanel } from '@features/image/components/SdWorkspacePanel'
@@ -50,6 +52,13 @@ export function LayersPanel() {
     musicBusy,
     setMusicBusy
   } = useSettingsUi()
+  const [a1111BaseUrlDraft, setA1111BaseUrlDraft, flushA1111BaseUrl] = useDebouncedCommit(
+    settings.a1111BaseUrl,
+    (a1111BaseUrl) => update({ a1111BaseUrl }),
+    300
+  )
+
+  useEffect(() => () => flushA1111BaseUrl(), [flushA1111BaseUrl])
 
   return (
     <div className="space-y-3">
@@ -540,8 +549,9 @@ export function LayersPanel() {
         <label className="block text-xs font-semibold">URL Forge / A1111</label>
         <input
           className="input-kawaii text-sm"
-          value={settings.a1111BaseUrl}
-          onChange={(e) => update({ a1111BaseUrl: e.target.value })}
+          value={a1111BaseUrlDraft}
+          onChange={(e) => setA1111BaseUrlDraft(e.target.value)}
+          onBlur={flushA1111BaseUrl}
           placeholder="http://127.0.0.1:7860"
         />
         <p className="text-[10px] text-kawaii-text-muted">

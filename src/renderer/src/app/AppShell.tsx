@@ -5,7 +5,7 @@ import { useLayerScheduleToasts } from '../features/layers/useLayerScheduleToast
 import { GitSyncPanel } from '@/features/git/GitSyncPanel'
 import { ensureVisualDescriptionFromAvatar } from '@features/settings/ensureVisualDescription'
 import { runAutoBootstrap } from '@features/assistant/autoBootstrap'
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
 import { PanelLeftClose, PanelLeft, Puzzle } from 'lucide-react'
 import { KawaiiIcon } from '@shared/ui/KawaiiIcon'
 import { useUiChromeStore } from '@shared/lib/stores/uiChromeStore'
@@ -289,6 +289,7 @@ export function AppShell() {
 
   const hasCompletedSetup = useSettingsStore((s) => s.settings.hasCompletedSetup)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const openSettings = useCallback(() => setSettingsOpen(true), [])
   const [settingsInitialSection, setSettingsInitialSection] = useState<
     'persona' | 'memory' | 'layers' | 'models' | 'providers' | 'advanced' | 'actividades' | 'tester' | undefined
   >(undefined)
@@ -314,6 +315,7 @@ export function AppShell() {
   }, [settingsOpen, gitOpen])
 
   const [showWizard, setShowWizard] = useState(() => !hasCompletedSetup)
+  const openWizard = useCallback(() => setShowWizard(true), [])
   // Persist rehydration: open wizard only if setup never completed
   useEffect(() => {
     if (!hasCompletedSetup) setShowWizard(true)
@@ -487,8 +489,8 @@ export function AppShell() {
           }
         >
           <ChatView
-            onOpenSettings={() => setSettingsOpen(true)}
-            onOpenWizard={() => setShowWizard(true)}
+            onOpenSettings={openSettings}
+            onOpenWizard={openWizard}
           />
         </ErrorBoundary>
       </div>

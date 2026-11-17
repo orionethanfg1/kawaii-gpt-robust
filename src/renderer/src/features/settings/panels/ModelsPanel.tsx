@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
+import { useDebouncedCommit } from '@shared/lib/hooks/useDebouncedCommit'
 import {
   dedupeCatalogByFingerprint,
   discoverLocalModelsFull
@@ -64,6 +65,11 @@ export function ModelsPanel() {
   const [note, setNote] = useState<string | null>(null)
   const [pullId, setPullId] = useState('')
   const [actionMsg, setActionMsg] = useState<string | null>(null)
+  const [lmStudioTokenDraft, setLmStudioTokenDraft, flushLmStudioToken] = useDebouncedCommit(
+    String((settings as { lmStudioApiToken?: string }).lmStudioApiToken || ''),
+    (lmStudioApiToken) => update({ lmStudioApiToken } as never),
+    300
+  )
   const [layerPaths, setLayerPaths] = useState<
     Array<{ layer: string; path: string; exists: boolean; note: string; pendingSetup?: boolean }>
   >([])
@@ -132,6 +138,7 @@ export function ModelsPanel() {
     void refresh()
     void refreshPaths()
   }, [refresh, refreshPaths])
+  useEffect(() => () => flushLmStudioToken(), [flushLmStudioToken])
 
   const setEnabled = (id: string, enabled: boolean) => {
     update({
@@ -317,8 +324,9 @@ export function ModelsPanel() {
           type="password"
           autoComplete="off"
           placeholder="Bearer vacío = lm-studio por defecto"
-          value={(settings as { lmStudioApiToken?: string }).lmStudioApiToken || ''}
-          onChange={(e) => update({ lmStudioApiToken: e.target.value } as never)}
+          value={lmStudioTokenDraft}
+          onChange={(e) => setLmStudioTokenDraft(e.target.value)}
+          onBlur={flushLmStudioToken}
         />
       </div>
 

@@ -99,6 +99,31 @@ export function PersonaPanel() {
     },
     300
   )
+  const [nameDraft, setNameDraft, flushName] = useDebouncedCommit(
+    char.name || '',
+    (name) => {
+      const live = useSettingsStore.getState().settings.character
+      update({ character: { ...live, name } })
+    },
+    300
+  )
+  const [taglineDraft, setTaglineDraft, flushTagline] = useDebouncedCommit(
+    char.tagline || '',
+    (tagline) => {
+      const live = useSettingsStore.getState().settings.character
+      update({ character: { ...live, tagline } })
+    },
+    300
+  )
+  const [relationshipRoleDraft, setRelationshipRoleDraft, flushRelationshipRole] =
+    useDebouncedCommit(
+      char.relationshipRole || '',
+      (relationshipRole) => {
+        const live = useSettingsStore.getState().settings.character
+        update({ character: { ...live, relationshipRole } })
+      },
+      300
+    )
 
   // Commit pending drafts if user closes settings before debounce fires
   useEffect(() => {
@@ -107,11 +132,14 @@ export function PersonaPanel() {
         flushPersonality()
         flushStyle()
         flushVisual()
+        flushName()
+        flushTagline()
+        flushRelationshipRole()
       } catch {
         /* */
       }
     }
-  }, [flushPersonality, flushStyle, flushVisual])
+  }, [flushPersonality, flushStyle, flushVisual, flushName, flushTagline, flushRelationshipRole])
 
   const [avatarDisplaySrc, setAvatarDisplaySrc] = useState<string | undefined>(undefined)
   useEffect(() => {
@@ -340,20 +368,18 @@ export function PersonaPanel() {
     <label className="block text-xs font-semibold mb-1">Nombre</label>
     <input
       className="input-kawaii"
-      value={char.name}
-      onChange={(e) =>
-        update({ character: { ...char, name: e.target.value } })
-      }
+      value={nameDraft}
+      onChange={(e) => setNameDraft(e.target.value)}
+      onBlur={flushName}
     />
   </div>
   <div>
     <label className="block text-xs font-semibold mb-1">Tagline</label>
     <input
       className="input-kawaii"
-      value={char.tagline}
-      onChange={(e) =>
-        update({ character: { ...char, tagline: e.target.value } })
-      }
+      value={taglineDraft}
+      onChange={(e) => setTaglineDraft(e.target.value)}
+      onBlur={flushTagline}
     />
   </div>
   <div>
@@ -362,12 +388,9 @@ export function PersonaPanel() {
     </label>
     <input
       className="input-kawaii"
-      value={char.relationshipRole ?? ''}
-      onChange={(e) =>
-        update({
-          character: { ...char, relationshipRole: e.target.value }
-        })
-      }
+      value={relationshipRoleDraft}
+      onChange={(e) => setRelationshipRoleDraft(e.target.value)}
+      onBlur={flushRelationshipRole}
       placeholder="Ej: mejor amiga, mentor, asistente profesional…"
     />
   </div>

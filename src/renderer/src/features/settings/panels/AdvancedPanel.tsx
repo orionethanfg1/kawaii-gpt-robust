@@ -5,8 +5,9 @@ import { Stethoscope, Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@shared/ui/Button'
 import { AppMemoryPanel } from '../AppMemoryPanel'
 import { useSettingsUi } from './SettingsUiContext'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { APP_VERSION } from '@shared/version'
+import { useDebouncedCommit } from '@shared/lib/hooks/useDebouncedCommit'
 
 export function AdvancedPanel() {
   const {
@@ -20,6 +21,24 @@ export function AdvancedPanel() {
   } = useSettingsUi()
   const [updateMsg, setUpdateMsg] = useState<string | null>(null)
   const [updateBusy, setUpdateBusy] = useState(false)
+  const [searxngDraft, setSearxngDraft, flushSearxng] = useDebouncedCommit(
+    String((settings as { searxngBaseUrl?: string }).searxngBaseUrl || ''),
+    (searxngBaseUrl) => update({ searxngBaseUrl } as never),
+    300
+  )
+  const [weatherCityDraft, setWeatherCityDraft, flushWeatherCity] = useDebouncedCommit(
+    String((settings as { weatherCity?: string }).weatherCity || ''),
+    (weatherCity) => update({ weatherCity } as never),
+    300
+  )
+
+  useEffect(
+    () => () => {
+      flushSearxng()
+      flushWeatherCity()
+    },
+    [flushSearxng, flushWeatherCity]
+  )
 
   return (
     <div className="space-y-3">
@@ -46,8 +65,9 @@ export function AdvancedPanel() {
         <input
           className="input-kawaii text-sm w-full"
           placeholder="http://127.0.0.1:8080"
-          value={(settings as { searxngBaseUrl?: string }).searxngBaseUrl || ''}
-          onChange={(e) => update({ searxngBaseUrl: e.target.value } as never)}
+          value={searxngDraft}
+          onChange={(e) => setSearxngDraft(e.target.value)}
+          onBlur={flushSearxng}
         />
         <label className="flex items-center gap-2 text-xs">
           <input
@@ -76,8 +96,9 @@ export function AdvancedPanel() {
         <input
           className="input-kawaii text-sm w-full"
           placeholder="Ciudad (ej. Guadalajara, Ciudad de México)"
-          value={(settings as { weatherCity?: string }).weatherCity || ''}
-          onChange={(e) => update({ weatherCity: e.target.value } as never)}
+          value={weatherCityDraft}
+          onChange={(e) => setWeatherCityDraft(e.target.value)}
+          onBlur={flushWeatherCity}
         />
         {(settings as { weatherSummary?: string }).weatherSummary ? (
           <p className="text-[11px] text-sky-800">

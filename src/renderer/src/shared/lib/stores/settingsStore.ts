@@ -4,8 +4,7 @@ import { Settings, DEFAULT_SETTINGS, SettingsSchema } from '../../types/settings
 import { resolveModelId, resolveModelIdForProvider } from '@core/models/free-cloud-catalog'
 import {
   autoRecoverIfWiped,
-  maybeBackupSettings,
-  backupSettingsNow
+  maybeBackupSettings
 } from '../settings-backup'
 import { sanitizeAssistantMemoryLists } from '@core/conversation/assistant-memory'
 import {
@@ -33,6 +32,12 @@ function normalizeLoadedSettings(s: Settings): Settings {
     }))
   }
 }
+
+let lastPersistedVisuals: {
+  gallery: unknown
+  image: unknown
+  face: unknown
+} | null = null
 
 /**
  * Never throw away user data. Prefer imperfect merge over DEFAULT_SETTINGS wipe.
@@ -236,7 +241,7 @@ const safeSettingsStorage = {
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       settings: DEFAULT_SETTINGS,
       update: (patch) => {
         if (patch.adultIntimacyOptIn === false) {
@@ -247,7 +252,9 @@ export const useSettingsStore = create<SettingsState>()(
             })
         }
         let saved: Settings | null = null
+        let previousCharacter: Settings['character'] | undefined
         set((state) => {
+          previousCharacter = state.settings.character
           const next = {
             ...state.settings,
             ...patch,
@@ -371,27 +378,55 @@ export const useSettingsStore = create<SettingsState>()(
         })
         if (saved) {
           try {
-            if (saved.character) {
-              syncCharacterFromSettings(saved.character)
-              // A2: durable visual sheet on disk
-              void import('@features/settings/services/characterIdentityDisk')
-                .then(({ saveCharacterIdentityToDisk }) =>
-                  saveCharacterIdentityToDisk({
-                    visualDescription: saved!.character!.visualDescription || '',
-                    visualFromAvatar: saved!.character!.visualFromAvatar === true,
-                    visualCleared: !(saved!.character!.visualDescription || '').trim(),
-                    name: saved!.character!.name,
-                    personality: saved!.character!.personality,
-                    style: saved!.character!.style,
-                    tagline: saved!.character!.tagline,
-                    relationshipRole: saved!.character!.relationshipRole
-                  })
-                )
-                .catch(() => {
-                  /* optional */
+            const settingsAfterUpdate = get().settings
+            const changedCharacterFields = new Set(
+              Object.entries(patch.character || {})
+                .filter(([field, value]) => {
+                  return (
+                    (previousCharacter as Record<string, unknown> | undefined)?.[field] !==
+                    value
+                  )
                 })
+                .map(([field]) => field)
+            )
+            const savedCharacter = settingsAfterUpdate.character
+            if (savedCharacter && changedCharacterFields.size > 0) {
+              syncCharacterFromSettings(savedCharacter)
+              const identityFields = [
+                'visualDescription',
+                'visualFromAvatar',
+                'name',
+                'personality',
+                'style',
+                'tagline',
+                'relationshipRole'
+              ] as const
+              const identityChanged = identityFields.some(
+                (field) =>
+                  changedCharacterFields.has(field) &&
+                  previousCharacter?.[field] !== savedCharacter[field]
+              )
+              if (identityChanged) {
+                // A2: write durable identity only when an identity field changed.
+                void import('@features/settings/services/characterIdentityDisk')
+                  .then(({ saveCharacterIdentityToDisk }) =>
+                    saveCharacterIdentityToDisk({
+                      visualDescription: savedCharacter.visualDescription || '',
+                      visualFromAvatar: savedCharacter.visualFromAvatar === true,
+                      visualCleared: !(savedCharacter.visualDescription || '').trim(),
+                      name: savedCharacter.name,
+                      personality: savedCharacter.personality,
+                      style: savedCharacter.style,
+                      tagline: savedCharacter.tagline,
+                      relationshipRole: savedCharacter.relationshipRole
+                    })
+                  )
+                  .catch(() => {
+                    /* optional */
+                  })
+              }
             }
-            backupSettingsNow(saved)
+            maybeBackupSettings(settingsAfterUpdate)
           } catch {
             /* */
           }
@@ -405,13 +440,24 @@ export const useSettingsStore = create<SettingsState>()(
       partialize: (s) => {
         const MAX = 48_000
         const ch = s.settings.character || ({} as typeof s.settings.character)
-        // Fire-and-forget: ensure disk before next persist cycle
-        try {
-          void import('@features/settings/services/wardrobeDisk').then((m) => {
-            void m.ensureCharacterVisualsOnDisk(ch as never)
-          })
-        } catch {
-          /* */
+        const visuals = {
+          gallery: ch.visualGallery,
+          image: ch.visualImageUrl,
+          face: ch.facePrimaryUrl
+        }
+        const previousVisuals = lastPersistedVisuals
+        if (
+          !previousVisuals ||
+          previousVisuals.gallery !== visuals.gallery ||
+          previousVisuals.image !== visuals.image ||
+          previousVisuals.face !== visuals.face
+        ) {
+          lastPersistedVisuals = visuals
+          void import('@features/settings/services/wardrobeDisk')
+            .then((m) => m.ensureCharacterVisualsOnDisk(ch as never))
+            .catch((error) =>
+              console.warn('[settings] wardrobe persistence failed', error)
+            )
         }
         const gal = (ch.visualGallery || []).map((g) => {
           const du = (g as { dataUrl?: string }).dataUrl || ''

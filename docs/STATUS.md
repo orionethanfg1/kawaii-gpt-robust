@@ -3,10 +3,21 @@
 | Campo | Valor |
 |-------|--------|
 | Versión | **0.12.0-beta** |
-| Revisión | **rev.il** |
+| Revisión | **rev.iu** |
 | Un residente LLM | **rev.gj + rev.gk** (sin reload por Auto suave) |
 
-Última actualización docs: **rev.il**.
+Última actualización docs: **rev.iu**.
+
+## Rev.iu — Rendimiento de interacción
+
+- La barra lateral observa solo los metadatos visibles de conversaciones; streaming y cambios de mensajes ya no reconstruyen la lista.
+- El borrador de chat no vuelve a escanear estados de lectura documental en cada pulsación.
+- Inputs de texto de ajustes agrupan confirmaciones y las vacían al salir del panel; la persistencia evita escrituras de identidad/visual y snapshots rotativos cuando no cambiaron sus datos.
+- Chat, entrada y sidebar ignoran renders causados solo por renderizado del padre, manteniendo las suscripciones funcionales propias.
+
+## Rev.it — Visibilidad del panel de plugins
+
+- El contenedor emergente de plugins tiene prioridad de apilamiento sobre la lista de mensajes para que la conversación no lo tape al abrirlo.
 
 ## Rev.il — Iniciativas y diagnóstico de runtimes
 

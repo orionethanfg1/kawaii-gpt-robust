@@ -1,10 +1,12 @@
 /**
  * M3 — ProvidersPanel (reescrito: JSX del extract era inválido)
  */
+import { useEffect } from 'react'
 import { Button } from '@shared/ui/Button'
 import type { ProviderMode } from '@shared/types/settings'
 import { LocalModelPicker } from '../LocalModelPicker'
 import { useSettingsUi } from './SettingsUiContext'
+import { useDebouncedCommit } from '@shared/lib/hooks/useDebouncedCommit'
 
 export function ProvidersPanel() {
   const {
@@ -16,6 +18,36 @@ export function ProvidersPanel() {
     setApiKey,
     setSavedKeyHint
   } = useSettingsUi()
+  const [localBaseUrlDraft, setLocalBaseUrlDraft, flushLocalBaseUrl] = useDebouncedCommit(
+    settings.localBaseUrl,
+    (localBaseUrl) => update({ localBaseUrl }),
+    300
+  )
+  const [openAIBaseUrlDraft, setOpenAIBaseUrlDraft, flushOpenAIBaseUrl] = useDebouncedCommit(
+    settings.localOpenAIBaseUrl || '',
+    (localOpenAIBaseUrl) => update({ localOpenAIBaseUrl }),
+    300
+  )
+  const [cloudBaseUrlDraft, setCloudBaseUrlDraft, flushCloudBaseUrl] = useDebouncedCommit(
+    settings.cloudBaseUrl,
+    (cloudBaseUrl) => update({ cloudBaseUrl }),
+    300
+  )
+  const [cloudModelDraft, setCloudModelDraft, flushCloudModel] = useDebouncedCommit(
+    settings.cloudModel,
+    (cloudModel) => update({ cloudModel }),
+    300
+  )
+
+  useEffect(
+    () => () => {
+      flushLocalBaseUrl()
+      flushOpenAIBaseUrl()
+      flushCloudBaseUrl()
+      flushCloudModel()
+    },
+    [flushCloudBaseUrl, flushLocalBaseUrl, flushOpenAIBaseUrl, flushCloudModel]
+  )
 
   return (
     <div className="space-y-3">
@@ -36,8 +68,9 @@ export function ProvidersPanel() {
         <label className="block text-sm font-semibold mb-1">URL local (Ollama)</label>
         <input
           className="input-kawaii"
-          value={settings.localBaseUrl}
-          onChange={(e) => update({ localBaseUrl: e.target.value })}
+          value={localBaseUrlDraft}
+          onChange={(e) => setLocalBaseUrlDraft(e.target.value)}
+          onBlur={flushLocalBaseUrl}
         />
       </div>
 
@@ -47,8 +80,9 @@ export function ProvidersPanel() {
         </label>
         <input
           className="input-kawaii"
-          value={settings.localOpenAIBaseUrl || ''}
-          onChange={(e) => update({ localOpenAIBaseUrl: e.target.value })}
+          value={openAIBaseUrlDraft}
+          onChange={(e) => setOpenAIBaseUrlDraft(e.target.value)}
+          onBlur={flushOpenAIBaseUrl}
           placeholder="http://127.0.0.1:1234/v1"
         />
       </div>
@@ -62,8 +96,9 @@ export function ProvidersPanel() {
         <label className="block text-sm font-semibold mb-1">URL cloud</label>
         <input
           className="input-kawaii"
-          value={settings.cloudBaseUrl}
-          onChange={(e) => update({ cloudBaseUrl: e.target.value })}
+          value={cloudBaseUrlDraft}
+          onChange={(e) => setCloudBaseUrlDraft(e.target.value)}
+          onBlur={flushCloudBaseUrl}
         />
       </div>
 
@@ -71,8 +106,9 @@ export function ProvidersPanel() {
         <label className="block text-sm font-semibold mb-1">Modelo cloud</label>
         <input
           className="input-kawaii"
-          value={settings.cloudModel}
-          onChange={(e) => update({ cloudModel: e.target.value })}
+          value={cloudModelDraft}
+          onChange={(e) => setCloudModelDraft(e.target.value)}
+          onBlur={flushCloudModel}
         />
       </div>
 

@@ -10,6 +10,7 @@ export function useDebouncedCommit(
   delayMs = 280
 ): [string, (next: string) => void, () => void] {
   const [draft, setDraft] = useState(committedValue)
+  const draftRef = useRef(committedValue)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const commitRef = useRef(commit)
   commitRef.current = commit
@@ -20,6 +21,7 @@ export function useDebouncedCommit(
     if (timer.current) return
     if (committedValue !== lastCommitted.current) {
       lastCommitted.current = committedValue
+      draftRef.current = committedValue
       setDraft(committedValue)
     }
   }, [committedValue])
@@ -29,14 +31,15 @@ export function useDebouncedCommit(
       clearTimeout(timer.current)
       timer.current = null
     }
-    const v = draft
+    const v = draftRef.current
     if (v === lastCommitted.current) return
     lastCommitted.current = v
     commitRef.current(v)
-  }, [draft])
+  }, [])
 
   const set = useCallback(
     (next: string) => {
+      draftRef.current = next
       setDraft(next)
       if (timer.current) clearTimeout(timer.current)
       timer.current = setTimeout(() => {

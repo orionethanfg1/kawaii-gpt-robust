@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type DragEvent } from 'react'
+import { memo, useEffect, useRef, useState, type KeyboardEvent, type DragEvent } from 'react'
 import { Send, Square, Smile, ImagePlus, Paperclip, X, FileText, Brain, Mic, MicOff, Bold, Italic, List } from 'lucide-react'
 import { Button } from '@shared/ui/Button'
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
@@ -244,7 +244,7 @@ function readFileAsText(file: File): Promise<string> {
   })
 }
 
-export function ChatInput({ disabled, isLoading, onSend, onStop }: Props) {
+export const ChatInput = memo(function ChatInput({ disabled, isLoading, onSend, onStop }: Props) {
   const thinkMode = useSettingsStore((s) => (s.settings as { thinkMode?: string }).thinkMode || 'off')
   const updateSettings = useSettingsStore((s) => s.update)
   const cycleThink = () => {
@@ -357,7 +357,7 @@ export function ChatInput({ disabled, isLoading, onSend, onStop }: Props) {
     }
     window.addEventListener('kawaii:doc-reading-changed', onDoc as EventListener)
     return () => window.removeEventListener('kawaii:doc-reading-changed', onDoc as EventListener)
-  }, [activeId, value, isLoading])
+  }, [activeId, isLoading])
   const imageRef = useRef<HTMLInputElement>(null)
   const docRef = useRef<HTMLInputElement>(null)
   const textRef = useRef<HTMLTextAreaElement>(null)
@@ -1028,4 +1028,4 @@ export function ChatInput({ disabled, isLoading, onSend, onStop }: Props) {
       </div>
     </div>
   )
-}
+})

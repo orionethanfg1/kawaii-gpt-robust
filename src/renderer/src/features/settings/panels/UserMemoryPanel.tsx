@@ -147,6 +147,45 @@ export function UserMemoryPanel() {
     },
     300
   )
+  const [nicknamesDraft, setNicknamesDraft, flushNicknames] = useDebouncedCommit(
+    (mem.nicknames || []).join(', '),
+    (text) => {
+      updateMemory({
+        nicknames: text
+          .split(',')
+          .map((nickname) => nickname.trim())
+          .filter(Boolean)
+          .slice(0, 12)
+      })
+    },
+    300
+  )
+  const [relationshipSummaryDraft, setRelationshipSummaryDraft, flushRelationshipSummary] =
+    useDebouncedCommit(
+      mem.relationshipSummary || '',
+      (text) => {
+        updateMemory({ relationshipSummary: text.trim() || undefined })
+      },
+      300
+    )
+  useEffect(
+    () => () => {
+      flushAppearance()
+      flushUserName()
+      flushPreferred()
+      flushFocus()
+      flushNicknames()
+      flushRelationshipSummary()
+    },
+    [
+      flushAppearance,
+      flushFocus,
+      flushNicknames,
+      flushPreferred,
+      flushRelationshipSummary,
+      flushUserName
+    ]
+  )
   const facts = useMemo(() => flattenFacts(mem), [mem])
   /** Hechos generales (sin prefijos INTIMACY_*) — van a la sección íntima */
   const generalFacts = useMemo(
@@ -1379,17 +1418,10 @@ export function UserMemoryPanel() {
           Apodos (separados por coma)
           <input
             className="input-kawaii w-full text-xs mt-0.5"
-            value={(mem.nicknames || []).join(', ')}
+            value={nicknamesDraft}
             placeholder="amor, cariño…"
-            onChange={(e) =>
-              updateMemory({
-                nicknames: e.target.value
-                  .split(',')
-                  .map((x) => x.trim())
-                  .filter(Boolean)
-                  .slice(0, 12)
-              })
-            }
+            onChange={(e) => setNicknamesDraft(e.target.value)}
+            onBlur={flushNicknames}
           />
         </label>
         {mem.pendingNickname ? (
@@ -1401,11 +1433,10 @@ export function UserMemoryPanel() {
           Resumen del vínculo
           <textarea
             className="input-kawaii w-full text-xs mt-0.5 min-h-[2.5rem]"
-            value={mem.relationshipSummary || ''}
+            value={relationshipSummaryDraft}
             placeholder="Cómo va la relación en el chat…"
-            onChange={(e) =>
-              updateMemory({ relationshipSummary: e.target.value.trim() || undefined })
-            }
+            onChange={(e) => setRelationshipSummaryDraft(e.target.value)}
+            onBlur={flushRelationshipSummary}
           />
         </label>
       </div>

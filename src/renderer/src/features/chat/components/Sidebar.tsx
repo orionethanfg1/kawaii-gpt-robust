@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { APP_VERSION, APP_REVISION } from '@shared/version'
 import { Plus, Trash2, MessageSquare, Download, Upload, FileJson, FileText, Pencil} from 'lucide-react'
 import { KawaiiIcon } from '@shared/ui/KawaiiIcon'
 import { useChatStore } from '@shared/lib/stores/chatStore'
+import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import { suggestChatTitles } from '../services/suggestChatTitles'
 import { persistMissingChatAttachments } from '../services/persistChatAttachments'
 import { Button } from '@shared/ui/Button'
@@ -22,7 +24,7 @@ import {
 import { recoverChatsFromDisk, forceSpillAllChats } from '../services/chatRecovery'
 import { useUiChromeStore } from '@shared/lib/stores/uiChromeStore'
 
-export function Sidebar() {
+export const Sidebar = memo(function Sidebar() {
   const [ver, setVer] = useState(
     typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : APP_VERSION
   )
@@ -40,17 +42,33 @@ export function Sidebar() {
     }).catch(() => setVer(baked))
   }, [])
 
-  const {
-    conversations,
-    activeId,
-    create,
-    remove,
-    setActive,
-    importConversations,
-    getActive,
-    rename,
-    setPrivate
-  } = useChatStore()
+  const conversationFields = useChatStore(
+    useShallow((state) =>
+      state.conversations.flatMap((conversation) => [
+        conversation.id,
+        conversation.title,
+        conversation.isPrivate ? '1' : '0'
+      ])
+    )
+  )
+  const conversations = useMemo(() => {
+    const rows: Array<{ id: string; title: string; isPrivate: boolean }> = []
+    for (let i = 0; i < conversationFields.length; i += 3) {
+      rows.push({
+        id: conversationFields[i] || '',
+        title: conversationFields[i + 1] || '',
+        isPrivate: conversationFields[i + 2] === '1'
+      })
+    }
+    return rows
+  }, [conversationFields])
+  const activeId = useChatStore((state) => state.activeId)
+  const create = useChatStore((state) => state.create)
+  const remove = useChatStore((state) => state.remove)
+  const setActive = useChatStore((state) => state.setActive)
+  const importConversations = useChatStore((state) => state.importConversations)
+  const rename = useChatStore((state) => state.rename)
+  const setPrivate = useChatStore((state) => state.setPrivate)
   const fileRef = useRef<HTMLInputElement>(null)
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const [renameId, setRenameId] = useState<string | null>(null)
@@ -63,9 +81,10 @@ export function Sidebar() {
 
   const exportJson = (onlyActive: boolean) => {
     void (async () => {
+      const current = useChatStore.getState()
       let list = onlyActive
-        ? ([getActive()].filter(Boolean) as NonNullable<ReturnType<typeof getActive>>[])
-        : [...conversations]
+        ? current.conversations.filter((conversation) => conversation.id === current.activeId)
+        : [...current.conversations]
       if (list.length === 0) {
         setImportMsg('No hay chats para exportar')
         return
@@ -100,7 +119,8 @@ export function Sidebar() {
   }
 
   const exportMd = (onlyActive: boolean) => {
-    const active = getActive()
+    const current = useChatStore.getState()
+    const active = current.conversations.find((conversation) => conversation.id === current.activeId)
     if (onlyActive && active) {
       downloadTextFile(
         stampFilename('kawaii-chat', 'md'),
@@ -109,13 +129,13 @@ export function Sidebar() {
       )
       return
     }
-    if (conversations.length === 0) {
+    if (current.conversations.length === 0) {
       setImportMsg('No hay chats para exportar')
       return
     }
     downloadTextFile(
       stampFilename('kawaii-chats', 'md'),
-      conversationsToMarkdownBundle(conversations),
+      conversationsToMarkdownBundle(current.conversations),
       'text/markdown'
     )
   }
@@ -316,7 +336,10 @@ export function Sidebar() {
                     setRenameLoading(true)
                     try {
                       const sug = await suggestChatTitles({
-                        messages: (c.messages || []).map((m) => ({
+                        messages: (
+                          useChatStore.getState().conversations.find((conversation) => conversation.id === c.id)
+                            ?.messages || []
+                        ).map((m) => ({
                           role: m.role,
                           content: m.content
                         })),
@@ -430,4 +453,4 @@ export function Sidebar() {
       </div>
     </aside>
   )
-}
+})

@@ -183,6 +183,7 @@ export function collectBackupCandidates(): Array<{
 }
 
 let lastBackupAt = 0
+let lastMirroredCharacter: Settings["character"] | null = null
 
 
 /** D1 — best-effort disk mirror (does not throttle as hard as rolling slots) */
@@ -201,7 +202,8 @@ function mirrorSettingsToDisk(settings: Settings, payload?: string): void {
       }
     }
     void w.kawaii?.settingsBackupWrite?.({ fileName: "latest.json", content: body })
-    if (settings.character) {
+    if (settings.character && settings.character !== lastMirroredCharacter) {
+      lastMirroredCharacter = settings.character
       void w.kawaii?.settingsBackupWrite?.({
         fileName: "character-latest.json",
         content: JSON.stringify({ at: now, character: settings.character })
@@ -292,14 +294,13 @@ export function mergeSettingsPreferRecent(
 }
 
 export function maybeBackupSettings(settings: Settings): void {
+  const now = Date.now()
+  // Keep the latest recoverable state current, but avoid rewriting rolling
+  // snapshots and scanning localStorage on every field edit.
+  mirrorSettingsToDisk(settings)
   const rich = scoreSettings(settings)
   if (rich.score < 20) return
-  const now = Date.now()
-  // D1: always refresh latest.json on disk even when rolling backup is throttled
-  if (now - lastBackupAt < MIN_BACKUP_INTERVAL_MS) {
-    mirrorSettingsToDisk(settings)
-    return
-  }
+  if (now - lastBackupAt < MIN_BACKUP_INTERVAL_MS) return
   lastBackupAt = now
 
   try {
@@ -354,7 +355,6 @@ export function maybeBackupSettings(settings: Settings): void {
           }) => Promise<unknown>
         }
       }
-      void w.kawaii?.settingsBackupWrite?.({ fileName: "latest.json", content: payload })
       void w.kawaii?.settingsBackupWrite?.({ fileName: id + ".json", content: payload })
     } catch {
       /* optional */

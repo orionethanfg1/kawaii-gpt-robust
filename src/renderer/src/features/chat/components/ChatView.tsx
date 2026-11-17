@@ -1,7 +1,7 @@
 import { PluginsPanel } from './PluginsPanel'
 import { useUiChromeStore } from '@shared/lib/stores/uiChromeStore'
 import { useConversationInitiative } from '../hooks/useConversationInitiative'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ImageLightbox } from '@shared/ui/ImageLightbox'
 import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { useChatStore } from '@shared/lib/stores/chatStore'
@@ -192,7 +192,7 @@ function IntimateScenePhaseChip() {
   )
 }
 
-export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
+export const ChatView = memo(function ChatView({ onOpenSettings, onOpenWizard }: Props) {
   const pluginsOpen = useUiChromeStore((s) => s.pluginsOpen)
   const setPluginsOpen = useUiChromeStore((s) => s.setPluginsOpen)
 
@@ -481,7 +481,7 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
           </div>
         </div>
         {pluginsOpen && (
-          <div className="relative mt-1">
+          <div className="relative z-50 mt-1">
             <PluginsPanel
               onClose={() => setPluginsOpen(false)}
               onInsertPhrase={(phrase) => {
@@ -658,4 +658,4 @@ export function ChatView({ onOpenSettings, onOpenWizard }: Props) {
     ) : null}
     </>
   )
-}
+})

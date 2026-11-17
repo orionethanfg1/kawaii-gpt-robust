@@ -1,3 +1,13 @@
+## 0.12.0-beta rev.iu
+
+- **Rendimiento de UI:** la lista lateral deja de suscribirse a cada cambio del contenido de los chats; el borrador del chat ya no dispara trabajo de lectura documental por carácter.
+- Los campos de texto de ajustes agrupan escrituras durante la edición. La persistencia evita sincronizaciones de identidad, visuales y backups rotativos cuando el cambio no afecta esos datos.
+- Componentes estables del chat y callbacks del shell evitan renders provocados solo por overlays o actualizaciones del padre.
+
+## 0.12.0-beta rev.it
+
+- **Panel de plugins visible:** el menú emergente ahora se apila por encima de los mensajes del chat en lugar de quedar oculto detrás de las burbujas.
+
 ## 0.12.0-beta rev.is
 
 - **Iniciativas + thinking:** no se desactiva el razonamiento en decisiones.
