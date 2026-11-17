@@ -680,7 +680,7 @@ export function useConversationInitiative(enabledGate: boolean) {
             model: modelRaw,
             runtime,
             messages: msgs,
-            timeoutMs: 28_000
+            timeoutMs: 60_000
           })
           const generatedDecision = parseInitiativeDecision(generated || '')
           text = generatedDecision.speak ? generatedDecision.text || null : null

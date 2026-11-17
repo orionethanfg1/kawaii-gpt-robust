@@ -1,3 +1,11 @@
+## 0.12.0-beta rev.is
+
+- **Iniciativas + thinking:** no se desactiva el razonamiento en decisiones.
+  - El cliente **espera** (timeout 60s) la respuesta completa.
+  - `content` = respuesta/decisión; `reasoning_content` = thinking aparte.
+  - Si `content` viene vacío, se parsea `MENSAJE:` / `SILENCIO` desde el reasoning (sin mezclarlo como burbuja de chat).
+  - `parseInitiativeDecision` localiza la etiqueta tras la prosa de pensamiento.
+
 ## 0.12.0-beta rev.iq
 
 - **Persistencia de ajustes (prioridad):**

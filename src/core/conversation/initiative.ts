@@ -198,14 +198,23 @@ export function buildInitiativeDecisionMessages(opts: {
 }
 
 export function parseInitiativeDecision(raw: string): { speak: boolean; text?: string } {
-  const t = String(raw || '').trim()
+  // Keep reasoning + answer together: thinking stays separate in the transport layer;
+  // here we only extract the decision label from whatever text we were given.
+  let t = String(raw || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .trim()
   if (!t) return { speak: false }
+  // SILENCIO without a MENSAJE label → do not speak
+  if (/\bSILENCIO\b/i.test(t) && !/\bMENSAJE\s*:/i.test(t)) return { speak: false }
   if (/^SILENCIO\b/i.test(t)) return { speak: false }
-  // Prefer labeled form: MENSAJE: …
-  const labeled = t.match(/^\s*MENSAJE\s*:\s*([\s\S]+)/i)
+  // MENSAJE may appear after a reasoning paragraph (thinking models)
+  const labeled =
+    t.match(/^\s*MENSAJE\s*:\s*([\s\S]+)/i) ||
+    t.match(/\bMENSAJE\s*:\s*([\s\S]+)/i)
   const labeledText = labeled?.[1]?.trim()
   if (labeledText && labeledText.length >= 8) {
-    return { speak: true, text: labeledText.slice(0, 600) }
+    const cut = labeledText.split(/\n\s*(?:SILENCIO|MENSAJE)\s*:/i)[0].trim()
+    return { speak: true, text: cut.slice(0, 600) }
   }
   if (/^MENSAJE\b/i.test(t)) return { speak: false }
   // Some local models omit the label and reply with free text.
@@ -326,7 +335,18 @@ export function buildInitiativeLlmMessages(opts: {
   ]
 }
 
+/** Transport result: thinking and user-facing text stay separate. */
+export type InitiativeLlmResult = {
+  /** content channel (may include MENSAJE:/SILENCIO) */
+  content: string | null
+  /** reasoning_content / thinking — not the chat bubble */
+  reasoning: string | null
+  /** Best string to feed parseInitiativeDecision (content, else reasoning) */
+  decisionText: string | null
+}
+
 export async function generateInitiativeWithLocalLlm(opts: {
+
   baseUrl: string
   model: string
   runtime?: 'ollama' | 'openai-compatible'
@@ -339,15 +359,18 @@ export async function generateInitiativeWithLocalLlm(opts: {
     role: sanitizeLoneSurrogates(role),
     content: sanitizeLoneSurrogates(content)
   }))
-  const timeoutMs = opts.timeoutMs ?? 28_000
+  const timeoutMs = opts.timeoutMs ?? 60_000
   const runtime = opts.runtime || (model.includes('/') ? 'openai-compatible' : 'ollama')
   const base = String(opts.baseUrl || '')
     .replace(/\/+$/, '')
     .replace(/\/v1$/i, '')
   if (!base) return null
 
-  async function tryOpenAi(base: string): Promise<string | null> {
+  async function tryOpenAiDetailed(base: string): Promise<InitiativeLlmResult> {
+    const empty: InitiativeLlmResult = { content: null, reasoning: null, decisionText: null }
     try {
+      // Do NOT force thinking off: decision turns benefit from reasoning.
+      // Client waits (timeoutMs) and splits content vs reasoning_content.
       const res = await localHttp(base + '/v1/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -355,20 +378,40 @@ export async function generateInitiativeWithLocalLlm(opts: {
           model,
           messages,
           temperature: 0.88,
-          max_tokens: 280,
+          max_tokens: 600,
           stream: false
         }),
         timeoutMs
       })
-      if (!res.ok) return null
+      if (!res.ok) return empty
       const json = await res.json<{
-        choices?: Array<{ message?: { content?: string } }>
+        choices?: Array<{
+          message?: {
+            content?: string
+            reasoning_content?: string
+            reasoning?: string
+          }
+        }>
       }>()
-      const text = json?.choices?.[0]?.message?.content
-      return text ? String(text).trim().slice(0, 800) : null
+      const msg = json?.choices?.[0]?.message
+      const content = String(msg?.content || '').trim() || null
+      const reasoning =
+        String(msg?.reasoning_content || msg?.reasoning || '').trim() || null
+      // Decision text: prefer content; if empty, parse labels from reasoning
+      const decisionText = (content || reasoning || null)?.slice(0, 1200) || null
+      return {
+        content: content ? content.slice(0, 800) : null,
+        reasoning: reasoning ? reasoning.slice(0, 2000) : null,
+        decisionText
+      }
     } catch {
-      return null
+      return empty
     }
+  }
+
+  async function tryOpenAi(base: string): Promise<string | null> {
+    const r = await tryOpenAiDetailed(base)
+    return r.decisionText
   }
 
   async function tryOllama(base: string): Promise<string | null> {

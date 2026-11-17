@@ -115,3 +115,59 @@ describe('initiative local transport', () => {
     )
   })
 })
+
+
+  it('uses reasoning_content for decision when content is empty (thinking kept on)', async () => {
+    mockedLocalHttp.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async <T = unknown>() =>
+        ({
+          choices: [
+            {
+              message: {
+                content: '',
+                reasoning_content:
+                  'Gap is long but warm.\nMENSAJE: Aquí estoy si quieres que siga contándote de mí.'
+              }
+            }
+          ]
+        }) as T,
+      text: async () => ''
+    })
+
+    const result = await generateInitiativeWithLocalLlm({
+      baseUrl: 'http://127.0.0.1:1234',
+      model: 'google/gemma-4-26b-a4b-qat',
+      runtime: 'openai-compatible',
+      messages: [{ role: 'user', content: '¿hablas?' }]
+    })
+    expect(result || '').toMatch(/MENSAJE:/i)
+  })
+
+  it('prefers content over reasoning when both exist', async () => {
+    mockedLocalHttp.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async <T = unknown>() =>
+        ({
+          choices: [
+            {
+              message: {
+                content: 'MENSAJE: Desde content.',
+                reasoning_content: 'MENSAJE: Desde reasoning.'
+              }
+            }
+          ]
+        }) as T,
+      text: async () => ''
+    })
+
+    const result = await generateInitiativeWithLocalLlm({
+      baseUrl: 'http://127.0.0.1:1234',
+      model: 'google/gemma-4-26b-a4b-qat',
+      runtime: 'openai-compatible',
+      messages: [{ role: 'user', content: 'x' }]
+    })
+    expect(result || '').toMatch(/Desde content/)
+  })
