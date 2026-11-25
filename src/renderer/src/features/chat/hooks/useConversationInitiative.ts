@@ -601,14 +601,23 @@ export function useConversationInitiative(enabledGate: boolean) {
           // One LMS job when decision already wrote the message (avoids 2× token streams)
           if (!text) {
           const mem = s.userMemory
+          let docProgressHint = ''
+          try {
+            const { getDocReadingStatesForConv } = await import('../services/documentReadingStore')
+            const { formatDocReadingProgressHint } = await import('@core/chat/document-reading-state')
+            docProgressHint = formatDocReadingProgressHint(getDocReadingStatesForConv(conv.id))
+          } catch {
+            /* optional */
+          }
           const memoryBlock = [
             mem?.preferredName ? 'usuario se llama ' + mem.preferredName : '',
             ...activeGoals.map((goal) => 'objetivo activo: ' + goal),
-            currentFocus ? 'enfoque del usuario: ' + currentFocus : ''
+            currentFocus ? 'enfoque del usuario: ' + currentFocus : '',
+            docProgressHint ? 'progreso lectura: ' + docProgressHint : ''
           ]
             .filter(Boolean)
             .join(' · ')
-            .slice(0, 420)
+            .slice(0, 480)
           // Proactive web: only when enabled + topic looks worth a lookup
           let webContext: string | undefined
           let initiativeWebHits = 0

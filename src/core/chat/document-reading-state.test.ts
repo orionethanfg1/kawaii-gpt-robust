@@ -92,3 +92,20 @@ describe('progressive + state wiring', () => {
     expect(parseReadingAdvance('sigue', 0, 5)).toBe(1)
   })
 })
+
+describe('formatDocReadingProgressHint', () => {
+  it('summarizes read progress without dumping full text', async () => {
+    const { formatDocReadingProgressHint } = await import('./document-reading-state')
+    const hint = formatDocReadingProgressHint([
+      {
+        fileName: 'novela.md',
+        readTitles: ['cap1', 'cap2'],
+        rollingSummary: 'La heroína llega al pueblo y encuentra a Ivanna.',
+        ingestComplete: false
+      }
+    ])
+    expect(hint).toMatch(/novela\.md/)
+    expect(hint).toMatch(/2 tramo/)
+    expect(hint).toMatch(/Ivanna/)
+  })
+})

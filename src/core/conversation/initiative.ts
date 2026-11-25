@@ -197,6 +197,49 @@ export function buildInitiativeDecisionMessages(opts: {
   ]
 }
 
+/** True when text is prompt/instruction residue or analyst meta — never a chat bubble. */
+export function looksLikeInitiativeMetaDump(text: string): boolean {
+  const t = String(text || '').replace(/\s+/g, ' ').trim()
+  if (!t) return true
+  // Instruction template fragments from buildInitiative*Messages
+  if (
+    /seguimiento concreto|responde exactamente\s*MENSAJE|o SILENCIO\.?["']?\s*$/i.test(t) ||
+    /<seguimiento[^>]*>/i.test(t) ||
+    /\bMENSAJE\s*:\s*<[^>]+>/i.test(t)
+  ) {
+    return true
+  }
+  // English analyst / scratchpad dumps (thinking models often leak these)
+  if (
+    /\b(Last message from|The user's last message|current task|She needs to|He needs to|finish her thought|finish his thought)\b/i.test(
+      t
+    ) ||
+    /\b(The user was|Gap is long|Better not bother|I should (?:message|ask|check))\b/i.test(t) ||
+    /\*\s*Last message from\b/i.test(t) ||
+    /\*\s*[A-Za-z][^\n]{0,40}'s response \(current task\)/i.test(t)
+  ) {
+    return true
+  }
+  // Third-person deliberation about messaging the user
+  if (
+    /^(creo que|deber[ií]a|tal vez|quiz[aá]|podr[ií]a|ser[ií]a mejor|como (?:ia|modelo)|soy (?:una? )?(?:ia|modelo)|no puedo)\b/i.test(
+      t
+    ) ||
+    /\b(escribirle|mandarle|enviarle|responderle)\b/i.test(t)
+  ) {
+    return true
+  }
+  // Mostly English short dump without Spanish conversational markers
+  const letters = t.replace(/[^A-Za-záéíóúüñÁÉÍÓÚÜÑ]/g, '')
+  if (letters.length >= 40) {
+    const esHits = (t.match(/\b(?:qué|que|cómo|como|estás|estas|hola|amor|libro|trabajo|hoy|cuéntame|cuentame|por favor)\b/gi) || [])
+      .length
+    const enMeta = (t.match(/\b(?:the|user|message|response|task|should|needs|incomplete)\b/gi) || []).length
+    if (enMeta >= 3 && esHits === 0) return true
+  }
+  return false
+}
+
 export function parseInitiativeDecision(raw: string): { speak: boolean; text?: string } {
   // Keep reasoning + answer together: thinking stays separate in the transport layer;
   // here we only extract the decision label from whatever text we were given.
@@ -214,6 +257,8 @@ export function parseInitiativeDecision(raw: string): { speak: boolean; text?: s
   const labeledText = labeled?.[1]?.trim()
   if (labeledText && labeledText.length >= 8) {
     const cut = labeledText.split(/\n\s*(?:SILENCIO|MENSAJE)\s*:/i)[0].trim()
+    // Reject labeled payloads that are still meta/template residue
+    if (looksLikeInitiativeMetaDump(cut)) return { speak: false }
     return { speak: true, text: cut.slice(0, 600) }
   }
   if (/^MENSAJE\b/i.test(t)) return { speak: false }
@@ -221,16 +266,12 @@ export function parseInitiativeDecision(raw: string): { speak: boolean; text?: s
   // Accept a short plain reply that looks like a direct user-facing message,
   // not third-person deliberation or meta commentary.
   const plain = t.replace(/\s+/g, ' ').trim()
-  const looksMeta =
-    /^(creo que|deber[ií]a|tal vez|quiz[aá]|podr[ií]a|ser[ií]a mejor|como (?:ia|modelo)|soy (?:una? )?(?:ia|modelo)|no puedo)\b/i.test(
-      plain
-    ) || /\b(escribirle|mandarle|enviarle|responderle)\b/i.test(plain)
+  if (looksLikeInitiativeMetaDump(plain)) return { speak: false }
   if (
     plain.length >= 12 &&
     plain.length <= 420 &&
     !/^SILENCIO\b/i.test(plain) &&
-    !/^(no|nada|none|n\/a)\b/i.test(plain) &&
-    !looksMeta
+    !/^(no|nada|none|n\/a)\b/i.test(plain)
   ) {
     return { speak: true, text: plain.slice(0, 600) }
   }

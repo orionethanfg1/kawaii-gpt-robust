@@ -115,6 +115,54 @@ export function analyzeMemorySnapshot(snapshot: MemorySnapshot): SnapshotAnalysi
           })
         }
       }
+      // Contradictions: same term in likes and dislikes (normalized)
+      const likes = Array.isArray(obj.likes) ? (obj.likes as unknown[]) : []
+      const dislikes = Array.isArray(obj.dislikes) ? (obj.dislikes as unknown[]) : []
+      if (likes.length && dislikes.length) {
+        const likeSet = new Set(
+          likes
+            .map((x) => (typeof x === 'string' ? x.trim().toLowerCase() : ''))
+            .filter(Boolean)
+        )
+        dislikes.forEach((x, idx) => {
+          const s = typeof x === 'string' ? x.trim().toLowerCase() : ''
+          if (s && likeSet.has(s)) {
+            issues.push({
+              kind: 'contradiction',
+              source: key,
+              path: `${key}.dislikes[${idx}]`,
+              detail: `Also listed as like: "${s}"`,
+              severity: 'warn'
+            })
+          }
+        })
+      }
+      // preferredName vs userName conflict when both non-empty and different
+      const pn = typeof obj.preferredName === 'string' ? obj.preferredName.trim() : ''
+      const un = typeof obj.userName === 'string' ? obj.userName.trim() : ''
+      if (pn && un && pn.toLowerCase() !== un.toLowerCase()) {
+        issues.push({
+          kind: 'contradiction',
+          source: key,
+          path: `${key}.preferredName`,
+          detail: `preferredName "${pn}" differs from userName "${un}"`,
+          severity: 'info'
+        })
+      }
+      // Archive overflow markers: report sparse/missing archive payloads
+      if (key === 'archives' || key === 'overflow') {
+        for (const [sub, val] of Object.entries(obj)) {
+          if (val && typeof val === 'object' && (val as { status?: string }).status === 'unavailable') {
+            issues.push({
+              kind: 'sparse',
+              source: key,
+              path: `${key}.${sub}`,
+              detail: String((val as { error?: string }).error || 'archive unavailable'),
+              severity: 'info'
+            })
+          }
+        }
+      }
     }
   }
 
@@ -234,4 +282,76 @@ function countLeaves(v: unknown): number {
   if (v == null || typeof v !== 'object') return 1
   if (Array.isArray(v)) return v.reduce((n, x) => n + countLeaves(x), 0)
   return Object.values(v).reduce((n, x) => n + countLeaves(x), 0)
+}
+
+
+/** Keys under settingsStore source that map 1:1 to settings fields. */
+export const MEMORY_SETTINGS_SOURCE_KEYS = [
+  'userMemory',
+  'assistantMemory',
+  'memoryEpisodes',
+  'relationshipState',
+  'userMood',
+  'assistantMood',
+  'memoryOnboarding',
+  'assistantMemoryTurnReceipts',
+  'assistantMemoryForgottenReceipts'
+] as const
+
+export type MemorySettingsKey = (typeof MEMORY_SETTINGS_SOURCE_KEYS)[number]
+
+/**
+ * Pure: extract a settings patch from appliedSources after confirm.
+ * Only settingsStore (or flat keys) are applied; mirrors/archives are reported, not written here.
+ * Never mutates inputs.
+ */
+export function settingsPatchFromAppliedSources(
+  appliedSources: Record<string, unknown>
+): { patch: Record<string, unknown>; skipped: string[] } {
+  const skipped: string[] = []
+  const patch: Record<string, unknown> = {}
+  const nested = appliedSources.settingsStore
+  const bag =
+    nested && typeof nested === 'object' && !Array.isArray(nested)
+      ? (nested as Record<string, unknown>)
+      : appliedSources
+  for (const key of MEMORY_SETTINGS_SOURCE_KEYS) {
+    if (key in bag && bag[key] !== undefined) {
+      patch[key] = structuredClone(bag[key])
+    }
+  }
+  for (const key of Object.keys(appliedSources)) {
+    if (key === 'settingsStore') continue
+    if ((MEMORY_SETTINGS_SOURCE_KEYS as readonly string[]).includes(key)) continue
+    skipped.push(key)
+  }
+  return { patch, skipped }
+}
+
+/**
+ * Build the canonical sources object for export (pure assembly; caller supplies values).
+ * Keeps export modular and testable without touching stores.
+ */
+export function buildMemorySnapshotSources(parts: {
+  settingsStore: Record<string, unknown>
+  persistedSettings?: Record<string, unknown>
+  assistantMirror?: unknown
+  userMemoryBackups?: unknown
+  episodeMigrationBackup?: unknown
+  archives?: Record<string, unknown>
+}): Record<string, unknown> {
+  return structuredClone({
+    settingsStore: parts.settingsStore,
+    ...(parts.persistedSettings !== undefined
+      ? { persistedSettings: parts.persistedSettings }
+      : {}),
+    ...(parts.assistantMirror !== undefined ? { assistantMirror: parts.assistantMirror } : {}),
+    ...(parts.userMemoryBackups !== undefined
+      ? { userMemoryBackups: parts.userMemoryBackups }
+      : {}),
+    ...(parts.episodeMigrationBackup !== undefined
+      ? { episodeMigrationBackup: parts.episodeMigrationBackup }
+      : {}),
+    ...(parts.archives !== undefined ? { archives: parts.archives } : {})
+  })
 }

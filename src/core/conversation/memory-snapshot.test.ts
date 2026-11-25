@@ -160,3 +160,73 @@ describe('applyMemoryImport', () => {
     expect(res.appliedSources).not.toBe(preview.proposedSources)
   })
 })
+
+
+describe('analyzeMemorySnapshot contradictions', () => {
+  it('flags like/dislike collision', async () => {
+    const { createMemorySnapshot, analyzeMemorySnapshot } = await import('./memory-snapshot')
+    const snap = await createMemorySnapshot({
+      appVersion: 't',
+      sources: {
+        userMemory: { likes: ['café'], dislikes: ['Café'], facts: [] }
+      }
+    })
+    const a = analyzeMemorySnapshot(snap)
+    expect(a.hasContradictions).toBe(true)
+    expect(a.issues.some((i) => i.kind === 'contradiction')).toBe(true)
+  })
+})
+
+describe('settingsPatchFromAppliedSources', () => {
+  it('extracts settingsStore keys and lists skipped mirrors', async () => {
+    const { settingsPatchFromAppliedSources } = await import('./memory-snapshot')
+    const { patch, skipped } = settingsPatchFromAppliedSources({
+      settingsStore: { userMemory: { likes: ['x'], facts: [] }, assistantMemory: { likes: [] } },
+      assistantMirror: { status: 'loaded' },
+      archives: { user: { status: 'unavailable' } }
+    })
+    expect(patch.userMemory).toEqual({ likes: ['x'], facts: [] })
+    expect(patch.assistantMemory).toEqual({ likes: [] })
+    expect(skipped).toContain('assistantMirror')
+    expect(skipped).toContain('archives')
+  })
+})
+
+describe('M0 import gate end-to-end pure', () => {
+  it('preview → confirm apply → settings patch without mutating inputs', async () => {
+    const {
+      createMemorySnapshot,
+      previewMemoryImport,
+      applyMemoryImport,
+      settingsPatchFromAppliedSources
+    } = await import('./memory-snapshot')
+    const current = {
+      settingsStore: {
+        userMemory: { likes: ['a'], facts: [] },
+        assistantMemory: { likes: ['old'] }
+      }
+    }
+    const snap = await createMemorySnapshot({
+      appVersion: 't',
+      sources: {
+        settingsStore: {
+          userMemory: { likes: ['b'], facts: ['fact1'] },
+          assistantMemory: { likes: ['new'] }
+        },
+        assistantMirror: { status: 'loaded' }
+      }
+    })
+    const curClone = JSON.stringify(current)
+    const preview = await previewMemoryImport(current, snap)
+    expect(preview.ok).toBe(true)
+    const refused = await applyMemoryImport(current, snap, { confirm: false, preview })
+    expect(refused.ok).toBe(false)
+    expect(JSON.stringify(current)).toBe(curClone)
+    const applied = await applyMemoryImport(current, snap, { confirm: true, preview })
+    expect(applied.ok).toBe(true)
+    expect(JSON.stringify(current)).toBe(curClone)
+    const { patch, skipped } = settingsPatchFromAppliedSources(applied.appliedSources)
+    expect((patch.userMemory as { likes: string[] }).likes).toEqual(['b'])
+    expect(skipped).toContain('assistantMirror')
+  })
+})

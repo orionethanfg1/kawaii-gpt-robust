@@ -3,10 +3,10 @@
 | Campo | Valor |
 |-------|--------|
 | Versión | **0.12.0-beta** |
-| Revisión | **rev.iu** |
+| Revisión | **rev.jd** |
 | Un residente LLM | **rev.gj + rev.gk** (sin reload por Auto suave) |
 
-Última actualización docs: **rev.iu**.
+Última actualización docs: **rev.jd**.
 
 ## Rev.iu — Rendimiento de interacción
 

@@ -14,7 +14,8 @@ const fakeStore = vi.hoisted(() => ({
       voiceNotes: [],
       relational: []
     } as Record<string, unknown>,
-    assistantMemoryTurnReceipts: [] as string[]
+    assistantMemoryTurnReceipts: [] as string[],
+    assistantMemoryForgottenReceipts: [] as string[]
   },
   patches: [] as Array<Record<string, unknown>>
 }))
@@ -79,7 +80,8 @@ describe('assistant memory turn receipt persistence', () => {
         voiceNotes: [],
         relational: []
       },
-      assistantMemoryTurnReceipts: []
+      assistantMemoryTurnReceipts: [],
+      assistantMemoryForgottenReceipts: []
     }
     fakeStore.patches = []
   })
@@ -130,5 +132,20 @@ describe('assistant memory turn receipt persistence', () => {
     expect(second).toBeNull()
     expect(fakeStore.settings.assistantMemoryTurnReceipts).toEqual([options.turnReceipt])
     expect(fakeStore.patches).toHaveLength(1)
+  })
+
+  it('blocks collect when turn receipt is in durable forgotten ledger', async () => {
+    const { runAssistantMemoryCollector } = await import('./assistantMemoryCollector')
+    const receipt = 'assistant-memory:v1:conversation-1:turn-4'
+    fakeStore.settings.assistantMemoryForgottenReceipts = [receipt]
+    fakeStore.patches = []
+
+    const result = runAssistantMemoryCollector('Me gusta el té verde por las tardes.', {
+      userText: '¿Qué te gusta?',
+      turnReceipt: receipt
+    })
+
+    expect(result).toBeNull()
+    expect(fakeStore.patches).toHaveLength(0)
   })
 })

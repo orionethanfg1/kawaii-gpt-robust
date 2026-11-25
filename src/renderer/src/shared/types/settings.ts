@@ -275,6 +275,8 @@ export const SettingsSchema = z.object({
     }),
   /** M1 — durable idempotency receipts for completed assistant-memory extraction turns */
   assistantMemoryTurnReceipts: z.array(z.string().max(512)).max(512).default([]),
+  /** M1 — turn receipts blocked after user forget/correct (late jobs must not re-write) */
+  assistantMemoryForgottenReceipts: z.array(z.string().max(512)).max(512).default([]),
 
   /** E3 — episodic shared memories (capped in settings; full history can live in archive) */
   memoryEpisodes: z

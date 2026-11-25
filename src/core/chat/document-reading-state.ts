@@ -422,3 +422,27 @@ export function isDocReadingPending(state: DocReadingState | null | undefined): 
   if (!state.chapterCount && !(state.totalChars > 0)) return false
   return !isDocReadingComplete(state)
 }
+
+
+/** Compact one-liner for initiative / continuity prompts (pure). */
+export function formatDocReadingProgressHint(
+  states: Array<{
+    fileName?: string
+    readTitles?: string[]
+    rollingSummary?: string
+    ingestComplete?: boolean
+    uiSuspended?: boolean
+  }> | null | undefined
+): string {
+  const list = (states || []).filter((s) => !s.uiSuspended)
+  if (!list.length) return ''
+  const bits: string[] = []
+  for (const s of list.slice(0, 2)) {
+    const name = String(s.fileName || 'documento').slice(0, 48)
+    const n = Array.isArray(s.readTitles) ? s.readTitles.length : 0
+    const done = s.ingestComplete ? 'lectura completa' : n > 0 ? `${n} tramo(s) ya leído(s)` : 'lectura iniciada'
+    const sum = String(s.rollingSummary || '').replace(/\s+/g, ' ').trim().slice(0, 120)
+    bits.push(sum ? `${name}: ${done}; resumen: ${sum}` : `${name}: ${done}`)
+  }
+  return bits.join(' · ').slice(0, 280)
+}

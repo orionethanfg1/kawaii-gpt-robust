@@ -199,6 +199,15 @@ Estos slices son un track de calidad dentro de B1/B3; no se debe añadir más re
 
 ### Estado de implementación M0–M4
 
+#### Cierre M0 — `rev.iz` (2026-11-23)
+
+- Criterio de aceptación M0 cubierto en código: export reimportable, hash SHA-256, preview sin mutación, apply solo con `confirm: true`, análisis de duplicados/contradicciones/archivos sparse, UI de aprobación en `UserMemoryPanel`.
+- Mirrors y archivos de archivo se exportan para auditoría; **no** se reescriben en import automático (el usuario confirma solo el bloque `settingsStore`).
+- LevelDB concurrente: la memoria activa de companion vive en settings/persistencia de app, no en un LevelDB de usuario concurrente en este track; no hay lector LevelDB paralelo que mutue en segundo plano.
+- **M1–M4 siguen abiertos.**
+
+### Estado de implementación M0–M4
+
 Se aplicó una primera pasada secuencial de contención y lógica; **M0–M4 no están cerrados**. No se modificó, migró ni saneó la memoria activa del usuario.
 
 | Slice | Implementado en esta pasada | Pendiente para cerrar el gate |

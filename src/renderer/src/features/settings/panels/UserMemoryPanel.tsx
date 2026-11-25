@@ -1,12 +1,21 @@
 import { runOpenChatsMemoryConsistency } from '../services/runMemoryConsistency'
-import { createMemorySnapshot } from '@core/conversation/memory-snapshot'
+import {
+  createMemorySnapshot,
+  analyzeMemorySnapshot,
+  previewMemoryImport,
+  applyMemoryImport,
+  settingsPatchFromAppliedSources,
+  type MemorySnapshot,
+  type ImportPreview,
+  type SnapshotAnalysis
+} from '@core/conversation/memory-snapshot'
 /**
  * Contexto y memoria del usuario — editable, visible, limpia.
  * Complementa el aprendizaje automático del chat (mergeUserMemory).
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useDebouncedCommit } from '@shared/lib/hooks/useDebouncedCommit'
-import { Brain, Pin, Trash2, Plus, User, Download } from 'lucide-react'
+import { Brain, Pin, Trash2, Plus, User, Download, Upload } from 'lucide-react'
 import {
   assistantLikeLabels,
   inferAssistantGender
@@ -241,6 +250,12 @@ export function UserMemoryPanel() {
   const [personRel, setPersonRel] = useState('')
   const [consistencyNote, setConsistencyNote] = useState('')
   const [exportingSnapshot, setExportingSnapshot] = useState(false)
+  const [importingSnapshot, setImportingSnapshot] = useState(false)
+  const [pendingImport, setPendingImport] = useState<{
+    snapshot: MemorySnapshot
+    preview: ImportPreview
+    analysis: SnapshotAnalysis
+  } | null>(null)
 
   const [tab, setTab] = useState<'user' | 'assistant' | 'intimate' | 'agenda'>('user')
   const showIntimateTab = Boolean(
@@ -377,6 +392,102 @@ export function UserMemoryPanel() {
       )
     } finally {
       setExportingSnapshot(false)
+    }
+  }
+
+  const clearPendingImport = () => setPendingImport(null)
+
+  const loadMemorySnapshotFile = async (file: File) => {
+    setImportingSnapshot(true)
+    setPendingImport(null)
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text) as MemorySnapshot
+      if (!parsed || parsed.schemaVersion !== 1 || !parsed.sources) {
+        setConsistencyNote('Snapshot inválido: falta schemaVersion=1 o sources.')
+        return
+      }
+      const current = useSettingsStore.getState().settings
+      const currentSources = {
+        settingsStore: {
+          userMemory: current.userMemory,
+          assistantMemory: current.assistantMemory,
+          memoryEpisodes: current.memoryEpisodes,
+          relationshipState: current.relationshipState,
+          userMood: current.userMood,
+          assistantMood: current.assistantMood,
+          memoryOnboarding: current.memoryOnboarding,
+          assistantMemoryTurnReceipts: current.assistantMemoryTurnReceipts
+        }
+      }
+      const preview = await previewMemoryImport(currentSources, parsed)
+      if (!preview.ok) {
+        setConsistencyNote('No se puede importar: ' + (preview.reason || 'verificación fallida'))
+        return
+      }
+      const analysis = analyzeMemorySnapshot(parsed)
+      setPendingImport({ snapshot: parsed, preview, analysis })
+      const nReplace = preview.changes.filter((c) => c.action === 'replace').length
+      const nSkip = preview.changes.filter((c) => c.action === 'skip').length
+      setConsistencyNote(
+        `Vista previa lista · ${nReplace} reemplazo(s), ${nSkip} sin cambio` +
+          (analysis.hasContradictions ? ' · hay contradicciones en el snapshot' : '') +
+          (analysis.hasDuplicates ? ' · hay duplicados' : '') +
+          ' · nada se escribe hasta confirmar'
+      )
+    } catch (e) {
+      setConsistencyNote(
+        'Error al leer snapshot: ' + (e instanceof Error ? e.message : String(e))
+      )
+    } finally {
+      setImportingSnapshot(false)
+    }
+  }
+
+  const confirmMemoryImport = async () => {
+    if (!pendingImport) return
+    setImportingSnapshot(true)
+    try {
+      const current = useSettingsStore.getState().settings
+      const currentSources = {
+        settingsStore: {
+          userMemory: current.userMemory,
+          assistantMemory: current.assistantMemory,
+          memoryEpisodes: current.memoryEpisodes,
+          relationshipState: current.relationshipState,
+          userMood: current.userMood,
+          assistantMood: current.assistantMood,
+          memoryOnboarding: current.memoryOnboarding,
+          assistantMemoryTurnReceipts: current.assistantMemoryTurnReceipts
+        }
+      }
+      const applied = await applyMemoryImport(currentSources, pendingImport.snapshot, {
+        confirm: true,
+        preview: pendingImport.preview
+      })
+      if (!applied.ok) {
+        setConsistencyNote('Importación rechazada: ' + (applied.reason || 'sin confirmación'))
+        return
+      }
+      const { patch, skipped } = settingsPatchFromAppliedSources(applied.appliedSources)
+      if (Object.keys(patch).length === 0) {
+        setConsistencyNote('Nada que aplicar en settings (solo mirrors/archivos omitidos).')
+        clearPendingImport()
+        return
+      }
+      useSettingsStore.getState().update(patch as never)
+      setConsistencyNote(
+        `Import aplicado (${applied.changes.filter((c) => c.action === 'replace').length} fuente(s)).` +
+          (skipped.length ? ` Omitido (solo lectura): ${skipped.join(', ')}.` : '') +
+          ' Los mirrors/archivos del JSON no se escriben automáticamente.'
+      )
+      clearPendingImport()
+    } catch (e) {
+      setConsistencyNote(
+        'Error al aplicar: ' + (e instanceof Error ? e.message : String(e))
+      )
+    } finally {
+      setImportingSnapshot(false)
     }
   }
 
@@ -557,6 +668,21 @@ export function UserMemoryPanel() {
                 {exportingSnapshot ? 'Exportando…' : 'Exportar snapshot (solo lectura)'}
               </span>
             </button>
+            <label className="text-[11px] px-2.5 py-1 rounded-full border border-kawaii-border bg-white hover:bg-emerald-50 text-kawaii-text cursor-pointer inline-flex items-center gap-1 disabled:opacity-50">
+              <Upload className="w-3 h-3" />
+              {importingSnapshot ? 'Leyendo…' : 'Importar snapshot…'}
+              <input
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                disabled={importingSnapshot}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  e.target.value = ''
+                  if (f) void loadMemorySnapshotFile(f)
+                }}
+              />
+            </label>
             <button
               type="button"
               className="text-[11px] px-2.5 py-1 rounded-full border border-kawaii-border bg-white hover:bg-pink-50 text-kawaii-text"
@@ -590,6 +716,54 @@ export function UserMemoryPanel() {
             </button>
             {consistencyNote ? (
               <span className="text-[10px] text-kawaii-text-muted">{consistencyNote}</span>
+            ) : null}
+            {pendingImport ? (
+              <div className="w-full mt-1 rounded-lg border border-amber-200 bg-amber-50/80 p-2 space-y-1.5">
+                <p className="text-[10px] font-semibold text-kawaii-text">
+                  Confirmar importación de snapshot
+                </p>
+                <p className="text-[10px] text-kawaii-text-muted">
+                  App {String(pendingImport.snapshot.appVersion || '?')} ·{' '}
+                  {new Date(pendingImport.snapshot.createdAt || 0).toLocaleString()}
+                  {pendingImport.snapshot.sha256
+                    ? ` · SHA ${pendingImport.snapshot.sha256.slice(0, 12)}…`
+                    : ''}
+                </p>
+                <ul className="text-[10px] text-kawaii-text max-h-24 overflow-auto space-y-0.5">
+                  {pendingImport.preview.changes.map((c) => (
+                    <li key={c.source + c.action}>
+                      <span className={c.action === 'replace' ? 'text-amber-800' : 'text-kawaii-text-muted'}>
+                        {c.action === 'replace' ? 'Reemplazar' : 'Omitir'}: {c.source}
+                      </span>
+                      {c.detail ? ` — ${c.detail}` : ''}
+                    </li>
+                  ))}
+                </ul>
+                {pendingImport.analysis.issues.length > 0 ? (
+                  <p className="text-[10px] text-amber-900">
+                    Avisos: {pendingImport.analysis.issues.length} (duplicados:{' '}
+                    {pendingImport.analysis.hasDuplicates ? 'sí' : 'no'}, contradicciones:{' '}
+                    {pendingImport.analysis.hasContradictions ? 'sí' : 'no'})
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={importingSnapshot}
+                    className="text-[11px] px-2.5 py-1 rounded-full border border-amber-400 bg-amber-100 hover:bg-amber-200 text-kawaii-text disabled:opacity-50"
+                    onClick={() => void confirmMemoryImport()}
+                  >
+                    Confirmar y escribir memoria
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[11px] px-2.5 py-1 rounded-full border border-kawaii-border bg-white hover:bg-gray-50 text-kawaii-text"
+                    onClick={() => clearPendingImport()}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
             ) : null}
           </div>
         </div>

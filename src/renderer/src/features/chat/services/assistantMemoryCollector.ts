@@ -21,7 +21,10 @@ import {
 import { useSettingsStore } from '@shared/lib/stores/settingsStore'
 import {
   appendAssistantMemoryTurnReceipt,
-  hasAssistantMemoryTurnReceipt
+  appendForgottenTurnReceipt,
+  hasAssistantMemoryTurnReceipt,
+  opsIndicateForgetOrCorrect,
+  shouldCollectForTurnReceipt
 } from '@core/conversation/assistant-memory-idempotency'
 
 const MIRROR_KEY = 'kawaii-assistant-memory-v1'
@@ -242,10 +245,19 @@ export function runAssistantMemoryCollector(
   opts?: { userText?: string; turnReceipt?: string }
 ): CollectAssistantMemoryResult | null {
   const settings = useSettingsStore.getState().settings
-  if (
-    opts?.turnReceipt &&
-    hasAssistantMemoryTurnReceipt(settings.assistantMemoryTurnReceipts, opts.turnReceipt)
-  ) {
+  // M1 pure gate: one collect decision per turn receipt (duplicate/retry → skip).
+  // Empty reply treated as partial. Forgotten ledger blocks late jobs after forget/correct.
+  const gateKind =
+    !String(replyText || '').trim() ? 'partial' : 'collect'
+  const forgotten = settings.assistantMemoryForgottenReceipts || []
+  const gate = shouldCollectForTurnReceipt(
+    settings.assistantMemoryTurnReceipts,
+    opts?.turnReceipt,
+    gateKind,
+    forgotten
+  )
+  if (opts?.turnReceipt && !gate.allow) {
+    console.warn('[assistant-memory] gate skip', gate.reason, { turnReceipt: opts.turnReceipt })
     return null
   }
   const prev = settings.assistantMemory || emptyAssistantMemory()
@@ -298,6 +310,26 @@ export function runAssistantMemoryCollector(
   }
 
   const ok = forcePersistAssistantMemory(result.memory, opts?.turnReceipt)
+  // M1: user forget/correct on this turn → durable block for late enrich/retry
+  if (ok && opts?.turnReceipt && opsIndicateForgetOrCorrect(result.ops)) {
+    try {
+      const cur = useSettingsStore.getState().settings
+      const nextForgotten = appendForgottenTurnReceipt(
+        cur.assistantMemoryForgottenReceipts,
+        opts.turnReceipt
+      )
+      useSettingsStore.getState().update({
+        assistantMemoryForgottenReceipts: nextForgotten,
+        // drop the turn receipt so a naive duplicate check is not enough to re-open
+        assistantMemoryTurnReceipts: (cur.assistantMemoryTurnReceipts || []).filter(
+          (r) => r !== opts.turnReceipt
+        )
+      })
+      console.warn('[assistant-memory] marked forgotten', { turnReceipt: opts.turnReceipt })
+    } catch (e) {
+      console.warn('[assistant-memory] forgotten ledger persist failed', e)
+    }
+  }
   console.warn('[assistant-memory] write', {
     reason: result.reason,
     textLen,
@@ -348,7 +380,10 @@ export function runAssistantMemoryCollector(
     /* log optional */
   }
   if (ok && isAssistantPreferenceQuestion(opts?.userText)) {
-    scheduleLlmAssistantMemoryEnrich(replyText, opts)
+    scheduleLlmAssistantMemoryEnrich(replyText, {
+      userText: opts?.userText,
+      turnReceipt: opts?.turnReceipt
+    })
   }
   return { ...result, persisted: ok }
 }
@@ -378,12 +413,13 @@ export function peekAssistantMemoryMirror(): AssistantMemory | null {
  */
 export function scheduleLlmAssistantMemoryEnrich(
   replyText: string,
-  opts?: { userText?: string }
+  opts?: { userText?: string; turnReceipt?: string }
 ): void {
   const text = String(replyText || '').trim()
   if (text.length < 80) return
   const expectedUpdatedAt =
     useSettingsStore.getState().settings.assistantMemory?.updatedAt || 0
+  const enrichReceipt = opts?.turnReceipt
   void (async () => {
     try {
       const {
@@ -393,6 +429,14 @@ export function scheduleLlmAssistantMemoryEnrich(
       } = await import('@core/conversation/assistant-memory-llm')
       const { mergeAssistantMemory } = await import('@core/conversation/assistant-memory')
       const settings = useSettingsStore.getState().settings
+      // M1: skip late enrich if this turn was forgotten/corrected
+      if (
+        enrichReceipt &&
+        (settings.assistantMemoryForgottenReceipts || []).includes(enrichReceipt)
+      ) {
+        console.info('[assistant-memory] llm-enrich skipped; turn receipt forgotten')
+        return
+      }
       const model = (settings.localModel || '').trim()
       if (!model) return
       const openBase = (settings.localOpenAIBaseUrl || '').trim()

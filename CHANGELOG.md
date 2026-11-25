@@ -1,3 +1,43 @@
+## 0.12.0-beta rev.jd
+
+- **Lectura → iniciativa:** `formatDocReadingProgressHint` inyecta en el memoryBlock de iniciativa tramos ya leídos (store `docReading`), sin volcar el libro.
+- **Iniciativa — anti-fuga de meta:** `looksLikeInitiativeMetaDump` + `parseInitiativeDecision` rechazan:
+  - residuos de plantilla (`<seguimiento concreto>`, `MENSAJE: <…>`);
+  - scratchpad en inglés (`Last message from`, `current task`, `She needs to…`);
+  - deliberación sin mensaje al usuario.
+  - Un `MENSAJE:` válido en español sigue pasando. Sin ampliar recolección.
+
+## 0.12.0-beta rev.jc
+
+- **M1 forgotten durable (bloque seguro):**
+  - Ledger `assistantMemoryForgottenReceipts` (settings, máx. 512) + helpers puros `appendForgottenTurnReceipt` / `isTurnReceiptForgotten`.
+  - `decideMemoryWrite` / `shouldCollectForTurnReceipt` consultan forgotten; collect tardío → `late-after-forget`.
+  - Collector: tras write con ops de forget/correct, marca el `turnReceipt` en forgotten y lo quita de receipts.
+  - `scheduleLlmAssistantMemoryEnrich` recibe `turnReceipt` y no reescribe si está forgotten.
+  - Schema + `MEMORY_SETTINGS_SOURCE_KEYS` actualizados. Sin ampliar recolección ni iniciativa.
+
+## 0.12.0-beta rev.jb
+
+- **Versión unificada:** `src/shared/version.ts` y `src/renderer/src/shared/version.ts` en `jb` (fuente única de revisión).
+- **M1 gate cableado al collector (bloque seguro):**
+  - `decideMemoryWrite` puro (evento único); `simulateMemoryWriteGate` lo compone; `shouldCollectForTurnReceipt` es el helper del collector.
+  - `runAssistantMemoryCollector` consulta el gate antes de extraer: duplicado/retry → skip; reply vacío → `partial-skipped`.
+  - Sin ampliar recolección ni iniciativa; sin mutar el contrato de persistencia existente.
+  - Tests pure gate + helper; el test de idempotencia del collector (fake store) sigue validando “una sola escritura por turno”.
+
+## 0.12.0-beta rev.ja
+
+- **M1 pure contract model:** `simulateMemoryWriteGate` (modelo multi-evento, tests). Gate de runtime aún no cableado (hecho en rev.jb).
+
+## 0.12.0-beta rev.iz
+
+- **M0 cerrado (snapshot memoria):**
+  - Export solo lectura (ya existía) + **import con preview** y **confirmación explícita**.
+  - `applyMemoryImport` / `previewMemoryImport` no mutan inputs; sin `confirm` no escriben.
+  - `analyzeMemorySnapshot`: contradicciones like/dislike y preferredName≠userName; avisos de archivos overflow/unavailable.
+  - `settingsPatchFromAppliedSources`: aplica solo campos de settings; mirrors/archives quedan omitidos (solo lectura en el JSON).
+  - UI en panel de memoria: Importar snapshot → lista de cambios → Confirmar / Cancelar.
+
 ## 0.12.0-beta rev.iu
 
 - **Rendimiento de UI:** la lista lateral deja de suscribirse a cada cambio del contenido de los chats; el borrador del chat ya no dispara trabajo de lectura documental por carácter.
