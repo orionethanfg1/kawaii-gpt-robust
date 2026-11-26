@@ -1,3 +1,30 @@
+## 0.12.0-beta rev.jh
+
+- **Build fix:** string literal roto en `runChatOrchestrationTurn` (D0 inyección PROGRESO_LECTURA_GUARDADO) — comilla sin cerrar por salto de línea.
+
+## 0.12.0-beta rev.jg
+
+- **D1 fix extracción de elenco:** los nombres junto a palabras de lugar (`bosque`, `plaza`…) ya no se clasifican como lugares. Por defecto son personajes; lugar solo con señal toponímica fuerte. Corrige tests `merge` / `markSliceRead`.
+
+## 0.12.0-beta rev.jf
+
+- **D1 índice durable de entidades de documento:**
+  - Módulo puro `document-entity-index` (personajes/lugares, merge por nombre, evidencia y tramos).
+  - `markSliceRead` actualiza `DocReadingState.entityIndex` (persiste con el store de lectura; no depende del summary truncado).
+  - `buildRollingReadingBlock` / essentials incluyen elenco.
+  - Ingest `read_and_remember` también fusiona el índice.
+  - No escribe `userMemory.people`; sin ampliar biografía ni iniciativa.
+
+## 0.12.0-beta rev.je
+
+- **D0 memoria de lectura (consulta personajes):**
+  - `document-query-intent`: detecta preguntas de elenco/personajes/progreso sin exigir la palabra «libro».
+  - DecisionPacket: `hasDocReadingState` + story query → `task=docs` e `inject.docs`.
+  - Orquestación: inyecta `buildRollingReadingBlock` + `essentialsFromDocState` ante esas consultas.
+  - `userMemory` injecta hechos `DOC_*` con el mismo criterio.
+  - `mapSliceToFacts`: deja de promover «Pues/Pero/Cuando…» como nombres.
+  - Sin ampliar recolección biográfica ni iniciativa.
+
 ## 0.12.0-beta rev.jd
 
 - **Lectura → iniciativa:** `formatDocReadingProgressHint` inyecta en el memoryBlock de iniciativa tramos ya leídos (store `docReading`), sin volcar el libro.

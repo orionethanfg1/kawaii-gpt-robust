@@ -9,6 +9,7 @@
  */
 
 import { classifyChatTask, type ChatTask } from '../routing/task-route'
+import { wantsDocumentOrStoryQuery } from '../chat/document-query-intent'
 
 export type DecisionTask =
   | 'chat'
@@ -61,6 +62,8 @@ export type DecisionPacketInput = {
   /** True when this turn is app-driven doc continue / bare "sigue" with open reading */
   forceDocContinue?: boolean
   hasOpenDocReading?: boolean
+  /** Any stored reading state for this conv (including complete) */
+  hasDocReadingState?: boolean
   hasImageAttachment?: boolean
   hasFileAttachment?: boolean
   adultOptIn?: boolean
@@ -86,8 +89,7 @@ const AGENDA_RE =
 const WEB_RE =
   /\b(busca(r)? en (la )?web|internet|noticias?|qu[eé] hora es en|clima (en|de)|precio (actual|de)|cotizaci[oó]n)\b/i
 
-const DOC_RE =
-  /\b(lee|lectura|libro|cap[ií]tulo|documento|pdf|docx|tramo|contin[uú]a(r)? (leyendo|la lectura)|sigue leyendo)\b/i
+/* DOC intent: see wantsDocumentOrStoryQuery (D0) */
 
 function mapChatTask(t: ChatTask): DecisionTask {
   switch (t) {
@@ -130,7 +132,10 @@ export function buildDecisionPacket(input: DecisionPacketInput): DecisionPacket 
   const wantsFiles = Boolean(input.wantsFiles) || FILE_INTENT_RE.test(text)
   const wantsAgenda = Boolean(input.wantsAgenda) || AGENDA_RE.test(text)
   const wantsWeb = Boolean(input.wantsWeb) || WEB_RE.test(text)
-  const wantsDoc = forceDoc || Boolean(input.hasOpenDocReading && DOC_RE.test(text)) || DOC_RE.test(text)
+  const wantsDoc =
+    forceDoc ||
+    wantsDocumentOrStoryQuery(text) ||
+    Boolean(input.hasOpenDocReading && wantsDocumentOrStoryQuery(text))
 
   const chatTask = classifyChatTask(text, {
     hasImageAttachment: input.hasImageAttachment,
@@ -143,9 +148,19 @@ export function buildDecisionPacket(input: DecisionPacketInput): DecisionPacket 
   let task: DecisionTask = mapChatTask(chatTask)
   let confidence: DecisionConfidence = 'high'
 
-  if (forceDoc || (input.hasOpenDocReading && (wantsDoc || /sigue/i.test(text)))) {
+  if (
+    forceDoc ||
+    (input.hasOpenDocReading && (wantsDoc || /sigue/i.test(text))) ||
+    (Boolean(input.hasDocReadingState) && wantsDoc)
+  ) {
     task = 'docs'
-    reasons.push(forceDoc ? 'forceDocContinue' : 'openDocReading')
+    reasons.push(
+      forceDoc
+        ? 'forceDocContinue'
+        : input.hasOpenDocReading
+          ? 'openDocReading'
+          : 'docReadingState+storyQuery'
+    )
   } else if (wantsFiles && chatTask !== 'intimacy') {
     task = 'files'
     reasons.push('fileIntent')
@@ -195,7 +210,11 @@ export function buildDecisionPacket(input: DecisionPacketInput): DecisionPacket 
   // inject: default off — only open gates when this turn needs them (prefill budget)
   const inject: DecisionInject = {
     library: task === 'files' || wantsFiles,
-    docs: task === 'docs' || forceDoc || Boolean(input.hasOpenDocReading && wantsDoc),
+    docs:
+      task === 'docs' ||
+      forceDoc ||
+      Boolean(input.hasOpenDocReading && wantsDoc) ||
+      Boolean(input.hasDocReadingState && wantsDoc),
     fullHarness: needsTools && task !== 'chat' && task !== 'intimacy',
     intimacyBlock:
       task === 'intimacy' ||

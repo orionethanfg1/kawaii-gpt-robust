@@ -21,6 +21,7 @@ import {
   isDocReadingComplete,
   type DocReadingState
 } from './document-reading-state'
+import { mergeDocEntityIndex } from './document-entity-index'
 
 export type DocChapterMemory = {
   index: number
@@ -122,6 +123,10 @@ export function ingestDocumentOffline(
     const titles =
       slice.titles?.length ? slice.titles : slice.chapterTitle ? [slice.chapterTitle] : []
     const facts = mapSliceToFacts(slice.body, titles)
+    state.entityIndex = mergeDocEntityIndex(state.entityIndex, {
+      sliceBody: slice.body || '',
+      chapterTitles: titles
+    })
     const anchors = extractAnchors(slice.body, 3)
 
     for (let i = slice.chapterIndex; i <= slice.lastChapterIndex; i++) {
@@ -338,6 +343,10 @@ export function seekAndRereadPassage(opts: {
   const ch = chapters[idx]
   const body = (ch.text || '').slice(0, maxChars)
   const facts = mapSliceToFacts(body, [ch.title])
+  state.entityIndex = mergeDocEntityIndex(state.entityIndex, {
+    sliceBody: body || '',
+    chapterTitles: [ch.title]
+  })
   const anchors = extractAnchors(body, 3)
   const existing = state.chapterMemories!.find((m) => m.index === idx)
   if (existing) {

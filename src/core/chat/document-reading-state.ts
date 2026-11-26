@@ -8,6 +8,12 @@
  */
 
 import { splitIntoChapters, type DocChapter } from './document-chunks'
+import { isPlausibleDocProperName } from './document-query-intent'
+import {
+  mergeDocEntityIndex,
+  buildDocEntityPromptBlock,
+  type DocEntityIndex
+} from './document-entity-index'
 
 export type DocReadingState = {
   /** Stable key: conversation + file identity */
@@ -27,6 +33,8 @@ export type DocReadingState = {
   chapterVisitCounts?: Record<string, number>
   /** Compact rolling summary of prior slices (refine / map-reduce reduce side) */
   rollingSummary: string
+  /** D1: durable character/place roster for this document (survives summary trim) */
+  entityIndex?: DocEntityIndex
   /**
    * Absolute char offset into full document text already presented (within long chapters).
    * Prevents re-sending the same start of Capítulo 10 forever.
@@ -182,8 +190,8 @@ export function mapSliceToFacts(sliceBody: string, chapterTitles: string[]): str
   const names = cleaned.match(
     /\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){0,2}\b/g
   ) || []
-  const uniqNames = [...new Set(names.map((n) => n.trim()))].filter(
-    (n) => n.length > 2 && !/^(El|La|Los|Las|Un|Una|The|A|An|Y|O|De|Del|En|Por|Con|Chapter|Capítulo)$/i.test(n)
+  const uniqNames = [...new Set(names.map((n) => n.trim()))].filter((n) =>
+    isPlausibleDocProperName(n)
   )
   if (uniqNames.length) facts.push('nombres: ' + uniqNames.slice(0, 8).join(', '))
 
@@ -274,6 +282,10 @@ export function markSliceRead(
     readTitles: titles.slice(-40),
     chapterVisitCounts: visits,
     rollingSummary: appendRollingFromSlice(state.rollingSummary, opts.titles, opts.sliceBody),
+    entityIndex: mergeDocEntityIndex(state.entityIndex, {
+      sliceBody: opts.sliceBody || '',
+      chapterTitles: opts.titles || []
+    }),
     streamOffset: nextOff,
     updatedAt: Date.now()
   }
@@ -313,6 +325,8 @@ export function buildRollingReadingBlock(state: DocReadingState | null | undefin
         state.rollingSummary.trim()
     )
   }
+  const entityBlock = buildDocEntityPromptBlock(state.entityIndex)
+  if (entityBlock) parts.push(entityBlock)
   parts.push(
     'Si el usuario dice «sigue», «continúa» o «capítulo N», avanza solo al tramo pedido. ' +
       'Si pide opinión/reseña de lo leído: apoya en este resumen + el extracto nuevo; sé específica (personajes, giros, tono), no genérica. ' +
@@ -413,6 +427,11 @@ export function essentialsFromDocState(state: DocReadingState, maxChars = 900): 
   }
   const sum = (state.rollingSummary || '').replace(/\s+/g, ' ').trim()
   if (sum) bits.push('Esencial: ' + sum.slice(0, maxChars))
+  const roster = (state.entityIndex?.characters || [])
+    .slice(0, 12)
+    .map((c) => c.name)
+    .filter(Boolean)
+  if (roster.length) bits.push('Personajes: ' + roster.join(', '))
   return bits.join(' | ').slice(0, maxChars + 120)
 }
 

@@ -1,4 +1,5 @@
 import { extractFavorites, favoritesToStrings, mergeFavoriteStrings } from './favorites'
+import { wantsDocumentOrStoryQuery } from '../chat/document-query-intent'
 /**
  * Long-term user memory for companion + harness continuity.
  *
@@ -367,8 +368,7 @@ export function buildSelectiveUserMemoryPrompt(
             .join("; ")
       )
     }
-    const wantsDoc =
-      /\b(libro|documento|cap[ií]tulo|lectura|pdf|docx|adjunto|rese[nñ]a)\b/i.test(q)
+    const wantsDoc = wantsDocumentOrStoryQuery(q)
     const facts = flattenFacts(mem).filter((f) => {
       if (pinned.some((pin) => pin.toLowerCase() === f.toLowerCase())) return false
       // DOC_READ / DOC_INDEX only when the user is talking about the book

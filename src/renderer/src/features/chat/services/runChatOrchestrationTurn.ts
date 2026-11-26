@@ -215,6 +215,7 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
     try {
       const { buildDecisionPacket, formatDecisionLog } = await import('@core/agent/decision-packet')
       let hasOpenDocReading = false
+      let hasDocReadingState = false
       let forceDocContinue = false
       try {
         const { getDocReadingStatesForConv } = await import('./documentReadingStore')
@@ -224,8 +225,10 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
         hasOpenDocReading = states.some(
           (s) => !isDocReadingComplete(s) && !(s as { uiSuspended?: boolean }).uiSuspended
         )
+        hasDocReadingState = states.length > 0
       } catch {
         hasOpenDocReading = docHeavy
+        hasDocReadingState = false
       }
       const _act = getActive()
       const lastUserMeta = (_act?.messages || [])
@@ -251,6 +254,7 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
         userText: trimmed,
         forceDocContinue,
         hasOpenDocReading,
+        hasDocReadingState,
         hasImageAttachment,
         hasFileAttachment,
         adultOptIn: Boolean((settings as { adultContentOptIn?: boolean }).adultContentOptIn),
@@ -694,27 +698,31 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
           '[INSTRUCCIONES_FIJAS_DEL_USUARIO] Cumple estas reglas en cada respuesta (no las listes a menos que pregunten):\n- ' +
           stands.slice(0, 8).join('\n- ')
       }
-      const askProgress =
-        /\b(cap[ií]tulo|capítulos|cu[aá]ntos? cap|en qu[eé] cap|d[oó]nde (te )?quedaste|hasta d[oó]nde|progreso (de )?lectura|has le[ií]do)\b/i.test(
-          trimmed
-        )
-      if (askProgress) {
+      const { wantsDocumentOrStoryQuery } = await import('@core/chat/document-query-intent')
+      const { buildRollingReadingBlock, essentialsFromDocState } = await import(
+        '@core/chat/document-reading-state'
+      )
+      const askDocGrounding = wantsDocumentOrStoryQuery(trimmed)
+      if (askDocGrounding) {
         const states = getDocReadingStatesForConv(convId)
         if (states.length) {
-          const lines = states.map(
-            (st) =>
-              `«${st.fileName}»: tramo/índice ${st.chapterIndex + 1} de ${st.chapterCount}` +
-              (st.readTitles?.length
-                ? `; ya revisados: ${st.readTitles.slice(-6).join(' · ')}`
-                : '') +
-              (st.rollingSummary
-                ? `. Resumen compacto: ${st.rollingSummary.slice(0, 280)}`
+          const blocks = states.map((st) => {
+            const roll = buildRollingReadingBlock(st).trim()
+            const ess = essentialsFromDocState(st, 1200).trim()
+            return (
+              (roll ? roll + '\n' : '') +
+              (ess ? ess : '') +
+              (!roll && !ess
+                ? `«${st.fileName}»: tramo ${st.chapterIndex + 1}/${st.chapterCount}` +
+                  (st.rollingSummary ? ` · ${st.rollingSummary.slice(0, 400)}` : '')
                 : '')
-          )
+            ).trim()
+          })
           extraSystem =
             (extraSystem ? extraSystem + '\n\n' : '') +
-            '[PROGRESO_LECTURA_GUARDADO] Usa estos datos exactos al responder (no inventes otros capítulos):\n' +
-            lines.join('\n')
+            '[PROGRESO_LECTURA_GUARDADO] Usa estos datos exactos al responder ' +
+            '(personajes, nombres y tramos leídos; no inventes capítulos ni elenco):\n' +
+            blocks.filter(Boolean).join('\n\n')
         }
       }
     } catch {

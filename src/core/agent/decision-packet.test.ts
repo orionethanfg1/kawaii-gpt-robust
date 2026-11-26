@@ -45,3 +45,16 @@ describe('buildDecisionPacket', () => {
     expect(formatDecisionLog(p)).toMatch(/^\[decision\]/)
   })
 })
+
+describe('D0 story entity without open progressive reading', () => {
+  it('injects docs when hasDocReadingState and character query', async () => {
+    const { buildDecisionPacket } = await import('./decision-packet')
+    const p = buildDecisionPacket({
+      userText: 'nombra los personajes',
+      hasOpenDocReading: false,
+      hasDocReadingState: true
+    })
+    expect(p.inject.docs).toBe(true)
+    expect(p.task).toBe('docs')
+  })
+})
