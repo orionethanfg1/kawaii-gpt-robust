@@ -29,6 +29,7 @@ import {
 import { evaluateAgeGate } from '@core/user/age-gate'
 import { Button } from '@shared/ui/Button'
 import { AgendaMemoryPanel } from './AgendaMemoryPanel'
+import { DocEntityRosterPanel } from './DocEntityRosterPanel'
 import {
   flattenFacts,
   type UserMemory,
@@ -257,7 +258,7 @@ export function UserMemoryPanel() {
     analysis: SnapshotAnalysis
   } | null>(null)
 
-  const [tab, setTab] = useState<'user' | 'assistant' | 'intimate' | 'agenda'>('user')
+  const [tab, setTab] = useState<'user' | 'assistant' | 'intimate' | 'agenda' | 'docs'>('user')
   const showIntimateTab = Boolean(
     settings.adultIntimacyOptIn ||
       settings.relationshipState?.intimacyOpen ||
@@ -351,8 +352,22 @@ export function UserMemoryPanel() {
         }
       }
 
+      let docEntityIndexes: Record<string, unknown> = { status: 'unavailable' }
+      try {
+        const { exportDocEntityIndexesForSnapshot } = await import(
+          '@features/chat/services/documentReadingStore'
+        )
+        docEntityIndexes = exportDocEntityIndexesForSnapshot()
+      } catch (error) {
+        docEntityIndexes = {
+          status: 'unavailable',
+          error: error instanceof Error ? error.message : String(error)
+        }
+      }
+
       const version = await window.kawaii?.getVersion?.()
       const snapshot = await createMemorySnapshot({
+
         appVersion: String(version || 'unknown'),
         sources: {
           settingsStore: {
@@ -369,7 +384,8 @@ export function UserMemoryPanel() {
           assistantMirror: readLocalValue('kawaii-assistant-memory-v1'),
           userMemoryBackups: readLocalValue('kawaii-user-memory-backup-v1'),
           episodeMigrationBackup: readLocalValue('kawaii-episode-migration-backup-v1'),
-          archives: archiveSnapshot
+          archives: archiveSnapshot,
+          docEntityIndexes
         }
       })
       const blob = new Blob([JSON.stringify(snapshot, null, 2)], {
@@ -978,7 +994,24 @@ export function UserMemoryPanel() {
         >
           Agenda
         </button>
+        <button
+          type="button"
+          className={`text-[11px] px-3 py-1 rounded-t ${tab === 'docs' ? 'bg-white border border-b-0 border-kawaii-border font-semibold' : 'text-kawaii-text-muted'}`}
+          onClick={() => setTab('docs')}
+        >
+          Documentos
+        </button>
       </div>
+      {tab === 'docs' ? (
+        <div className="py-2">
+          <DocEntityRosterPanel />
+        </div>
+      ) : null}
+      {tab === 'agenda' ? (
+        <div className="py-2">
+          <AgendaMemoryPanel />
+        </div>
+      ) : null}
       {tab === 'intimate' && showIntimateTab ? (
         <div className="space-y-3">
           <p className="text-[11px] text-kawaii-text-muted">

@@ -1,3 +1,20 @@
+## 0.12.0-beta rev.jj
+
+- **D3 consistencia visible/oculta del elenco documental:**
+  - Pestaña **Documentos** en memoria: lista personajes/lugares indexados (solo lectura) + «Olvidar elenco» (conserva progreso de capítulos).
+  - Snapshot M0 exporta `docEntityIndexes` (auditoría; sin texto del libro).
+  - Import sigue sin auto-escribir el índice (solo settings con confirm); mirrors/archives/docEntityIndexes omitidos en apply.
+  - Helpers en `documentReadingStore`: `listDocEntityRosters`, `clearDocEntityIndex`, `exportDocEntityIndexesForSnapshot`.
+
+## 0.12.0-beta rev.ji
+
+- **D2 recuperación de elenco en el turno:**
+  - `rebuildDocEntityIndexFromFullText` / `resolveDocEntityGrounding` (puro).
+  - Prioridad en prompt: elenco → resumen rodante → essentials.
+  - Si el índice está vacío y hay texto del adjunto/historial, reindexa y persiste en `DocReadingState`.
+  - Si pregunta por personajes y no hay roster ni texto: bloque honesto (no inventar).
+  - Sin ampliar biografía ni iniciativa.
+
 ## 0.12.0-beta rev.jh
 
 - **Build fix:** string literal roto en `runChatOrchestrationTurn` (D0 inyección PROGRESO_LECTURA_GUARDADO) — comilla sin cerrar por salto de línea.

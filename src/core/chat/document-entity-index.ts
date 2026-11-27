@@ -4,7 +4,8 @@
  * and persisted via documentReadingStore.
  */
 
-import { isPlausibleDocProperName } from './document-query-intent'
+import { isPlausibleDocProperName, wantsDocumentStoryEntityQuery } from './document-query-intent'
+import { splitIntoChapters } from './document-chunks'
 
 export type DocEntityCharacter = {
   name: string
@@ -274,4 +275,92 @@ export function mergeIndexFromMappedFactsLine(
   // Synthetic body so extract/merge path stays single
   const fake = names.map((n) => `${n} apareció en la escena.`).join(' ')
   return mergeDocEntityIndex(prev, { sliceBody: fake, chapterTitles })
+}
+
+
+/**
+ * D2 — Rebuild roster by walking chapter slices of the full document text.
+ * Pure, no I/O. Caps work for large books.
+ */
+export function rebuildDocEntityIndexFromFullText(
+  fullText: string,
+  opts?: { maxChapters?: number; maxCharsPerChapter?: number }
+): DocEntityIndex {
+  const maxCh = Math.max(1, opts?.maxChapters ?? 48)
+  const maxChars = Math.max(2000, opts?.maxCharsPerChapter ?? 14_000)
+  const text = String(fullText || '')
+  if (text.trim().length < 20) return emptyDocEntityIndex()
+
+  let idx = emptyDocEntityIndex()
+  const chapters = splitIntoChapters(text)
+  const list =
+    chapters.length > 0
+      ? chapters.slice(0, maxCh)
+      : [{ title: 'Documento', text: text.slice(0, maxCh * maxChars) }]
+
+  for (const ch of list) {
+    const body = String(ch.text || '').slice(0, maxChars)
+    if (body.trim().length < 20) continue
+    idx = mergeDocEntityIndex(idx, {
+      sliceBody: body,
+      chapterTitles: [String(ch.title || '').slice(0, 80)]
+    })
+  }
+  return idx
+}
+
+export type DocEntityGroundingResult = {
+  index: DocEntityIndex
+  /** Ordered prompt: elenco first when present */
+  promptBlock: string
+  rebuilt: boolean
+  emptyHonest: boolean
+}
+
+/**
+ * D2 — Resolve grounding for a turn: prefer existing index; if empty and full
+ * text is available, rebuild; if still empty on a character query, honest block.
+ */
+export function resolveDocEntityGrounding(input: {
+  userText: string
+  index?: DocEntityIndex | null
+  fullText?: string | null
+  fileName?: string
+  maxPromptChars?: number
+}): DocEntityGroundingResult {
+  const maxPrompt = input.maxPromptChars ?? 1200
+  let index =
+    input.index && Array.isArray(input.index.characters) ? input.index : emptyDocEntityIndex()
+  let rebuilt = false
+
+  const hasRoster = (index.characters?.length || 0) > 0
+  const full = String(input.fullText || '')
+  if (!hasRoster && full.trim().length > 40) {
+    index = rebuildDocEntityIndexFromFullText(full)
+    rebuilt = (index.characters?.length || 0) > 0
+  }
+
+  const storyAsk = wantsDocumentStoryEntityQuery(input.userText || '')
+  let promptBlock = buildDocEntityPromptBlock(index, storyAsk ? maxPrompt : Math.min(900, maxPrompt))
+
+  // Prefer elenco-only emphasis for character questions
+  if (storyAsk && promptBlock) {
+    promptBlock =
+      '[PRIORIDAD_ELENCO] Responde con los nombres del bloque siguiente; no inventes personajes.\n' +
+      promptBlock
+  }
+
+  const emptyHonest =
+    storyAsk && !(index.characters?.length > 0) && !promptBlock.includes('ELENCO_DOCUMENTO')
+
+  if (storyAsk && !(index.characters?.length > 0)) {
+    const fname = String(input.fileName || 'documento').slice(0, 64)
+    promptBlock =
+      `[ELENCO_DOCUMENTO] No hay un roster de personajes indexado para «${fname}». ` +
+      'No inventes nombres. Di con claridad que aún no tienes el elenco guardado ' +
+      '(hace falta haber leído/indexado tramos o re-adjuntar el archivo) y ofrece continuar la lectura o reindexar.'
+    return { index, promptBlock, rebuilt, emptyHonest: true }
+  }
+
+  return { index, promptBlock, rebuilt, emptyHonest: false }
 }

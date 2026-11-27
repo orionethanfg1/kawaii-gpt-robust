@@ -8,6 +8,7 @@ import {
   isDocReadingComplete,
   type DocReadingState
 } from '@core/chat/document-reading-state'
+import type { DocEntityIndex } from '@core/chat/document-entity-index'
 
 const LS_KEY = 'kawaii.docReading.v1'
 const MAX_ENTRIES = 40
@@ -259,3 +260,84 @@ export function scheduleDocAutoContinue(fn: () => void, delayMs: number): void {
     }
   }, delayMs)
 }
+
+
+/** D3 — Visible roster summary (read-only view model). */
+export type DocEntityRosterSummary = {
+  key: string
+  convId: string
+  fileName: string
+  characterNames: string[]
+  placeNames: string[]
+  characterCount: number
+  updatedAt: number
+  readingComplete: boolean
+}
+
+export function listDocEntityRosters(): DocEntityRosterSummary[] {
+  const all = loadAll()
+  const out: DocEntityRosterSummary[] = []
+  for (const s of Object.values(all)) {
+    if (!s?.key) continue
+    const idx = s.entityIndex
+    const chars = idx?.characters || []
+    if (!chars.length && !(idx?.places?.length)) continue
+    out.push({
+      key: s.key,
+      convId: s.convId || '',
+      fileName: s.fileName || 'documento',
+      characterNames: chars.slice(0, 24).map((c) => c.name).filter(Boolean),
+      placeNames: (idx?.places || []).slice(0, 12).map((p) => p.name).filter(Boolean),
+      characterCount: chars.length,
+      updatedAt: idx?.updatedAt || s.updatedAt || 0,
+      readingComplete: isDocReadingComplete(s)
+    })
+  }
+  return out.sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+/** Clear only the entity roster for a reading key; keeps chapter progress. */
+export function clearDocEntityIndex(key: string): boolean {
+  if (!key) return false
+  const all = loadAll()
+  const cur = all[key]
+  if (!cur) return false
+  all[key] = {
+    ...cur,
+    entityIndex: { characters: [], places: [], updatedAt: Date.now() },
+    updatedAt: Date.now()
+  }
+  saveAll(all)
+  notifyDocReadingChanged(cur.convId)
+  return true
+}
+
+/**
+ * Snapshot payload for M0 export (audit). Does not include full book text.
+ */
+export function exportDocEntityIndexesForSnapshot(): Record<string, unknown> {
+  const all = loadAll()
+  const entries: Record<string, unknown> = {}
+  for (const [key, s] of Object.entries(all)) {
+    if (!s?.entityIndex) continue
+    const idx = s.entityIndex as DocEntityIndex
+    if (!(idx.characters?.length || idx.places?.length)) continue
+    entries[key] = {
+      convId: s.convId,
+      fileName: s.fileName,
+      updatedAt: idx.updatedAt || s.updatedAt,
+      characters: (idx.characters || []).map((c) => ({
+        name: c.name,
+        mentions: c.mentions,
+        chapterHints: (c.chapterHints || []).slice(-4)
+      })),
+      places: (idx.places || []).map((p) => ({ name: p.name, mentions: p.mentions }))
+    }
+  }
+  return {
+    status: Object.keys(entries).length ? 'loaded' : 'empty',
+    count: Object.keys(entries).length,
+    entries
+  }
+}
+

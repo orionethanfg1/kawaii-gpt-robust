@@ -18,6 +18,7 @@ import {
 } from '@core/chat/stream-degeneration'
 import {
   getDocReadingStatesForConv,
+  upsertDocReadingStates,
   cancelPendingDocAutoContinue,
   scheduleDocAutoContinue
 } from './documentReadingStore'
@@ -699,30 +700,114 @@ export async function runChatOrchestrationTurn(ctx: ChatOrchestrationTurnCtx): P
           stands.slice(0, 8).join('\n- ')
       }
       const { wantsDocumentOrStoryQuery } = await import('@core/chat/document-query-intent')
-      const { buildRollingReadingBlock, essentialsFromDocState } = await import(
-        '@core/chat/document-reading-state'
-      )
+      const {
+        buildRollingReadingBlock,
+        essentialsFromDocState,
+        findLatestDocText
+      } = await import('@core/chat/document-reading-state')
+      const { resolveDocEntityGrounding } = await import('@core/chat/document-entity-index')
       const askDocGrounding = wantsDocumentOrStoryQuery(trimmed)
       if (askDocGrounding) {
         const states = getDocReadingStatesForConv(convId)
+        const convMsgs = (getActive()?.messages || []) as Array<{
+          attachments?: Array<{ name?: string; textContent?: string; mimeType?: string }> | null
+        }>
+        const latestDoc = findLatestDocText(
+          Array.isArray(convMsgs) ? convMsgs : []
+        )
+        // Also try current-turn attachments
+        let fullText = latestDoc?.text || ''
+        let fullName = latestDoc?.name || ''
+        try {
+          const attText = (attachments || [])
+            .map((a) => String(a.textContent || '').trim())
+            .filter((t) => t.length > 40)
+            .sort((a, b) => b.length - a.length)[0]
+          if (attText && attText.length > fullText.length) {
+            fullText = attText
+            fullName = String(
+              (attachments || []).find((a) => String(a.textContent || '').trim() === attText)?.name ||
+                fullName ||
+                'documento'
+            )
+          }
+        } catch {
+          /* */
+        }
+
         if (states.length) {
-          const blocks = states.map((st) => {
-            const roll = buildRollingReadingBlock(st).trim()
-            const ess = essentialsFromDocState(st, 1200).trim()
-            return (
-              (roll ? roll + '\n' : '') +
-              (ess ? ess : '') +
-              (!roll && !ess
-                ? `«${st.fileName}»: tramo ${st.chapterIndex + 1}/${st.chapterCount}` +
-                  (st.rollingSummary ? ` · ${st.rollingSummary.slice(0, 400)}` : '')
-                : '')
-            ).trim()
-          })
+          const updated: typeof states = []
+          const blocks: string[] = []
+          for (const st of states) {
+            const matchText =
+              fullText &&
+              (!fullName ||
+                !st.fileName ||
+                String(fullName).toLowerCase().includes(String(st.fileName).toLowerCase().slice(0, 24)) ||
+                String(st.fileName).toLowerCase().includes(String(fullName).toLowerCase().slice(0, 24)))
+                ? fullText
+                : fullText
+            const grounded = resolveDocEntityGrounding({
+              userText: trimmed,
+              index: st.entityIndex,
+              fullText: matchText || null,
+              fileName: st.fileName
+            })
+            let nextSt = st
+            if (grounded.rebuilt && grounded.index.characters.length) {
+              nextSt = {
+                ...st,
+                entityIndex: grounded.index,
+                updatedAt: Date.now()
+              }
+              updated.push(nextSt)
+            }
+            const entityFirst = grounded.promptBlock.trim()
+            const roll = buildRollingReadingBlock(nextSt).trim()
+            const ess = essentialsFromDocState(nextSt, 900).trim()
+            // Priority: elenco > rolling > essentials (D2)
+            const ordered = [entityFirst, roll, ess].filter(Boolean)
+            // Avoid duplicating ELENCO if roll already embeds it
+            const deduped: string[] = []
+            let sawElenco = false
+            for (const part of ordered) {
+              if (/ELENCO_DOCUMENTO/.test(part)) {
+                if (sawElenco) continue
+                sawElenco = true
+              }
+              deduped.push(part)
+            }
+            blocks.push(
+              deduped.join('\n') ||
+                `«${st.fileName}»: tramo ${st.chapterIndex + 1}/${st.chapterCount}`
+            )
+          }
+          if (updated.length) {
+            try {
+              upsertDocReadingStates(updated)
+            } catch {
+              /* persist best-effort */
+            }
+          }
           extraSystem =
             (extraSystem ? extraSystem + '\n\n' : '') +
             '[PROGRESO_LECTURA_GUARDADO] Usa estos datos exactos al responder ' +
-            '(personajes, nombres y tramos leídos; no inventes capítulos ni elenco):\n' +
+            '(prioridad: elenco de personajes; luego resumen de tramos; no inventes):\n' +
             blocks.filter(Boolean).join('\n\n')
+        } else if (fullText.trim().length > 40) {
+          // No reading state yet, but document text is available — build ephemeral roster
+          const grounded = resolveDocEntityGrounding({
+            userText: trimmed,
+            index: null,
+            fullText,
+            fileName: fullName || 'documento'
+          })
+          if (grounded.promptBlock) {
+            extraSystem =
+              (extraSystem ? extraSystem + '\n\n' : '') +
+              '[PROGRESO_LECTURA_GUARDADO]\n' +
+              grounded.promptBlock
+          }
         }
       }
     } catch {

@@ -57,3 +57,51 @@ describe('D1 document entity index', () => {
     expect(prompt).toMatch(/Iris/)
   })
 })
+
+describe('D2 resolveDocEntityGrounding', () => {
+  it('rebuilds roster from full text when index empty', async () => {
+    const { resolveDocEntityGrounding, emptyDocEntityIndex } = await import('./document-entity-index')
+    const full =
+      'Capítulo 1\n\nIris caminó hacia Nahum. «Hola», dijo Nahum.\n\n' +
+      'Capítulo 2\n\nSera apareció en la puerta y miró a Iris.'
+    const r = resolveDocEntityGrounding({
+      userText: 'nombra los personajes',
+      index: emptyDocEntityIndex(),
+      fullText: full,
+      fileName: 'novela.md'
+    })
+    expect(r.rebuilt).toBe(true)
+    expect(r.index.characters.map((c) => c.name)).toEqual(
+      expect.arrayContaining(['Iris', 'Nahum'])
+    )
+    expect(r.promptBlock).toMatch(/ELENCO_DOCUMENTO|PRIORIDAD_ELENCO/)
+    expect(r.emptyHonest).toBe(false)
+  })
+
+  it('honest empty when no index and no text on character ask', async () => {
+    const { resolveDocEntityGrounding } = await import('./document-entity-index')
+    const r = resolveDocEntityGrounding({
+      userText: 'nombra los personajes',
+      index: null,
+      fullText: '',
+      fileName: 'x.md'
+    })
+    expect(r.emptyHonest).toBe(true)
+    expect(r.promptBlock).toMatch(/No hay un roster|no inventes/i)
+  })
+
+  it('prefers existing index without rebuild', async () => {
+    const { resolveDocEntityGrounding, mergeDocEntityIndex } = await import('./document-entity-index')
+    const idx = mergeDocEntityIndex(null, {
+      sliceBody: 'Kael levantó la espada ante Mira.',
+      chapterTitles: ['X']
+    })
+    const r = resolveDocEntityGrounding({
+      userText: 'quiénes son los protagonistas',
+      index: idx,
+      fullText: 'texto enorme que no debería hacer falta Iris Nahum Sera'
+    })
+    expect(r.rebuilt).toBe(false)
+    expect(r.promptBlock).toMatch(/Kael|Mira/)
+  })
+})
